@@ -1,69 +1,80 @@
-import Image from "next/image";
+"use client";
+
+import { useRef } from "react";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "gsap";
+import { DrawSVGPlugin } from "gsap/DrawSVGPlugin";
+
+gsap.registerPlugin(DrawSVGPlugin, useGSAP);
+
+const LOGO_COLOR = "#D5AF86";
 
 export default function Home() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const logoRef = useRef<SVGSVGElement>(null);
+
+  useGSAP(
+    () => {
+      const paths = gsap.utils.toArray<SVGPathElement>(".logo-path");
+
+      // All three paths are closed contours and begin fully hidden.
+      gsap.set(paths, { drawSVG: "0 0" });
+
+      gsap
+        .timeline()
+        .to(paths, {
+          drawSVG: "0 100%",
+          duration: 1.8,
+          ease: "power1.inOut",
+        })
+        .to({}, { duration: 0.6 })
+        .to(logoRef.current, {
+          autoAlpha: 0,
+          duration: 0.6,
+          ease: "power1.out",
+        });
+    },
+    { scope: rootRef },
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main ref={rootRef} className="logo-stage" aria-label="Blue Pulse logo animation">
+      <svg
+        ref={logoRef}
+        className="logo-canvas"
+        viewBox="0 0 3621 4252"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+      >
+        {/* Closed contour 1: M129.156 797, two cubic curves, Z. */}
+        <path
+          className="logo-path"
+          d="M129.156 797C686.083 1753.5 760.504 2257.73 483.474 3096C158.262 2219.5 78.0898 1716.42 129.156 797Z"
+          fill="none"
+          stroke={LOGO_COLOR}
+          vectorEffect="non-scaling-stroke"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        {/* Closed contour 2: M936 2315, one line, four cubic curves, Z. */}
+        <path
+          className="logo-path"
+          d="M936 2315L1375.5 2155C1532.5 3023.5 1780.09 3365.09 2302.5 3809.5C2134.68 3942.3 2026.14 4032.32 1809.5 4140C1289.72 3910.25 1030.05 3733.97 633.5 3320C854.956 2965.66 928.973 2748.49 936 2315Z"
+          fill="none"
+          stroke={LOGO_COLOR}
+          vectorEffect="non-scaling-stroke"
+        />
+
+        {/* Closed contour 3: M1764 67, six lines, twenty cubic curves, one V, Z. */}
+        <path
+          className="logo-path"
+          d="M1764 67L345 633.5C730.697 1156.26 866.075 1474.73 947.5 2093L1382 1927C1420.89 1644.4 1471.56 1457 1616.5 1068L1843 1155.35C1424 2346.5 1738.5 2820.5 2545.5 3668.85L2865.5 3425.5C2734.06 3348.97 2669.28 3302.87 2568 3215.5C2448.2 3088.11 2389.05 3019.55 2299.5 2903C2198.66 2753.03 2152.92 2666.72 2094.5 2508C2050.31 2340.64 2032.9 2244.79 2021.5 2068.5C2020.36 1897.58 2029.77 1803.49 2065.5 1639C2112.57 1455.68 2148.92 1363.97 2231 1219.5C2324.85 1074.56 2381.92 1006.09 2490 902C2596.39 806.152 2660.25 755.863 2782.5 673V1024C2692.96 1088.28 2648.6 1131.76 2577.5 1219.5C2491.23 1325.17 2453.84 1390.27 2407 1517C2340.67 1695.09 2318.03 1784.2 2299.5 1927C2277.02 2125.46 2290.56 2235.55 2368 2429.5C2446.36 2617.41 2509.61 2721.16 2660.5 2903C2784.78 3039.39 2869.34 3101.2 3046.5 3186C3183.76 2859.52 3244.14 2686.73 3324.5 2395.5C3399.26 2037.94 3420.41 1847.13 3446.5 1517C3491.84 1014.15 3483.33 828.828 3388 726.5L3178 633.5L1764 67Z"
+          fill="none"
+          stroke={LOGO_COLOR}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </main>
   );
 }

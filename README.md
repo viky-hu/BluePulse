@@ -1,36 +1,66 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
+# Getting Started
 pnpm dev
-# or
-bun dev
-```
+http://localhost:3000
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+oying) for more details.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+# 前情提要
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1、本系统使用Next.js框架，使用TypeScript编写，使用TailwindCSS进行样式设计，使用GSAP进行动画效果。
+2、本系统惯用英文字体为Google Sans，下载方式在[text](GoogleSans字体下载.txt)
+3、本系统惯用中文字体为微软雅黑
+4、本系统中出现的许多标题大字都是独立的SVG字体而非单纯的文本框加字，默认不使用粗体字。前者的目的是便于实现类似C:\Users\Admin\csy\apps\main-platform\app\windows\login所实现的大字独立SVG可被色块所覆盖同步换色的巧妙设计，这里你可以深度阅读学习一下具体实践，将这种设计思想照搬过来写入README.md文档中。我们今后一定会用到。
+5、本系统的文件夹整理将符合vercel给出的react最佳实践，谨防出现同一个tsx或css文件中堆积很多页面样式的方法，我认为这不符合最佳实践 也不利于定位查找某个组件的代码
+6、由于我不是专业前端工程师，所以我习惯在设计电脑版网页的时候，用小尺大致测量我希望的组件长宽尺寸，在这里 我告诉你我的笔记本打开网页全屏后长34cm 宽19cm，这一点你要记住
 
-## Learn More
+# 初始页面
 
-To learn more about Next.js, take a look at the following resources:
+本系统将极力使用GSAP驱动动画效果，学习和利用GSAP官方的优秀实践和官方Skills，力求做出最优秀的动画效果，谨防闭门造车，自造轮子，避免重复造轮子。
+前端工作者对本系统的优化意见发送给AI，AI必须深度思考已有实践并阅读相关文档、Skills和已有相关代码，积极联网搜索，必要地，需要询问前端工作者相关技术细节，确保优化方案的可行性和先进性。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 初始页面的 GSAP + SVG + 时间轴
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 初始页面最开始的黑色画布和线条动效
 
-## Deploy on Vercel
+初始状态下，由一幅#353330的纯色SVG背景覆盖屏幕，（屏幕内原来的颜色是#F2F2F2的偏白色，从打开网页的开始就一直被#353330的SVG大画布覆盖，不会出现渲染没跟上 露出#F2F2F2白色背景的情况）之后开始绘制一个线条logo，此logo的绘制运用了GSAP的drawSVG插件，遵循了GSAP官方的优秀实践和官方Skills。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+事后也在根目录制作了GSAP闭合SVG描边动画方法论，供后续学习利用。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 线条绘制结束后：
+
+本次优化点：
+1、logo的淡出应当加快，其余不变，只增快淡出速度
+
+2、参考split-text动效.txt，在logo淡出后，紧跟着，立刻播放split-text动效的英文词组：“Blue Pulse”，字体为Google Sans，可以再来一行小字注明“国内外警务科技情报系统”
+
+3、对于第2点，要求加快split-text动画速度 使得字体完全通过动画呈现出来的速度增快，一上来可以做大字号 如果太大了我们再后续调整，字色#D5AF86，与logo线条的颜色一样。浮于最上层，不被遮挡但可能会联动SVG背景移动。
+
+4、假设整个网页打开后全屏长34cm 宽19cm，我们设计一个矩形SVG画布，左右宽度大约在10cm，上下长度（高度）大约在15cm，这个矩形SVG画布的中心点位于全屏的中心点，这样可以保证整个画布在全屏中居中显示，这个矩形SVG色块的层级与颜色并非固定，非常复杂，请听我详细说明：
+
+（1）它可能大致处于全屏#353330大画布背景之上，但是比较复杂，我拿不准，但是一定在logo线条和大字的层级之下。
+
+（2）它自身拥有常驻的阴影，所以看上去就有浮于上方的效果
+
+（3）它的颜色一开始看上去就是#353330颜色 和大画布颜色一样，但是因为有阴影所以很显然能看出来。会根据此时覆盖的全屏大画布背景的状态所决定，后续全屏黑色画布将会向上滑动收起，在这个过程中下边界向上抬升，必然会通过这个矩形画布，对于背景，会露出原本的#F2F2F2背景，而对于这个矩形的颜色，此时我们会发现它露出的颜色是#FDFDFD的偏白色，最后的效果是黑色画布向上抬升直到退出屏幕，露出原本的#F2F2F2背景和#FDFDFD的偏白色带阴影矩形画布
+
+（4）这个矩形画布如果能够做成 我希望它是一个独立可复用的组件，足够成熟的话，以后我也用的上
+
+5、第4点中主要提及矩形画布，但还没完全说明从头到尾的动效时间轴的细节：
+
+黑色全屏画布，初始状态下什么都没有
+
+然后开始绘制线条logo，绘制完直到它淡出后同步立刻开始split-text两行一大一小的字
+
+在浮现这两行字的过程中，同步淡入出现这个矩形画布，也就是说这个矩形画布并非一开始就存在，而是也是淡入出来的，具体是淡入显现时尺寸略小一点 然后像收缩后变大一样尺寸微微扩张到我要求的尺寸。
+
+同步地 淡入浮现一个按钮位于下方居中，说明在D:\pulse\button动效1.txt，此按钮位置应该在此矩形下边界上方一些距离，可按下 按下/向下滚动鼠标滚轮后则触发以下动效————
+
+按钮按下/向下滚动鼠标滚轮后，按钮淡出消失，封面的大字也淡出消失
+
+同步地 全屏黑色画布下边界开始向上收起，视觉上带来黑色画布向上退出页面的效果，露出原本的#F2F2F2背景和#FDFDFD的偏白色带阴影矩形画布
+
+自此初始页面动画结束
+
+

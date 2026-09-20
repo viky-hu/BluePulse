@@ -8,8 +8,8 @@ Keep the existing Blue Pulse logo exactly centered while reducing its rendered s
 
 - Preserve the SVG `viewBox`, path geometry, color, stroke treatment, and GSAP drawing timeline.
 - Preserve the full-screen grid stage and its center alignment.
-- Set the rendered logo canvas width to a fixed `48px`; retain automatic height so the original aspect ratio is unchanged.
-- Use the same size on desktop and mobile so the logo remains a deliberately small, stable focal point.
+- Set the rendered logo canvas width to a fixed `240px`; retain automatic height so the original aspect ratio is unchanged.
+- Use the same size on desktop and mobile so the logo remains a small but clearly recognizable focal point.
 
 ## Scope
 
