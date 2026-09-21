@@ -34,7 +34,8 @@ export const INTRO_TIMING = {
   subtitleStagger: 0.015,
   panelInitialScale: 0.92,
   panelDelay: 0.2,
-  reveal: 0.45,
+  panelRevealDuration: 0.8,
+  panelRevealEase: "power2.out",
   contentFade: 0.2,
   curtainExit: 0.8,
 } as const;

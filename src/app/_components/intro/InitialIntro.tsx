@@ -198,6 +198,11 @@ export function InitialIntro() {
         }
 
         const panelRevealPosition = `reveal+=${INTRO_TIMING.panelDelay}`;
+        const panelGeometry = geometryRef.current;
+        const panelCenterX = panelGeometry.x + panelGeometry.width / 2;
+        const panelCenterY = panelGeometry.y + panelGeometry.height / 2;
+        gsap.set(panel, { svgOrigin: `${panelCenterX} ${panelCenterY}` });
+
         entryTimeline = gsap.timeline({ defaults: { overwrite: "auto" } });
         entryTimeline
           .call(() => updatePhase("logo"))
@@ -244,13 +249,12 @@ export function InitialIntro() {
             {
               autoAlpha: 0,
               scale: INTRO_TIMING.panelInitialScale,
-              transformOrigin: "50% 50%",
             },
             {
               autoAlpha: 1,
               scale: 1,
-              duration: INTRO_TIMING.reveal,
-              ease: "power2.out",
+              duration: INTRO_TIMING.panelRevealDuration,
+              ease: INTRO_TIMING.panelRevealEase,
             },
             panelRevealPosition,
           )
@@ -258,8 +262,8 @@ export function InitialIntro() {
             cueShell,
             {
               autoAlpha: 1,
-              duration: INTRO_TIMING.reveal,
-              ease: "power2.out",
+              duration: INTRO_TIMING.panelRevealDuration,
+              ease: INTRO_TIMING.panelRevealEase,
             },
             panelRevealPosition,
           )

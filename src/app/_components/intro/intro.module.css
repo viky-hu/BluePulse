@@ -24,11 +24,6 @@
   visibility: hidden;
 }
 
-.panelGroup {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
 .mainTitle {
   font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
   font-size: clamp(72px, 8.5vw, 164px);
