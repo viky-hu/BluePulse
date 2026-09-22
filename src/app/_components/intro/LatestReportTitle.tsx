@@ -20,6 +20,7 @@ export function LatestReportTitle({
     <g data-report-title-scene className={styles.reportScene}>
       <g clipPath={`url(#${upperClipId})`} data-report-title>
         <text
+          data-report-title-upper
           className={styles.reportTitle}
           x={geometry.title.centerX}
           y={geometry.title.centerY}
@@ -33,6 +34,7 @@ export function LatestReportTitle({
       </g>
       <g clipPath={`url(#${lowerClipId})`} data-report-title>
         <text
+          data-report-title-lower
           className={styles.reportTitle}
           x={geometry.title.centerX}
           y={geometry.title.centerY}

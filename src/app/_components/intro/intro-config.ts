@@ -46,10 +46,11 @@ export const INTRO_TIMING = {
   reportGreenExpand: 1.65,
   reportGreenHold: 0.23,
   reportLineDraw: 0.86,
-  reportTitleLead: 0.18,
-  reportLineHold: 0.45,
+  reportTitleReveal: 0.9,
+  reportTitleSplitOffset: 0.34,
+  reportSubtitleDelay: 0.06,
+  reportTitleHold: 0.15,
   reportLineErase: 0.6,
-  reportTitleReveal: 0.5,
   reportSubtitleFade: 0.42,
   reportClipSeamBleed: 1.5,
 } as const;
@@ -67,10 +68,16 @@ export function calculatePanelGeometry(
   const safeHeight = Math.max(viewportHeight, 1);
   const isMobile = safeWidth <= 768;
 
-  const width = isMobile
-    ? Math.min(Math.max(safeWidth - 32, 1), Math.max((safeHeight - 48) * (2 / 3), 1))
-    : Math.min(safeWidth * (10 / 34), safeHeight * (15 / 19) * (2 / 3));
-  const naturalHeight = width * 1.5;
+  const mobileWidth = Math.min(
+    Math.max(safeWidth - 32, 1),
+    Math.max((safeHeight - 48) * (2 / 3), 1),
+  );
+  const desktopNaturalWidth = Math.min(
+    safeWidth * (10 / 34),
+    safeHeight * (15 / 19) * (2 / 3),
+  );
+  const width = isMobile ? mobileWidth : safeWidth * (11 / 34);
+  const naturalHeight = (isMobile ? mobileWidth : desktopNaturalWidth) * 1.5;
   const greenTop = calculateReportGreenTop(safeWidth, safeHeight);
   const panelTopLead = Math.max(10, Math.min(14, safeHeight * 0.012));
   const targetPanelTop = Math.max(0, greenTop - panelTopLead);

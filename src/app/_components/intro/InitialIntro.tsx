@@ -34,6 +34,8 @@ const CURTAIN_EXIT_EASE_PATH =
   "M0,0 C0.04,0.12 0.08,0.48 0.2,0.78 C0.36,0.95 0.7,0.995 1,1";
 const REPORT_FLUID_EASE_PATH =
   "M0,0 C0.06,0.55 0.16,0.84 0.35,0.95 C0.58,0.995 0.84,1 1,1";
+const REPORT_TITLE_SPLIT_EASE_PATH =
+  "M0,0 C0.05,0.48 0.16,0.72 0.36,0.86 C0.56,0.96 0.8,0.995 1,1";
 const REPORT_TEXT_EASE_PATH =
   "M0,0 C0.08,0.25 0.22,0.58 0.42,0.82 C0.62,0.95 0.84,0.995 1,1";
 
@@ -96,6 +98,12 @@ export function InitialIntro() {
       const reportLine = select<SVGLineElement>("[data-report-line]")[0];
       const reportTitleScene = select<SVGGElement>("[data-report-title-scene]")[0];
       const reportTitles = select<SVGTextElement>("[data-report-title] text");
+      const reportUpperTitle = select<SVGTextElement>(
+        "[data-report-title-upper]",
+      )[0];
+      const reportLowerTitle = select<SVGTextElement>(
+        "[data-report-title-lower]",
+      )[0];
       const reportSubtitle = select<SVGTextElement>("[data-report-subtitle]")[0];
       const reportUpperClip = select<SVGRectElement>("[data-report-upper-clip]")[0];
       const reportLowerClip = select<SVGRectElement>("[data-report-lower-clip]")[0];
@@ -105,6 +113,10 @@ export function InitialIntro() {
       const reportFluidEase = CustomEase.create(
         "blue-pulse-fluid",
         REPORT_FLUID_EASE_PATH,
+      );
+      const reportTitleSplitEase = CustomEase.create(
+        "blue-pulse-report-title-split",
+        REPORT_TITLE_SPLIT_EASE_PATH,
       );
       const curtainExitEase = CustomEase.create(
         "blue-pulse-curtain",
@@ -170,14 +182,14 @@ export function InitialIntro() {
         });
         gsap.set(reportUpperClip, {
           attr: {
-            y: nextGeometry.title.centerY - nextGeometry.title.halfHeight * titleProgress,
-            height: nextGeometry.title.halfHeight * titleProgress + seamBleed,
+            y: nextGeometry.title.centerY - nextGeometry.title.halfHeight,
+            height: nextGeometry.title.halfHeight + seamBleed,
           },
         });
         gsap.set(reportLowerClip, {
           attr: {
             y: nextGeometry.title.centerY - seamBleed,
-            height: nextGeometry.title.halfHeight * titleProgress + seamBleed,
+            height: nextGeometry.title.halfHeight + seamBleed,
           },
         });
         gsap.set(reportTitles, {
@@ -187,6 +199,12 @@ export function InitialIntro() {
             fontSize: nextGeometry.title.fontSize,
           },
         });
+        const titleOffset =
+          nextGeometry.title.fontSize *
+          INTRO_TIMING.reportTitleSplitOffset *
+          (1 - titleProgress);
+        gsap.set(reportUpperTitle, { y: titleOffset });
+        gsap.set(reportLowerTitle, { y: -titleOffset });
         gsap.set(reportSubtitle, {
           attr: {
             x: nextGeometry.subtitle.centerX,
@@ -318,17 +336,21 @@ export function InitialIntro() {
           )
           .addLabel(
             "titleStart",
-            `lineComplete-=${INTRO_TIMING.reportTitleLead}`,
+            "lineComplete",
           )
           .to(
             reportMotion,
             {
               titleProgress: 1,
               duration: INTRO_TIMING.reportTitleReveal,
-              ease: reportTextEase,
+              ease: reportTitleSplitEase,
               onUpdate: syncReport,
             },
             "titleStart",
+          )
+          .addLabel(
+            "titleComplete",
+            `titleStart+=${INTRO_TIMING.reportTitleReveal}`,
           )
           .to(
             reportMotion,
@@ -338,11 +360,11 @@ export function InitialIntro() {
               ease: reportTextEase,
               onUpdate: syncReport,
             },
-            "<",
+            `titleComplete+=${INTRO_TIMING.reportSubtitleDelay}`,
           )
           .addLabel(
             "eraseStart",
-            `lineComplete+=${INTRO_TIMING.reportLineHold}`,
+            `titleComplete+=${INTRO_TIMING.reportTitleHold}`,
           )
           .to(
             reportMotion,
@@ -610,7 +632,6 @@ export function InitialIntro() {
           lightAreaFill={INTRO_COLORS.curtain}
           darkAreaFill={INTRO_COLORS.gold}
         />
-        <ReportLine geometry={reportGeometry} color={INTRO_COLORS.reportLine} />
         <LatestReportTitle
           geometry={reportGeometry}
           upperClipId={reportUpperClipId}
@@ -618,6 +639,7 @@ export function InitialIntro() {
           titleColor={INTRO_COLORS.reportLine}
           subtitleColor={INTRO_COLORS.reportSubtitle}
         />
+        <ReportLine geometry={reportGeometry} color={INTRO_COLORS.reportLine} />
       </svg>
 
       <LogoMark />

@@ -10,9 +10,15 @@ function assertPanelTracksReportTop(viewportWidth, viewportHeight) {
   const report = calculateReportGeometry(viewportWidth, viewportHeight);
   const lead = Math.max(10, Math.min(14, Math.max(viewportHeight, 1) * 0.012));
   const panelTopDelta = report.green.top - panel.y;
+  const naturalWidth = viewportWidth <= 768
+    ? panel.width
+    : Math.min(
+        viewportWidth * (10 / 34),
+        viewportHeight * (15 / 19) * (2 / 3),
+      );
 
   assert.ok(
-    panel.height > panel.width * 1.5,
+    panel.height > naturalWidth * 1.5,
     "panel should grow taller than its natural aspect ratio for the report layout",
   );
   assert.ok(
@@ -28,6 +34,11 @@ function assertPanelTracksReportTop(viewportWidth, viewportHeight) {
 assertPanelTracksReportTop(1440, 900);
 assertPanelTracksReportTop(390, 844);
 
+const desktopPanel = calculatePanelGeometry(3400, 1900);
+assert.equal(desktopPanel.width, 1100);
+assert.equal(desktopPanel.height, 1528);
+assert.equal(desktopPanel.x + desktopPanel.width / 2, 1700);
+
 const shortPanel = calculatePanelGeometry(320, 200);
 assert.equal(shortPanel.height, shortPanel.width * 1.5);
 
@@ -35,9 +46,10 @@ const greenStart = INTRO_TIMING.reportGreenDelay;
 const greenEnd = greenStart + INTRO_TIMING.reportGreenExpand;
 const lineStart = greenEnd + INTRO_TIMING.reportGreenHold;
 const lineComplete = lineStart + INTRO_TIMING.reportLineDraw;
-const titleStart = lineComplete - INTRO_TIMING.reportTitleLead;
+const titleStart = lineComplete;
 const titleComplete = titleStart + INTRO_TIMING.reportTitleReveal;
-const eraseStart = lineComplete + INTRO_TIMING.reportLineHold;
+const subtitleStart = titleComplete + INTRO_TIMING.reportSubtitleDelay;
+const eraseStart = titleComplete + INTRO_TIMING.reportTitleHold;
 const eraseComplete = eraseStart + INTRO_TIMING.reportLineErase;
 
 assert.ok(
@@ -57,16 +69,25 @@ assert.ok(
   "line drawing should start around the 2 second mark",
 );
 assert.ok(
-  titleStart < lineComplete && titleComplete <= eraseStart,
-  "title should begin before line completion and settle before erase",
+  titleStart === lineComplete,
+  "title should begin when the line finishes drawing",
 );
 assert.ok(
-  INTRO_TIMING.reportLineHold >= 0.4 && INTRO_TIMING.reportLineHold <= 0.5,
-  "line should remain complete only briefly before erasing",
+  INTRO_TIMING.reportTitleReveal >= 0.85 && INTRO_TIMING.reportTitleReveal <= 0.95,
+  "title should use the shortened 0.9 second reveal",
 );
 assert.ok(
-  eraseComplete >= 3.7 && eraseComplete <= 4.2,
-  "report sequence should complete within the intended overall window",
+  INTRO_TIMING.reportTitleSplitOffset >= 0.3 &&
+    INTRO_TIMING.reportTitleSplitOffset <= 0.38,
+  "title layers should begin with a clear split offset",
+);
+assert.ok(
+  subtitleStart > titleComplete && eraseStart > titleComplete,
+  "subtitle and line erase should wait until the title settles",
+);
+assert.ok(
+  eraseComplete >= 4.4 && eraseComplete <= 4.8,
+  "report sequence should complete within the shortened title window",
 );
 assert.ok(
   INTRO_TIMING.reportClipSeamBleed > 0,
