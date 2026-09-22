@@ -39,6 +39,25 @@
   letter-spacing: 0;
 }
 
+.reportScene {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.reportTitle {
+  font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
+  font-weight: 700;
+  font-variation-settings: "GRAD" 0;
+  letter-spacing: 0;
+}
+
+.reportSubtitle {
+  font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .logoCanvas {
   position: absolute;
   top: 50%;
