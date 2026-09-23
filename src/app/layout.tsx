@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
-const googleSans = localFont({
-  src: "./fonts/GoogleSans-Variable.woff2",
-  variable: "--font-google-sans",
+const microsoftRounded = localFont({
+  src: "../../微软简中圆.ttf",
+  variable: "--font-microsoft-rounded",
   display: "swap",
+  adjustFontFallback: false,
   style: "normal",
-  weight: "400 700",
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="zh-CN">
-      <body className={googleSans.variable}>{children}</body>
+      <body className={microsoftRounded.variable}>{children}</body>
     </html>
   );
 }

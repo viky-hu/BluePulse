@@ -76,22 +76,22 @@ for (const paper of mobile.papers) {
   );
 }
 
-assert.equal(getPaper("p1").height, 9 * desktopUnit, "p1 should grow by 1cm");
-assert.equal(getPaper("p2").height, 5 * desktopUnit, "p2 should grow by 1cm");
-assert.equal(getPaper("p3").height, 9.7 * desktopUnit, "p3 should grow by 1cm");
-assert.equal(getPaper("p4").height, 9 * desktopUnit, "p4 should grow by 1cm");
-assert.equal(getPaper("p5").height, 11.8 * desktopUnit, "p5 should grow by 1cm");
+assert.ok(Math.abs(getPaper("p1").height - 10.08 * desktopUnit) < 0.001, "p1 should grow by 12%");
+assert.ok(Math.abs(getPaper("p2").height - 6.75 * desktopUnit) < 0.001, "p2 should grow by 35%");
+assert.ok(Math.abs(getPaper("p3").height - 10.864 * desktopUnit) < 0.001, "p3 should grow by 12%");
+assert.ok(Math.abs(getPaper("p4").height - 10.08 * desktopUnit) < 0.001, "p4 should grow by 12%");
+assert.ok(Math.abs(getPaper("p5").height - 13.216 * desktopUnit) < 0.001, "p5 should grow by 12%");
 assert.ok(
-  Math.abs(getPaper("p1").x - (desktop.viewportWidth - 3.5 * desktopUnit - 8 * desktopUnit * WHITE_PAPER_ASPECT_RATIO)) < 0.001,
-  "p1 should keep its original left coordinate as it grows",
+  Math.abs(getPaper("p1").x - (desktop.viewportWidth - 3.8 * desktopUnit - 8 * desktopUnit * WHITE_PAPER_ASPECT_RATIO)) < 0.001,
+  "p1 should shift slightly left as p2 moves down",
 );
 assert.ok(
-  Math.abs(getPaper("p1").y - 3.5 * desktopUnit) < 0.001,
-  "p1 should honor its top anchor",
+  Math.abs(getPaper("p1").y - 3.8 * desktopUnit) < 0.001,
+  "p1 should shift slightly down as p2 moves down",
 );
 assert.ok(
-  Math.abs(getPaper("p2").y - 0.5 * desktopUnit) < 0.001,
-  "p2 should honor its top anchor",
+  Math.abs(getPaper("p2").y - 1.5 * desktopUnit) < 0.001,
+  "p2 should move down by one desktop layout unit",
 );
 assert.ok(
   Math.abs(
@@ -139,24 +139,27 @@ assert.ok(
   "p5 should anchor its rotated visual top-left, not its off-screen pivot",
 );
 assert.ok(
-  Math.abs(getVisualBounds(getPaper("p4")).left + 3.5 * desktopUnit) < 0.001,
-  "p4 should preserve its rotation-origin while its visual overhang grows with the paper",
+  Math.abs(getVisualBounds(getPaper("p4")).left + 4.58 * desktopUnit) < 0.001,
+  "p4 should retain its rotation origin while the enlarged paper extends farther left",
 );
 
-assert.deepEqual(
-  ["p1", "p2", "p3", "p4", "p5"].map((id) => getMobilePaper(id).height),
-  [104, 68, 116, 94, 140],
-  "mobile papers should grow by one mobile centimeter while retaining their aspect ratio",
+assert.ok(
+  [116.48, 91.8, 129.92, 105.28, 156.8].every((height, index) =>
+    Math.abs(
+      getMobilePaper(["p1", "p2", "p3", "p4", "p5"][index]).height - height,
+    ) < 0.001,
+  ),
+  "mobile papers should use the agreed growth rates while retaining their aspect ratio",
 );
 assert.ok(
-  Math.abs(getMobilePaper("p1").x - (390 - 14 - 92 * WHITE_PAPER_ASPECT_RATIO)) < 0.001 &&
-    getMobilePaper("p1").y === 18,
-  "mobile p1 should keep its original upper-left anchor as it grows",
+  Math.abs(getMobilePaper("p1").x - (390 - 14 - 92 * WHITE_PAPER_ASPECT_RATIO - 8)) < 0.001 &&
+    getMobilePaper("p1").y === 28,
+  "mobile p1 should shift slightly left and down as p2 moves down",
 );
 assert.ok(
   Math.abs(getMobilePaper("p2").x - (390 - 8 - 56 * WHITE_PAPER_ASPECT_RATIO)) < 0.001 &&
-    getMobilePaper("p2").y === 126,
-  "mobile p2 should keep its original upper-left anchor as it grows",
+    getMobilePaper("p2").y === 164,
+  "mobile p2 should move down by about one centimeter",
 );
 assert.ok(
   getMobilePaper("p3").x === 10 && getMobilePaper("p3").y === 232,

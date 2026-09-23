@@ -750,7 +750,7 @@ export function InitialIntro() {
             renderSurface={false}
           />
         </FloatingCanvas>
-        {(["p1", "p2", "p3", "p4", "p5"] as const).map((id) => (
+        {(["p2", "p1", "p3", "p4", "p5"] as const).map((id) => (
           <WhitePaper
             key={id}
             article={articlesById.get(id)!}

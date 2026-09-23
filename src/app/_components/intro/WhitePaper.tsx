@@ -45,11 +45,11 @@ export function WhitePaper({
     headlineY + headlineLineHeight * headlineLines.length + layout.height * 0.04,
   );
   const bodyStrokeWidth = clamp(layout.width * 0.008, 1.5, 3.8);
-  const stapleLength = clamp(layout.width * 0.08, 5, 10);
+  const stapleLength = clamp(layout.width * 0.12, 8, 14);
   const stapleRise = stapleLength * Math.sin((40 * Math.PI) / 180);
   const stapleRun = stapleLength * Math.cos((40 * Math.PI) / 180);
-  const stapleStartX = padding * 0.75;
-  const stapleStartY = padding * 0.95;
+  const stapleStartX = padding * 1.2;
+  const stapleStartY = padding * 1.2;
   const contentClassName = styles.paperContent;
 
   return (

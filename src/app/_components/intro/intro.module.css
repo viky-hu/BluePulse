@@ -47,7 +47,7 @@
   fill: none;
   stroke: #9b9d99;
   stroke-linecap: round;
-  stroke-width: 2.4;
+  stroke-width: 1.6;
 }
 
 .paperContent {
@@ -58,14 +58,14 @@
 
 .paperDate {
   fill: #9b9d99;
-  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-weight: 400;
   letter-spacing: 0;
 }
 
 .paperHeadline {
   fill: #242522;
-  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-weight: 400;
   letter-spacing: 0;
 }
@@ -81,7 +81,7 @@
 }
 
 .mainTitle {
-  font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-size: clamp(72px, 8.5vw, 164px);
   font-weight: 700;
   font-variation-settings: "GRAD" 0;
@@ -89,7 +89,7 @@
 }
 
 .subtitle {
-  font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-size: clamp(17px, 1.3vw, 24px);
   font-weight: 700;
   letter-spacing: 0;
@@ -102,14 +102,14 @@
 }
 
 .reportTitle {
-  font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-weight: 700;
   font-variation-settings: "GRAD" 0;
   letter-spacing: 0;
 }
 
 .reportSubtitle {
-  font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
   font-weight: 700;
   letter-spacing: 0;
 }

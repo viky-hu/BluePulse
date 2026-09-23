@@ -61,11 +61,11 @@ function calculateDesktopPapers(
     viewportHeight / DESKTOP_REFERENCE_HEIGHT,
   );
   const paper = (value: number) => value * unit;
-  const p1Height = paper(9);
-  const p2Height = paper(5);
-  const p3Height = paper(9.7);
-  const p4Height = paper(9);
-  const p5Height = paper(11.8);
+  const p1Height = paper(9 * 1.12);
+  const p2Height = paper(5 * 1.35);
+  const p3Height = paper(9.7 * 1.12);
+  const p4Height = paper(9 * 1.12);
+  const p5Height = paper(11.8 * 1.12);
   const p1AnchorWidth = paper(8) * WHITE_PAPER_ASPECT_RATIO;
   const p2AnchorWidth = paper(4) * WHITE_PAPER_ASPECT_RATIO;
   const p1Width = p1Height * WHITE_PAPER_ASPECT_RATIO;
@@ -84,16 +84,16 @@ function calculateDesktopPapers(
     ),
     makePaper(
       "p1",
-      viewportWidth - paper(3.5) - p1AnchorWidth,
-      paper(3.5),
+      viewportWidth - paper(3.8) - p1AnchorWidth,
+      paper(3.8),
       p1Height,
       0,
-      viewportWidth - (viewportWidth - paper(3.5) - p1AnchorWidth) + p1Width + paper(1.2),
+      viewportWidth - (viewportWidth - paper(3.8) - p1AnchorWidth) + p1Width + paper(1.2),
     ),
     makePaper(
       "p2",
       viewportWidth - paper(3) - p2AnchorWidth,
-      paper(0.5),
+      paper(1.5),
       p2Height,
       0,
       viewportWidth - (viewportWidth - paper(3) - p2AnchorWidth) + p2Width + paper(0.8),
@@ -132,11 +132,11 @@ function calculateMobilePapers(
 ): WhitePaperLayout[] {
   const scale = clamp(viewportWidth / 390, 0.78, 1.18);
   const size = (value: number) => value * scale;
-  const p1Height = size(104);
-  const p2Height = size(68);
-  const p3Height = size(116);
-  const p4Height = size(94);
-  const p5Height = size(140);
+  const p1Height = size(104 * 1.12);
+  const p2Height = size(68 * 1.35);
+  const p3Height = size(116 * 1.12);
+  const p4Height = size(94 * 1.12);
+  const p5Height = size(140 * 1.12);
   const p1AnchorWidth = size(92) * WHITE_PAPER_ASPECT_RATIO;
   const p2AnchorWidth = size(56) * WHITE_PAPER_ASPECT_RATIO;
   const p1Width = p1Height * WHITE_PAPER_ASPECT_RATIO;
@@ -159,16 +159,16 @@ function calculateMobilePapers(
     ),
     makePaper(
       "p1",
-      viewportWidth - size(14) - p1AnchorWidth,
-      size(18),
+      viewportWidth - size(14) - p1AnchorWidth - size(8),
+      size(28),
       p1Height,
       0,
-      viewportWidth - (viewportWidth - size(14) - p1AnchorWidth) + p1Width + size(12),
+      viewportWidth - (viewportWidth - size(14) - p1AnchorWidth - size(8)) + p1Width + size(12),
     ),
     makePaper(
       "p2",
       viewportWidth - size(8) - p2AnchorWidth,
-      size(126),
+      size(164),
       p2Height,
       0,
       viewportWidth - (viewportWidth - size(8) - p2AnchorWidth) + p2Width + size(10),

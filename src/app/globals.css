@@ -20,7 +20,7 @@ body {
 
 body {
   color: var(--foreground);
-  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
 }
 
 button,
