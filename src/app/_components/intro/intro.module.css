@@ -24,6 +24,62 @@
   visibility: hidden;
 }
 
+.paperMotionLayer {
+  transform-box: fill-box;
+  transform-origin: 0 0;
+}
+
+.paperMotionLayerAnimated {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.paperGroup {
+  transform-box: fill-box;
+  transform-origin: 0 0;
+}
+
+.paperSurface {
+  stroke: none;
+}
+
+.paperStaple {
+  fill: none;
+  stroke: #9b9d99;
+  stroke-linecap: round;
+  stroke-width: 2.4;
+}
+
+.paperContent {
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: 0 0;
+}
+
+.paperDate {
+  fill: #9b9d99;
+  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.paperHeadline {
+  fill: #242522;
+  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.paperBody {
+  fill: none;
+  stroke: #c6c9c5;
+  stroke-linecap: round;
+}
+
+.paperBodyLine {
+  fill: none;
+}
+
 .mainTitle {
   font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
   font-size: clamp(72px, 8.5vw, 164px);

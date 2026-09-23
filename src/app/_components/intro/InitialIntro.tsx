@@ -13,6 +13,8 @@ import { LogoMark } from "./LogoMark";
 import { MaskedSvgTitle } from "./MaskedSvgTitle";
 import { ReportLine } from "./ReportLine";
 import { ScrollCueButton } from "./ScrollCueButton";
+import { WhitePaper } from "./WhitePaper";
+import { MOCK_WHITE_PAPER_ARTICLES } from "./white-paper-data";
 import {
   calculatePanelGeometry,
   calculateReportGeometry,
@@ -24,12 +26,22 @@ import {
   type PanelGeometry,
   type ReportGeometry,
 } from "./intro-config";
+import {
+  calculateWhitePaperLayout,
+  type WhitePaperId,
+  type WhitePaperLayoutSet,
+} from "./white-paper-config";
 import styles from "./intro.module.css";
 
 gsap.registerPlugin(CustomEase, DrawSVGPlugin, Observer, useGSAP);
 
 const INITIAL_GEOMETRY = calculatePanelGeometry(1440, 900);
 const INITIAL_REPORT_GEOMETRY = calculateReportGeometry(1440, 900);
+const INITIAL_WHITE_PAPER_LAYOUT = calculateWhitePaperLayout(
+  1440,
+  900,
+  INITIAL_GEOMETRY,
+);
 const CURTAIN_EXIT_EASE_PATH =
   "M0,0 C0.04,0.12 0.08,0.48 0.2,0.78 C0.36,0.95 0.7,0.995 1,1";
 const REPORT_FLUID_EASE_PATH =
@@ -43,9 +55,11 @@ function getViewportGeometries() {
   const viewport = window.visualViewport;
   const width = Math.round(viewport?.width ?? window.innerWidth);
   const height = Math.round(viewport?.height ?? window.innerHeight);
+  const panel = calculatePanelGeometry(width, height);
   return {
-    panel: calculatePanelGeometry(width, height),
+    panel,
     report: calculateReportGeometry(width, height),
+    whitePapers: calculateWhitePaperLayout(width, height, panel),
   };
 }
 
@@ -54,6 +68,9 @@ export function InitialIntro() {
   const sceneRef = useRef<SVGSVGElement>(null);
   const geometryRef = useRef<PanelGeometry>(INITIAL_GEOMETRY);
   const reportGeometryRef = useRef<ReportGeometry>(INITIAL_REPORT_GEOMETRY);
+  const whitePaperLayoutRef = useRef<WhitePaperLayoutSet>(
+    INITIAL_WHITE_PAPER_LAYOUT,
+  );
   const phaseRef = useRef<IntroPhase>("boot");
   const requestExitRef = useRef<(source: IntroExitSource) => void>(() => undefined);
   const reportMotionRef = useRef({
@@ -63,12 +80,17 @@ export function InitialIntro() {
     titleProgress: 0,
     subtitleProgress: 0,
   });
+  const whitePaperMotionRef = useRef({ progress: 0, p0ContentProgress: 0 });
   const [geometry, setGeometry] = useState(INITIAL_GEOMETRY);
   const [reportGeometry, setReportGeometry] = useState(INITIAL_REPORT_GEOMETRY);
+  const [whitePaperLayout, setWhitePaperLayout] = useState(
+    INITIAL_WHITE_PAPER_LAYOUT,
+  );
   const [phase, setPhase] = useState<IntroPhase>("boot");
   const idSeed = useId().replaceAll(":", "");
   const curtainClipId = `intro-curtain-clip-${idSeed}`;
   const shadowFilterId = `intro-panel-shadow-${idSeed}`;
+  const paperShadowFilterId = `intro-paper-shadow-${idSeed}`;
   const reportUpperClipId = `intro-report-upper-${idSeed}`;
   const reportLowerClipId = `intro-report-lower-${idSeed}`;
 
@@ -107,6 +129,13 @@ export function InitialIntro() {
       const reportSubtitle = select<SVGTextElement>("[data-report-subtitle]")[0];
       const reportUpperClip = select<SVGRectElement>("[data-report-upper-clip]")[0];
       const reportLowerClip = select<SVGRectElement>("[data-report-lower-clip]")[0];
+      const paperGroups = select<SVGGElement>("[data-white-paper-secondary]");
+      const p0Content = select<SVGGElement>(
+        '[data-white-paper-content="p0"]',
+      )[0];
+      const p0ContentPieces = select<SVGElement>(
+        '[data-white-paper-content="p0"] > *',
+      );
       const prefersReducedMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
@@ -128,6 +157,7 @@ export function InitialIntro() {
       );
       const curtainProgress = { value: 0 };
       const reportMotion = reportMotionRef.current;
+      const whitePaperMotion = whitePaperMotionRef.current;
       let entryTimeline: gsap.core.Timeline | undefined;
       let exitTimeline: gsap.core.Timeline | undefined;
       let resizeFrame: number | undefined;
@@ -219,6 +249,32 @@ export function InitialIntro() {
         }
       };
 
+      const syncWhitePapers = (nextLayout = whitePaperLayoutRef.current) => {
+        const { progress, p0ContentProgress } = whitePaperMotionRef.current;
+        const papersById = new Map(
+          nextLayout.papers.map((paper) => [paper.id, paper]),
+        );
+
+        paperGroups.forEach((target) => {
+          const paper = papersById.get(
+            target.dataset.whitePaperSecondary as WhitePaperId,
+          );
+          if (!paper) return;
+          gsap.set(target, {
+            x: paper.entryX * (1 - progress),
+            autoAlpha: progress,
+          });
+        });
+
+        const p0 = papersById.get("p0");
+        if (p0Content && p0) {
+          gsap.set(p0Content, {
+            x: p0.contentEntryX * (1 - p0ContentProgress),
+            autoAlpha: p0ContentProgress,
+          });
+        }
+      };
+
       const wheelObserver = Observer.create({
         target: root,
         type: "wheel",
@@ -262,8 +318,12 @@ export function InitialIntro() {
           reportMotion.lineEraseProgress = 0;
           reportMotion.titleProgress = 1;
           reportMotion.subtitleProgress = 1;
+          whitePaperMotionRef.current.progress = 1;
+          whitePaperMotionRef.current.p0ContentProgress = 1;
           syncCurtain();
           syncReport();
+          syncWhitePapers();
+          gsap.set(p0ContentPieces, { autoAlpha: 1 });
           gsap.set([titleScene, cueShell], { autoAlpha: 0 });
           gsap.set(reportLine, { drawSVG: "0 0", autoAlpha: 0 });
           updatePhase("complete");
@@ -320,6 +380,16 @@ export function InitialIntro() {
           )
           .to({}, { duration: INTRO_TIMING.reportGreenHold }, "greenEnd")
           .set(reportLine, { autoAlpha: 1 }, "lineStart")
+          .to(
+            whitePaperMotion,
+            {
+              progress: 1,
+              duration: INTRO_TIMING.whitePaperEntry,
+              ease: "power3.out",
+              onUpdate: () => syncWhitePapers(),
+            },
+            "lineStart",
+          )
           .to(
             reportMotion,
             {
@@ -382,6 +452,27 @@ export function InitialIntro() {
             },
             "eraseStart",
           );
+        exitTimeline
+          .to(
+            whitePaperMotion,
+            {
+              p0ContentProgress: 1,
+              duration: INTRO_TIMING.p0ContentReveal,
+              ease: "power3.out",
+              onUpdate: () => syncWhitePapers(),
+            },
+            "eraseStart",
+          )
+          .to(
+            p0ContentPieces,
+            {
+              autoAlpha: 1,
+              duration: 0.12,
+              ease: "power2.out",
+              stagger: 0.026,
+            },
+            "eraseStart+=0.05",
+          );
       };
 
       requestExitRef.current = (source) => safeContext(() => runExit(source))();
@@ -397,10 +488,13 @@ export function InitialIntro() {
         const nextGeometries = getViewportGeometries();
         geometryRef.current = nextGeometries.panel;
         reportGeometryRef.current = nextGeometries.report;
+        whitePaperLayoutRef.current = nextGeometries.whitePapers;
         setGeometry(nextGeometries.panel);
         setReportGeometry(nextGeometries.report);
+        setWhitePaperLayout(nextGeometries.whitePapers);
         syncCurtain();
         syncReport();
+        syncWhitePapers(nextGeometries.whitePapers);
 
         if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
         resizeFrame = requestAnimationFrame(() => {
@@ -408,6 +502,7 @@ export function InitialIntro() {
           safeContext(() => {
             syncCurtain();
             syncReport();
+            syncWhitePapers(nextGeometries.whitePapers);
           })();
         });
       };
@@ -423,8 +518,10 @@ export function InitialIntro() {
       gsap.set(reportTitleScene, { autoAlpha: 0 });
       gsap.set(reportLine, { autoAlpha: 0, drawSVG: "0 0" });
       gsap.set(reportSubtitle, { autoAlpha: 0 });
+      gsap.set(p0ContentPieces, { autoAlpha: 0 });
       syncCurtain();
       syncReport();
+      syncWhitePapers();
 
       const showStaticCover = () => {
         gsap.set(logo, { autoAlpha: 0 });
@@ -536,6 +633,12 @@ export function InitialIntro() {
   );
 
   const cueCenterY = geometry.y + geometry.height * (1 - 0.085);
+  const paperLayoutsById = new Map(
+    whitePaperLayout.papers.map((paper) => [paper.id, paper]),
+  );
+  const articlesById = new Map(
+    MOCK_WHITE_PAPER_ARTICLES.map((article) => [article.id, article]),
+  );
 
   return (
     <main
@@ -596,6 +699,22 @@ export function InitialIntro() {
               floodOpacity="0.32"
             />
           </filter>
+          <filter
+            id={paperShadowFilterId}
+            x="-25%"
+            y="-25%"
+            width="160%"
+            height="170%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feDropShadow
+              dx="0"
+              dy="8"
+              stdDeviation="10"
+              floodColor="#121110"
+              floodOpacity="0.18"
+            />
+          </filter>
         </defs>
 
         <rect
@@ -623,7 +742,22 @@ export function InitialIntro() {
           shadowFilterId={shadowFilterId}
           lightFill={INTRO_COLORS.panel}
           darkFill={INTRO_COLORS.curtain}
-        />
+        >
+          <WhitePaper
+            article={articlesById.get("p0")!}
+            layout={paperLayoutsById.get("p0")!}
+            animated={false}
+            renderSurface={false}
+          />
+        </FloatingCanvas>
+        {(["p1", "p2", "p3", "p4", "p5"] as const).map((id) => (
+          <WhitePaper
+            key={id}
+            article={articlesById.get(id)!}
+            layout={paperLayoutsById.get(id)!}
+            shadowFilterId={paperShadowFilterId}
+          />
+        ))}
         <MaskedSvgTitle
           geometry={geometry}
           curtainClipId={curtainClipId}

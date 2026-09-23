@@ -41,6 +41,8 @@ export const INTRO_TIMING = {
   panelRevealDuration: 0.8,
   panelRevealEase: "power2.out",
   contentFade: 0.2,
+  whitePaperEntry: 1.55,
+  p0ContentReveal: 0.65,
   curtainExit: 1.3,
   reportGreenDelay: 0.18,
   reportGreenExpand: 1.65,
