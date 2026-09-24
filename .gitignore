@@ -46,3 +46,10 @@ next-env.d.ts
 .idea/
 .vscode/
 Thumbs.db
+
+# Python backend
+__pycache__/
+*.py[cod]
+*.egg-info/
+backend/.venv/
+backend/data/
