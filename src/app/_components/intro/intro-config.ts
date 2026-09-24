@@ -1,13 +1,9 @@
 export type IntroPhase =
   | "boot"
   | "logo"
-  | "revealing"
-  | "ready"
   | "exiting"
   | "reporting"
   | "complete";
-
-export type IntroExitSource = "button" | "wheel" | "touch" | "keyboard";
 
 export interface PanelGeometry {
   x: number;
@@ -32,15 +28,9 @@ export const INTRO_TIMING = {
   logoDraw: 1.8,
   logoHold: 0.6,
   logoFade: 0.25,
-  titleCharacter: 0.28,
-  titleStagger: 0.025,
-  subtitleCharacter: 0.24,
-  subtitleStagger: 0.015,
   panelInitialScale: 0.92,
-  panelDelay: 0.2,
   panelRevealDuration: 0.8,
   panelRevealEase: "power2.out",
-  contentFade: 0.2,
   whitePaperEntry: 1.55,
   p0ContentReveal: 0.65,
   curtainExit: 1.3,
@@ -57,9 +47,10 @@ export const INTRO_TIMING = {
   reportClipSeamBleed: 1.5,
 } as const;
 
-export const INTRO_COPY = {
-  title: "Blue Pulse",
-  subtitle: "国内外警务科技情报系统",
+export const INTRO_SEQUENCE = {
+  logoStart: 0,
+  panelStart: 0,
+  curtainStart: INTRO_TIMING.logoDraw + INTRO_TIMING.logoHold + INTRO_TIMING.logoFade,
 } as const;
 
 export function calculatePanelGeometry(
@@ -98,17 +89,6 @@ export function calculatePanelGeometry(
     height,
     viewportWidth: safeWidth,
     viewportHeight: safeHeight,
-  };
-}
-
-export function getTitleLayout(geometry: PanelGeometry) {
-  const isMobile = geometry.viewportWidth <= 768;
-  const titleY = geometry.viewportHeight * 0.48;
-
-  return {
-    centerX: geometry.viewportWidth / 2,
-    titleY,
-    subtitleY: titleY + (isMobile ? 54 : 100),
   };
 }
 

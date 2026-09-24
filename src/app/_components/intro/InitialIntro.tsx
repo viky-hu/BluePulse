@@ -1,27 +1,23 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 import { CustomEase } from "gsap/CustomEase";
 import { DrawSVGPlugin } from "gsap/DrawSVGPlugin";
-import { Observer } from "gsap/Observer";
 import { FloatingCanvas } from "./FloatingCanvas";
 import { GreenCanvas } from "./GreenCanvas";
 import { LatestReportTitle } from "./LatestReportTitle";
 import { LogoMark } from "./LogoMark";
-import { MaskedSvgTitle } from "./MaskedSvgTitle";
 import { ReportLine } from "./ReportLine";
-import { ScrollCueButton } from "./ScrollCueButton";
 import { WhitePaper } from "./WhitePaper";
 import { MOCK_WHITE_PAPER_ARTICLES } from "./white-paper-data";
 import {
   calculatePanelGeometry,
   calculateReportGeometry,
   INTRO_COLORS,
-  INTRO_COPY,
+  INTRO_SEQUENCE,
   INTRO_TIMING,
-  type IntroExitSource,
   type IntroPhase,
   type PanelGeometry,
   type ReportGeometry,
@@ -33,7 +29,7 @@ import {
 } from "./white-paper-config";
 import styles from "./intro.module.css";
 
-gsap.registerPlugin(CustomEase, DrawSVGPlugin, Observer, useGSAP);
+gsap.registerPlugin(CustomEase, DrawSVGPlugin, useGSAP);
 
 const INITIAL_GEOMETRY = calculatePanelGeometry(1440, 900);
 const INITIAL_REPORT_GEOMETRY = calculateReportGeometry(1440, 900);
@@ -72,7 +68,6 @@ export function InitialIntro() {
     INITIAL_WHITE_PAPER_LAYOUT,
   );
   const phaseRef = useRef<IntroPhase>("boot");
-  const requestExitRef = useRef<(source: IntroExitSource) => void>(() => undefined);
   const reportMotionRef = useRef({
     greenProgress: 0,
     lineDrawProgress: 0,
@@ -86,17 +81,12 @@ export function InitialIntro() {
   const [whitePaperLayout, setWhitePaperLayout] = useState(
     INITIAL_WHITE_PAPER_LAYOUT,
   );
-  const [phase, setPhase] = useState<IntroPhase>("boot");
   const idSeed = useId().replaceAll(":", "");
   const curtainClipId = `intro-curtain-clip-${idSeed}`;
   const shadowFilterId = `intro-panel-shadow-${idSeed}`;
   const paperShadowFilterId = `intro-paper-shadow-${idSeed}`;
   const reportUpperClipId = `intro-report-upper-${idSeed}`;
   const reportLowerClipId = `intro-report-lower-${idSeed}`;
-
-  const requestButtonExit = useCallback(() => {
-    requestExitRef.current("button");
-  }, []);
 
   useGSAP(
     (_context, contextSafe) => {
@@ -110,10 +100,6 @@ export function InitialIntro() {
       const logo = select<SVGSVGElement>("[data-intro-logo]")[0];
       const logoPaths = select<SVGPathElement>("[data-logo-path]");
       const panel = select<SVGGElement>("[data-intro-panel]")[0];
-      const titleScene = select<SVGGElement>("[data-intro-title]")[0];
-      const titleCharacters = select<SVGTSpanElement>("[data-title-char]");
-      const subtitleCharacters = select<SVGTSpanElement>("[data-subtitle-char]");
-      const cueShell = select<HTMLDivElement>("[data-scroll-cue-shell]")[0];
       const curtain = select<SVGRectElement>("[data-intro-curtain]")[0];
       const curtainClip = select<SVGRectElement>("[data-intro-curtain-clip]")[0];
       const greenCanvas = select<SVGRectElement>("[data-report-green]")[0];
@@ -165,7 +151,6 @@ export function InitialIntro() {
       const updatePhase = (nextPhase: IntroPhase) => {
         phaseRef.current = nextPhase;
         root.dataset.phase = nextPhase;
-        setPhase(nextPhase);
       };
 
       const syncCurtain = () => {
@@ -275,43 +260,14 @@ export function InitialIntro() {
         }
       };
 
-      const wheelObserver = Observer.create({
-        target: root,
-        type: "wheel",
-        tolerance: 12,
-        debounce: true,
-        onDown: () => requestExitRef.current("wheel"),
-      });
-      const touchObserver = Observer.create({
-        target: root,
-        type: "touch",
-        tolerance: 24,
-        dragMinimum: 12,
-        lockAxis: true,
-        debounce: true,
-        onUp: () => requestExitRef.current("touch"),
-      });
+      const runExit = () => {
+        if (["exiting", "reporting", "complete"].includes(phaseRef.current)) return;
 
-      const disableInput = () => {
-        wheelObserver.disable();
-        touchObserver.disable();
-      };
-
-      const enableInput = () => {
-        wheelObserver.enable();
-        touchObserver.enable();
-      };
-
-      disableInput();
-
-      const runExit = (source: IntroExitSource) => {
-        if (phaseRef.current !== "ready") return;
-
-        root.dataset.exitSource = source;
         updatePhase("exiting");
-        disableInput();
 
         if (prefersReducedMotion) {
+          gsap.set(logo, { autoAlpha: 0 });
+          gsap.set(panel, { autoAlpha: 1, scale: 1 });
           curtainProgress.value = 1;
           reportMotion.greenProgress = 1;
           reportMotion.lineDrawProgress = 0;
@@ -324,7 +280,6 @@ export function InitialIntro() {
           syncReport();
           syncWhitePapers();
           gsap.set(p0ContentPieces, { autoAlpha: 1 });
-          gsap.set([titleScene, cueShell], { autoAlpha: 0 });
           gsap.set(reportLine, { drawSVG: "0 0", autoAlpha: 0 });
           updatePhase("complete");
           return;
@@ -336,15 +291,6 @@ export function InitialIntro() {
             onComplete: () => updatePhase("complete"),
           })
           .addLabel("exitStart", 0)
-          .to(
-            [titleScene, cueShell],
-            {
-              autoAlpha: 0,
-              duration: INTRO_TIMING.contentFade,
-              ease: "power2.out",
-            },
-            0,
-          )
           .to(
             curtainProgress,
             {
@@ -472,17 +418,10 @@ export function InitialIntro() {
               stagger: 0.026,
             },
             "eraseStart+=0.05",
-          );
+        );
       };
 
-      requestExitRef.current = (source) => safeContext(() => runExit(source))();
-
-      const onKeyDown = (event: KeyboardEvent) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        if (phaseRef.current !== "ready") return;
-        event.preventDefault();
-        requestExitRef.current("keyboard");
-      };
+      const startExit = safeContext(runExit);
 
       const onResize = () => {
         const nextGeometries = getViewportGeometries();
@@ -507,14 +446,11 @@ export function InitialIntro() {
         });
       };
 
-      window.addEventListener("keydown", onKeyDown);
       window.addEventListener("resize", onResize, { passive: true });
       window.visualViewport?.addEventListener("resize", onResize, { passive: true });
       onResize();
 
       gsap.set(logoPaths, { drawSVG: "0 0" });
-      gsap.set(titleCharacters, { autoAlpha: 0, y: 36 });
-      gsap.set(subtitleCharacters, { autoAlpha: 0, y: 18 });
       gsap.set(reportTitleScene, { autoAlpha: 0 });
       gsap.set(reportLine, { autoAlpha: 0, drawSVG: "0 0" });
       gsap.set(reportSubtitle, { autoAlpha: 0 });
@@ -523,22 +459,13 @@ export function InitialIntro() {
       syncReport();
       syncWhitePapers();
 
-      const showStaticCover = () => {
-        gsap.set(logo, { autoAlpha: 0 });
-        gsap.set([panel, titleScene, cueShell], { autoAlpha: 1, scale: 1 });
-        gsap.set([...titleCharacters, ...subtitleCharacters], { autoAlpha: 1, y: 0 });
-        updatePhase("ready");
-        enableInput();
-      };
-
       const playEntry = safeContext(() => {
         if (cancelled) return;
         if (prefersReducedMotion) {
-          showStaticCover();
+          runExit();
           return;
         }
 
-        const panelRevealPosition = `reveal+=${INTRO_TIMING.panelDelay}`;
         const panelGeometry = geometryRef.current;
         const panelCenterX = panelGeometry.x + panelGeometry.width / 2;
         const panelCenterY = panelGeometry.y + panelGeometry.height / 2;
@@ -546,45 +473,18 @@ export function InitialIntro() {
 
         entryTimeline = gsap.timeline({ defaults: { overwrite: "auto" } });
         entryTimeline
-          .call(() => updatePhase("logo"))
+          .call(() => updatePhase("logo"), [], INTRO_SEQUENCE.logoStart)
           .to(logoPaths, {
             drawSVG: "0 100%",
             duration: INTRO_TIMING.logoDraw,
             ease: "power1.inOut",
-          })
+          }, INTRO_SEQUENCE.logoStart)
           .to({}, { duration: INTRO_TIMING.logoHold })
           .to(logo, {
             autoAlpha: 0,
             duration: INTRO_TIMING.logoFade,
             ease: "power1.out",
           })
-          .call(() => updatePhase("revealing"))
-          .set(titleScene, { autoAlpha: 1 }, "reveal")
-          .to(
-            titleCharacters,
-            {
-              autoAlpha: 1,
-              y: 0,
-              duration: INTRO_TIMING.titleCharacter,
-              ease: "power3.out",
-              stagger: (_index, target) =>
-                Number((target as SVGElement).dataset.charIndex) * INTRO_TIMING.titleStagger,
-            },
-            "reveal",
-          )
-          .to(
-            subtitleCharacters,
-            {
-              autoAlpha: 1,
-              y: 0,
-              duration: INTRO_TIMING.subtitleCharacter,
-              ease: "power3.out",
-              stagger: (_index, target) =>
-                Number((target as SVGElement).dataset.charIndex) *
-                INTRO_TIMING.subtitleStagger,
-            },
-            "reveal",
-          )
           .fromTo(
             panel,
             {
@@ -597,21 +497,9 @@ export function InitialIntro() {
               duration: INTRO_TIMING.panelRevealDuration,
               ease: INTRO_TIMING.panelRevealEase,
             },
-            panelRevealPosition,
+            INTRO_SEQUENCE.panelStart,
           )
-          .to(
-            cueShell,
-            {
-              autoAlpha: 1,
-              duration: INTRO_TIMING.panelRevealDuration,
-              ease: INTRO_TIMING.panelRevealEase,
-            },
-            panelRevealPosition,
-          )
-          .call(() => {
-            updatePhase("ready");
-            enableInput();
-          });
+          .call(startExit, [], INTRO_SEQUENCE.curtainStart);
       });
 
       void (document.fonts?.ready ?? Promise.resolve()).then(() => playEntry());
@@ -620,10 +508,6 @@ export function InitialIntro() {
         cancelled = true;
         entryTimeline?.kill();
         exitTimeline?.kill();
-        wheelObserver.kill();
-        touchObserver.kill();
-        requestExitRef.current = () => undefined;
-        window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("resize", onResize);
         window.visualViewport?.removeEventListener("resize", onResize);
         if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
@@ -632,7 +516,6 @@ export function InitialIntro() {
     { scope: rootRef },
   );
 
-  const cueCenterY = geometry.y + geometry.height * (1 - 0.085);
   const paperLayoutsById = new Map(
     whitePaperLayout.papers.map((paper) => [paper.id, paper]),
   );
@@ -758,14 +641,6 @@ export function InitialIntro() {
             shadowFilterId={paperShadowFilterId}
           />
         ))}
-        <MaskedSvgTitle
-          geometry={geometry}
-          curtainClipId={curtainClipId}
-          title={INTRO_COPY.title}
-          subtitle={INTRO_COPY.subtitle}
-          lightAreaFill={INTRO_COLORS.curtain}
-          darkAreaFill={INTRO_COLORS.gold}
-        />
         <LatestReportTitle
           geometry={reportGeometry}
           upperClipId={reportUpperClipId}
@@ -777,14 +652,6 @@ export function InitialIntro() {
       </svg>
 
       <LogoMark />
-
-      <div
-        className={styles.cueShell}
-        data-scroll-cue-shell
-        style={{ left: geometry.viewportWidth / 2, top: cueCenterY }}
-      >
-        <ScrollCueButton disabled={phase !== "ready"} onActivate={requestButtonExit} />
-      </div>
     </main>
   );
 }

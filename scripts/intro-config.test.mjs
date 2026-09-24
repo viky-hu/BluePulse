@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   calculatePanelGeometry,
   calculateReportGeometry,
+  INTRO_SEQUENCE,
   INTRO_TIMING,
 } from "../src/app/_components/intro/intro-config.ts";
 
@@ -33,6 +34,17 @@ function assertPanelTracksReportTop(viewportWidth, viewportHeight) {
 
 assertPanelTracksReportTop(1440, 900);
 assertPanelTracksReportTop(390, 844);
+
+assert.equal(
+  INTRO_SEQUENCE.logoStart,
+  INTRO_SEQUENCE.panelStart,
+  "logo drawing and panel reveal should begin together",
+);
+assert.equal(
+  INTRO_SEQUENCE.curtainStart,
+  INTRO_TIMING.logoDraw + INTRO_TIMING.logoHold + INTRO_TIMING.logoFade,
+  "the curtain should begin automatically after the logo hold and fade",
+);
 
 const desktopPanel = calculatePanelGeometry(3400, 1900);
 assert.equal(desktopPanel.width, 1100);

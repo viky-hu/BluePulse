@@ -45,11 +45,13 @@ export function WhitePaper({
     headlineY + headlineLineHeight * headlineLines.length + layout.height * 0.04,
   );
   const bodyStrokeWidth = clamp(layout.width * 0.008, 1.5, 3.8);
-  const stapleLength = clamp(layout.width * 0.12, 8, 14);
+  const stapleLength = clamp(layout.width * 0.2, 10, 22);
   const stapleRise = stapleLength * Math.sin((40 * Math.PI) / 180);
   const stapleRun = stapleLength * Math.cos((40 * Math.PI) / 180);
-  const stapleStartX = padding * 1.2;
-  const stapleStartY = padding * 1.2;
+  const stapleInset = padding * 1.1;
+  // Align the whole diagonal's top/left bounds, not just its lower-left endpoint.
+  const stapleStartX = stapleInset;
+  const stapleStartY = stapleInset + stapleRise;
   const contentClassName = styles.paperContent;
 
   return (
