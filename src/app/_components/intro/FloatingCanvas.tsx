@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PanelGeometry } from "./intro-config";
 import styles from "./intro.module.css";
 
@@ -7,6 +8,7 @@ interface FloatingCanvasProps {
   shadowFilterId: string;
   lightFill: string;
   darkFill: string;
+  children?: ReactNode;
 }
 
 export function FloatingCanvas({
@@ -15,6 +17,7 @@ export function FloatingCanvas({
   shadowFilterId,
   lightFill,
   darkFill,
+  children,
 }: FloatingCanvasProps) {
   const rectangle = {
     x: geometry.x,
@@ -33,6 +36,7 @@ export function FloatingCanvas({
   return (
     <g className={styles.panelGroup} data-intro-panel>
       <rect {...rectangle} fill={lightFill} filter={`url(#${shadowFilterId})`} />
+      {children}
       <rect {...darkRectangle} fill={darkFill} clipPath={`url(#${curtainClipId})`} />
     </g>
   );

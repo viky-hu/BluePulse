@@ -2,7 +2,6 @@ export interface WhitePaperArticle {
   id: "p0" | "p1" | "p2" | "p3" | "p4" | "p5";
   date: string;
   title: string;
-  url?: string;
 }
 
 export const MOCK_WHITE_PAPER_ARTICLES: WhitePaperArticle[] = [
