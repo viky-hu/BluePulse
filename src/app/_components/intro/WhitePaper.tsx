@@ -84,6 +84,7 @@ export function WhitePaper({
           aria-hidden="true"
         >
           <line
+            data-white-paper-staple-line={article.id}
             x1={stapleStartX}
             y1={stapleStartY}
             x2={stapleStartX + stapleRun}

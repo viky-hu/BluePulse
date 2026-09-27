@@ -3,7 +3,9 @@ export type IntroPhase =
   | "logo"
   | "exiting"
   | "reporting"
-  | "complete";
+  | "complete"
+  | "transitioning"
+  | "main";
 
 export interface PanelGeometry {
   x: number;
@@ -46,6 +48,14 @@ export const INTRO_TIMING = {
   reportSubtitleFade: 0.42,
   reportCueFade: 0.24,
   reportClipSeamBleed: 1.5,
+  mainButtonSettle: 0.22,
+  mainTitleFade: 0.28,
+  mainPaperExit: 1.05,
+  mainGreenDelay: 0.18,
+  mainGreenMorph: 1.35,
+  mainP0Delay: 0.22,
+  mainP0ContentExit: 0.62,
+  mainP0Morph: 1.28,
 } as const;
 
 export const INTRO_SEQUENCE = {
@@ -136,6 +146,21 @@ export interface ReportGeometry {
   };
 }
 
+export interface ReportGreenGeometry {
+  x: number;
+  width: number;
+  top: number;
+  bottom: number;
+  centerY: number;
+}
+
+export interface PanelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface CueGeometry {
   centerX: number;
   centerY: number;
@@ -218,5 +243,52 @@ export function calculateCueGeometry(report: ReportGeometry): CueGeometry {
     centerX: report.subtitle.centerX,
     centerY: Math.max(size / 2, Math.min(desiredCenterY, maxCenterY)),
     size,
+  };
+}
+
+export function calculateMainGreenGeometry(
+  report: ReportGeometry,
+): ReportGreenGeometry {
+  const safeWidth = Math.max(report.viewportWidth, 1);
+  const safeHeight = Math.max(report.viewportHeight, 1);
+  const isMobile = safeWidth <= 768;
+  const left = safeWidth * (isMobile ? 0.27 : 0.24);
+  const rightInset = isMobile
+    ? Math.max(12, safeWidth * 0.045)
+    : safeWidth * (0.5 / 34);
+  const right = Math.max(left + 1, safeWidth - rightInset);
+  const top = Math.max(0, report.green.top - safeHeight * (isMobile ? 0.05 : 0.045));
+
+  return {
+    x: left,
+    width: right - left,
+    top,
+    bottom: safeHeight,
+    centerY: (top + safeHeight) / 2,
+  };
+}
+
+export function calculateMainPanelRect(
+  panel: PanelGeometry,
+  report: ReportGeometry,
+): PanelRect {
+  const green = calculateMainGreenGeometry(report);
+  const safeWidth = Math.max(report.viewportWidth, 1);
+  const safeHeight = Math.max(report.viewportHeight, 1);
+  const leftInset = safeWidth * (safeWidth <= 768 ? 0.04 : 0.025);
+  const rightInset = safeWidth * (safeWidth <= 768 ? 0.06 : 0.05);
+  const left = green.x + leftInset;
+  const right = green.x + green.width - rightInset;
+  const top = Math.max(0, green.top - safeHeight * 0.018);
+  const bottom = Math.max(
+    top + 1,
+    green.bottom - safeHeight * (safeWidth <= 768 ? 0.055 : 0.065),
+  );
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
   };
 }

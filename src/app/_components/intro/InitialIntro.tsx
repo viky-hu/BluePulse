@@ -20,6 +20,8 @@ import {
   INTRO_COLORS,
   INTRO_SEQUENCE,
   INTRO_TIMING,
+  calculateMainGreenGeometry,
+  calculateMainPanelRect,
   type IntroPhase,
   type PanelGeometry,
   type ReportGeometry,
@@ -72,17 +74,21 @@ export function InitialIntro() {
   const phaseRef = useRef<IntroPhase>("boot");
   const reportMotionRef = useRef({
     greenProgress: 0,
+    greenMorphProgress: 0,
     lineDrawProgress: 0,
     lineEraseProgress: 0,
     titleProgress: 0,
     subtitleProgress: 0,
   });
   const whitePaperMotionRef = useRef({ progress: 0, p0ContentProgress: 0 });
+  const panelMotionRef = useRef({ progress: 0 });
+  const startMainTransitionRef = useRef<(() => void) | null>(null);
   const [geometry, setGeometry] = useState(INITIAL_GEOMETRY);
   const [reportGeometry, setReportGeometry] = useState(INITIAL_REPORT_GEOMETRY);
   const [whitePaperLayout, setWhitePaperLayout] = useState(
     INITIAL_WHITE_PAPER_LAYOUT,
   );
+  const [cueDisabled, setCueDisabled] = useState(true);
   const idSeed = useId().replaceAll(":", "");
   const curtainClipId = `intro-curtain-clip-${idSeed}`;
   const shadowFilterId = `intro-panel-shadow-${idSeed}`;
@@ -102,6 +108,10 @@ export function InitialIntro() {
       const logo = select<SVGSVGElement>("[data-intro-logo]")[0];
       const logoPaths = select<SVGPathElement>("[data-logo-path]");
       const panel = select<SVGGElement>("[data-intro-panel]")[0];
+      const panelSurface = select<SVGRectElement>("[data-intro-panel-surface]")[0];
+      const p0StapleLine = select<SVGLineElement>(
+        '[data-white-paper-staple-line="p0"]',
+      )[0];
       const curtain = select<SVGRectElement>("[data-intro-curtain]")[0];
       const curtainClip = select<SVGRectElement>("[data-intro-curtain-clip]")[0];
       const greenCanvas = select<SVGRectElement>("[data-report-green]")[0];
@@ -147,13 +157,17 @@ export function InitialIntro() {
       const curtainProgress = { value: 0 };
       const reportMotion = reportMotionRef.current;
       const whitePaperMotion = whitePaperMotionRef.current;
+      const panelMotion = panelMotionRef.current;
       let entryTimeline: gsap.core.Timeline | undefined;
       let exitTimeline: gsap.core.Timeline | undefined;
+      let mainTransitionTimeline: gsap.core.Timeline | undefined;
       let resizeFrame: number | undefined;
+      let mainTransitionStarted = false;
 
       const updatePhase = (nextPhase: IntroPhase) => {
         phaseRef.current = nextPhase;
         root.dataset.phase = nextPhase;
+        setCueDisabled(nextPhase !== "complete");
       };
 
       const syncCurtain = () => {
@@ -164,19 +178,37 @@ export function InitialIntro() {
       const syncReport = () => {
         const nextGeometry = reportGeometryRef.current;
         const greenProgress = Math.max(0, Math.min(reportMotion.greenProgress, 1));
+        const greenMorphProgress = Math.max(
+          0,
+          Math.min(reportMotion.greenMorphProgress, 1),
+        );
         const lineDrawProgress = Math.max(0, Math.min(reportMotion.lineDrawProgress, 1));
         const lineEraseProgress = Math.max(0, Math.min(reportMotion.lineEraseProgress, 1));
         const titleProgress = Math.max(0, Math.min(reportMotion.titleProgress, 1));
         const subtitleProgress = Math.max(0, Math.min(reportMotion.subtitleProgress, 1));
         const topDistance = nextGeometry.green.centerY - nextGeometry.green.top;
         const bottomDistance = nextGeometry.green.bottom - nextGeometry.green.centerY;
+        const mainGreen = calculateMainGreenGeometry(nextGeometry);
+        const baseGreen = nextGeometry.green;
+        const lerp = (from: number, to: number) =>
+          from + (to - from) * greenMorphProgress;
+        const greenX = lerp(baseGreen.x, mainGreen.x);
+        const greenWidth = lerp(baseGreen.width, mainGreen.width);
+        const greenTop =
+          greenProgress < 1
+            ? nextGeometry.green.centerY - topDistance * greenProgress
+            : lerp(baseGreen.top, mainGreen.top);
+        const greenBottom =
+          greenProgress < 1
+            ? nextGeometry.green.centerY + bottomDistance * greenProgress
+            : lerp(baseGreen.bottom, mainGreen.bottom);
 
         gsap.set(greenCanvas, {
           attr: {
-            x: nextGeometry.green.x,
-            y: nextGeometry.green.centerY - topDistance * greenProgress,
-            width: nextGeometry.green.width,
-            height: (topDistance + bottomDistance) * greenProgress,
+            x: greenX,
+            y: greenTop,
+            width: greenWidth,
+            height: Math.max(0, greenBottom - greenTop),
           },
         });
         const lineDrawEnd = lineDrawProgress * 100;
@@ -231,9 +263,59 @@ export function InitialIntro() {
           },
           autoAlpha: subtitleProgress,
         });
-        if (titleProgress > 0) gsap.set(reportTitleScene, { autoAlpha: 1 });
+        gsap.set(reportTitleScene, { autoAlpha: titleProgress });
         if (lineDrawProgress > 0 && lineEraseProgress < 1) {
           gsap.set(reportLine, { autoAlpha: 1 });
+        }
+      };
+
+      const syncPanel = () => {
+        const current = geometryRef.current;
+        const target = calculateMainPanelRect(
+          current,
+          reportGeometryRef.current,
+        );
+        const progress = Math.max(0, Math.min(panelMotion.progress, 1));
+        const lerp = (from: number, to: number) =>
+          from + (to - from) * progress;
+        const p0 = whitePaperLayoutRef.current.papers.find(
+          (paper) => paper.id === "p0",
+        );
+
+        gsap.set(panelSurface, {
+          attr: {
+            x: lerp(current.x, target.x),
+            y: lerp(current.y, target.y),
+            width: lerp(current.width, target.width),
+            height: lerp(current.height, target.height),
+          },
+        });
+
+        if (p0) {
+          const stapleInset = Math.min(Math.max(p0.width * 0.1, 4), 18) * 1.1;
+          const stapleLength = Math.min(Math.max(p0.width * 0.2, 10), 22);
+          const stapleRise = stapleLength * Math.sin((40 * Math.PI) / 180);
+          const stapleRun = stapleLength * Math.cos((40 * Math.PI) / 180);
+          const source = {
+            x1: stapleInset,
+            y1: stapleInset + stapleRise,
+            x2: stapleInset + stapleRun,
+            y2: stapleInset,
+          };
+          const targetLine = {
+            x1: target.x - p0.x + source.x1,
+            y1: target.y - p0.y + source.y1,
+            x2: target.x - p0.x + source.x2,
+            y2: target.y - p0.y + source.y2,
+          };
+          gsap.set(p0StapleLine, {
+            attr: {
+              x1: lerp(source.x1, targetLine.x1),
+              y1: lerp(source.y1, targetLine.y1),
+              x2: lerp(source.x2, targetLine.x2),
+              y2: lerp(source.y2, targetLine.y2),
+            },
+          });
         }
       };
 
@@ -274,6 +356,7 @@ export function InitialIntro() {
           gsap.set(panel, { autoAlpha: 1, scale: 1 });
           curtainProgress.value = 1;
           reportMotion.greenProgress = 1;
+          reportMotion.greenMorphProgress = 0;
           reportMotion.lineDrawProgress = 0;
           reportMotion.lineEraseProgress = 0;
           reportMotion.titleProgress = 1;
@@ -282,6 +365,8 @@ export function InitialIntro() {
           whitePaperMotionRef.current.p0ContentProgress = 1;
           syncCurtain();
           syncReport();
+          panelMotion.progress = 0;
+          syncPanel();
           syncWhitePapers();
           gsap.set(p0ContentPieces, { autoAlpha: 1 });
           gsap.set(reportLine, { drawSVG: "0 0", autoAlpha: 0 });
@@ -438,7 +523,95 @@ export function InitialIntro() {
         );
       };
 
+      const startMainTransition = () => {
+        if (mainTransitionStarted || phaseRef.current !== "complete") return;
+        mainTransitionStarted = true;
+        updatePhase("transitioning");
+
+        if (prefersReducedMotion) {
+          reportMotion.titleProgress = 0;
+          reportMotion.subtitleProgress = 0;
+          reportMotion.greenMorphProgress = 1;
+          whitePaperMotion.progress = 0;
+          whitePaperMotion.p0ContentProgress = 0;
+          panelMotion.progress = 1;
+          syncReport();
+          syncWhitePapers();
+          syncPanel();
+          gsap.set(cueShell, { autoAlpha: 0 });
+          updatePhase("main");
+          return;
+        }
+
+        mainTransitionTimeline = gsap
+          .timeline({
+            defaults: { overwrite: "auto" },
+            onComplete: () => updatePhase("main"),
+          })
+          .to(
+            reportMotion,
+            {
+              titleProgress: 0,
+              subtitleProgress: 0,
+              duration: INTRO_TIMING.mainTitleFade,
+              ease: "power2.in",
+              onUpdate: syncReport,
+            },
+            0,
+          )
+          .to(
+            cueShell,
+            {
+              autoAlpha: 0,
+              duration: INTRO_TIMING.reportCueFade,
+              ease: "power2.in",
+            },
+            INTRO_TIMING.mainButtonSettle,
+          )
+          .to(
+            whitePaperMotion,
+            {
+              progress: 0,
+              duration: INTRO_TIMING.mainPaperExit,
+              ease: "power3.in",
+              onUpdate: syncWhitePapers,
+            },
+            0.06,
+          )
+          .to(
+            reportMotion,
+            {
+              greenMorphProgress: 1,
+              duration: INTRO_TIMING.mainGreenMorph,
+              ease: reportFluidEase,
+              onUpdate: syncReport,
+            },
+            INTRO_TIMING.mainGreenDelay,
+          )
+          .to(
+            whitePaperMotion,
+            {
+              p0ContentProgress: 0,
+              duration: INTRO_TIMING.mainP0ContentExit,
+              ease: "power3.in",
+              onUpdate: syncWhitePapers,
+            },
+            INTRO_TIMING.mainP0Delay,
+          )
+          .to(
+            panelMotion,
+            {
+              progress: 1,
+              duration: INTRO_TIMING.mainP0Morph,
+              ease: reportFluidEase,
+              onUpdate: syncPanel,
+            },
+            INTRO_TIMING.mainP0Delay,
+          );
+      };
+
       const startExit = safeContext(runExit);
+      startMainTransitionRef.current = safeContext(startMainTransition);
 
       const onResize = () => {
         const nextGeometries = getViewportGeometries();
@@ -451,6 +624,7 @@ export function InitialIntro() {
         syncCurtain();
         syncReport();
         syncWhitePapers(nextGeometries.whitePapers);
+        syncPanel();
 
         if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
         resizeFrame = requestAnimationFrame(() => {
@@ -459,6 +633,7 @@ export function InitialIntro() {
             syncCurtain();
             syncReport();
             syncWhitePapers(nextGeometries.whitePapers);
+            syncPanel();
           })();
         });
       };
@@ -476,6 +651,7 @@ export function InitialIntro() {
       syncCurtain();
       syncReport();
       syncWhitePapers();
+      syncPanel();
 
       const playEntry = safeContext(() => {
         if (cancelled) return;
@@ -526,6 +702,8 @@ export function InitialIntro() {
         cancelled = true;
         entryTimeline?.kill();
         exitTimeline?.kill();
+        mainTransitionTimeline?.kill();
+        startMainTransitionRef.current = null;
         window.removeEventListener("resize", onResize);
         window.visualViewport?.removeEventListener("resize", onResize);
         if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
@@ -677,7 +855,10 @@ export function InitialIntro() {
         data-scroll-cue-shell
         style={{ left: cueGeometry.centerX, top: cueGeometry.centerY }}
       >
-        <ScrollCueButton />
+        <ScrollCueButton
+          disabled={cueDisabled}
+          onClick={() => startMainTransitionRef.current?.()}
+        />
       </div>
     </main>
   );

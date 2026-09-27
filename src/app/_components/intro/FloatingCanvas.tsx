@@ -35,7 +35,12 @@ export function FloatingCanvas({
 
   return (
     <g className={styles.panelGroup} data-intro-panel>
-      <rect {...rectangle} fill={lightFill} filter={`url(#${shadowFilterId})`} />
+      <rect
+        {...rectangle}
+        data-intro-panel-surface
+        fill={lightFill}
+        filter={`url(#${shadowFilterId})`}
+      />
       {children}
       <rect {...darkRectangle} fill={darkFill} clipPath={`url(#${curtainClipId})`} />
     </g>
