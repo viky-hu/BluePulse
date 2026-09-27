@@ -17,6 +17,15 @@ export interface PanelGeometry {
   viewportHeight: number;
 }
 
+/** Legacy report-scene geometry kept for the secondary components that remain
+ * in the feature folder while the intro experience uses the panel scene. */
+export interface ReportGeometry {
+  green: { x: number; top: number; centerY: number; bottom: number; width: number };
+  title: { centerX: number; centerY: number; fontSize: number };
+  subtitle: { centerX: number; y: number; fontSize: number };
+  line: { x1: number; x2: number; centerY: number; strokeWidth: number };
+}
+
 export const INTRO_COLORS = {
   curtain: "#353330",
   page: "#F2F2F2",
