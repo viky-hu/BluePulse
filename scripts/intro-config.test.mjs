@@ -1,10 +1,32 @@
 import assert from "node:assert/strict";
 import {
+  calculateCueGeometry,
   calculatePanelGeometry,
   calculateReportGeometry,
   INTRO_SEQUENCE,
   INTRO_TIMING,
 } from "../src/app/_components/intro/intro-config.ts";
+
+function assertCueBelowSubtitle(viewportWidth, viewportHeight) {
+  const report = calculateReportGeometry(viewportWidth, viewportHeight);
+  const cue = calculateCueGeometry(report);
+  const safeBottom = viewportHeight - cue.size / 2;
+
+  assert.equal(cue.centerX, report.subtitle.centerX, "cue should align with subtitle center");
+  assert.ok(cue.centerY > report.subtitle.y, "cue should sit below the subtitle");
+  assert.ok(cue.centerY <= safeBottom + 0.001, "cue should remain within the viewport");
+}
+
+assertCueBelowSubtitle(1440, 900);
+assertCueBelowSubtitle(390, 844);
+
+const shortReport = calculateReportGeometry(320, 200);
+const shortCue = calculateCueGeometry(shortReport);
+assert.ok(
+  shortCue.centerY <= 200 - shortCue.size / 2 + 0.001,
+  "short viewports should clamp the cue to the safe bottom edge",
+);
+assert.equal(shortCue.size, 64, "mobile cue should use the compact size");
 
 function assertPanelTracksReportTop(viewportWidth, viewportHeight) {
   const panel = calculatePanelGeometry(viewportWidth, viewportHeight);

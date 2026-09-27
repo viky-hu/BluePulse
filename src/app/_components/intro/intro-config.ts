@@ -44,6 +44,7 @@ export const INTRO_TIMING = {
   reportTitleHold: 0.15,
   reportLineErase: 0.6,
   reportSubtitleFade: 0.42,
+  reportCueFade: 0.24,
   reportClipSeamBleed: 1.5,
 } as const;
 
@@ -135,6 +136,12 @@ export interface ReportGeometry {
   };
 }
 
+export interface CueGeometry {
+  centerX: number;
+  centerY: number;
+  size: number;
+}
+
 export function calculateReportGeometry(
   viewportWidth: number,
   viewportHeight: number,
@@ -188,5 +195,28 @@ export function calculateReportGeometry(
       y: centerY + titleFontSize * (isMobile ? 1.15 : 1.08),
       fontSize: subtitleFontSize,
     },
+  };
+}
+
+export function calculateCueGeometry(report: ReportGeometry): CueGeometry {
+  const safeWidth = Math.max(report.viewportWidth, 1);
+  const safeHeight = Math.max(report.viewportHeight, 1);
+  const isMobile = safeWidth <= 768;
+  const size = isMobile ? 64 : 76;
+  const subtitleHalfHeight = report.subtitle.fontSize * 0.5;
+  const subtitleGap = isMobile
+    ? Math.max(36, Math.min(64, safeHeight * 0.08))
+    : Math.max(52, Math.min(96, safeHeight * 0.1));
+  const safeBottom = isMobile
+    ? Math.max(12, Math.min(28, safeHeight * 0.06))
+    : Math.max(20, Math.min(42, safeHeight * 0.05));
+  const desiredCenterY =
+    report.subtitle.y + subtitleHalfHeight + subtitleGap + size / 2;
+  const maxCenterY = safeHeight - size / 2 - safeBottom;
+
+  return {
+    centerX: report.subtitle.centerX,
+    centerY: Math.max(size / 2, Math.min(desiredCenterY, maxCenterY)),
+    size,
   };
 }

@@ -10,10 +10,12 @@ import { GreenCanvas } from "./GreenCanvas";
 import { LatestReportTitle } from "./LatestReportTitle";
 import { LogoMark } from "./LogoMark";
 import { ReportLine } from "./ReportLine";
+import { ScrollCueButton } from "./ScrollCueButton";
 import { WhitePaper } from "./WhitePaper";
 import { MOCK_WHITE_PAPER_ARTICLES } from "./white-paper-data";
 import {
   calculatePanelGeometry,
+  calculateCueGeometry,
   calculateReportGeometry,
   INTRO_COLORS,
   INTRO_SEQUENCE,
@@ -113,6 +115,7 @@ export function InitialIntro() {
         "[data-report-title-lower]",
       )[0];
       const reportSubtitle = select<SVGTextElement>("[data-report-subtitle]")[0];
+      const cueShell = select<HTMLDivElement>("[data-scroll-cue-shell]")[0];
       const reportUpperClip = select<SVGRectElement>("[data-report-upper-clip]")[0];
       const reportLowerClip = select<SVGRectElement>("[data-report-lower-clip]")[0];
       const paperGroups = select<SVGGElement>("[data-white-paper-secondary]");
@@ -267,6 +270,7 @@ export function InitialIntro() {
 
         if (prefersReducedMotion) {
           gsap.set(logo, { autoAlpha: 0 });
+          gsap.set(cueShell, { autoAlpha: 1 });
           gsap.set(panel, { autoAlpha: 1, scale: 1 });
           curtainProgress.value = 1;
           reportMotion.greenProgress = 1;
@@ -379,6 +383,19 @@ export function InitialIntro() {
             `titleComplete+=${INTRO_TIMING.reportSubtitleDelay}`,
           )
           .addLabel(
+            "subtitleComplete",
+            `titleComplete+=${INTRO_TIMING.reportSubtitleDelay + INTRO_TIMING.reportSubtitleFade}`,
+          )
+          .to(
+            cueShell,
+            {
+              autoAlpha: 1,
+              duration: INTRO_TIMING.reportCueFade,
+              ease: "power2.out",
+            },
+            "subtitleComplete",
+          )
+          .addLabel(
             "eraseStart",
             `titleComplete+=${INTRO_TIMING.reportTitleHold}`,
           )
@@ -454,6 +471,7 @@ export function InitialIntro() {
       gsap.set(reportTitleScene, { autoAlpha: 0 });
       gsap.set(reportLine, { autoAlpha: 0, drawSVG: "0 0" });
       gsap.set(reportSubtitle, { autoAlpha: 0 });
+      gsap.set(cueShell, { autoAlpha: 0 });
       gsap.set(p0ContentPieces, { autoAlpha: 0 });
       syncCurtain();
       syncReport();
@@ -522,6 +540,7 @@ export function InitialIntro() {
   const articlesById = new Map(
     MOCK_WHITE_PAPER_ARTICLES.map((article) => [article.id, article]),
   );
+  const cueGeometry = calculateCueGeometry(reportGeometry);
 
   return (
     <main
@@ -652,6 +671,14 @@ export function InitialIntro() {
       </svg>
 
       <LogoMark />
+
+      <div
+        className={styles.cueShell}
+        data-scroll-cue-shell
+        style={{ left: cueGeometry.centerX, top: cueGeometry.centerY }}
+      >
+        <ScrollCueButton />
+      </div>
     </main>
   );
 }
