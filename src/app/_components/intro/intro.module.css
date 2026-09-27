@@ -18,82 +18,28 @@
   overflow: visible;
 }
 
+.panelGroup,
+.titleScene {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .panelGroup {
-  opacity: 0;
-  visibility: hidden;
-}
-
-.paperMotionLayer {
   transform-box: fill-box;
-  transform-origin: 0 0;
+  transform-origin: center;
 }
 
-.paperMotionLayerAnimated {
-  opacity: 0;
-  visibility: hidden;
-}
-
-.paperGroup {
-  transform-box: fill-box;
-  transform-origin: 0 0;
-}
-
-.paperSurface {
-  stroke: none;
-}
-
-.paperStaple {
-  fill: none;
-  stroke: #9b9d99;
-  stroke-linecap: round;
-  stroke-width: 1.6;
-}
-
-.paperContent {
-  pointer-events: none;
-  transform-box: fill-box;
-  transform-origin: 0 0;
-}
-
-.paperDate {
-  fill: #9b9d99;
-  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.paperHeadline {
-  fill: #242522;
-  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.paperBody {
-  fill: none;
-  stroke: #c6c9c5;
-  stroke-linecap: round;
-}
-
-.paperBodyLine {
-  fill: none;
-}
-
-.reportScene {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.reportTitle {
-  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
+.mainTitle {
+  font-family: var(--font-google-sans), "Google Sans", Arial, sans-serif;
+  font-size: clamp(72px, 8.5vw, 164px);
   font-weight: 700;
   font-variation-settings: "GRAD" 0;
   letter-spacing: 0;
 }
 
-.reportSubtitle {
-  font-family: var(--font-microsoft-rounded), "Microsoft YaHei", sans-serif;
+.subtitle {
+  font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+  font-size: clamp(17px, 1.3vw, 24px);
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -118,6 +64,73 @@
   stroke-dashoffset: 0;
 }
 
+.cueShell {
+  position: absolute;
+  z-index: 3;
+  width: 76px;
+  height: 76px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -50%);
+}
+
+.scrollCue {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: #fff;
+  background: transparent;
+  border: 3px solid currentColor;
+  border-radius: 50%;
+  cursor: pointer;
+  place-items: center;
+  transition: transform 220ms ease, background-color 220ms ease;
+}
+
+.scrollCue:disabled {
+  cursor: default;
+}
+
+.scrollCue:not(:disabled):hover,
+.scrollCue:not(:disabled):focus-visible {
+  background: rgb(255 255 255 / 8%);
+  outline: none;
+  transform: translateY(4px);
+}
+
+.scrollCue:focus-visible {
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 28%);
+}
+
+.arrowTrack {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 54px;
+  overflow: hidden;
+}
+
+.arrow {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  width: 36px;
+  height: 36px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: arrowCycle 1.65s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.arrow + .arrow {
+  animation-delay: 0.825s;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -128,4 +141,62 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+@keyframes arrowCycle {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+
+  28%,
+  62% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+
+@media (max-width: 768px) {
+  .mainTitle {
+    font-size: clamp(48px, 14vw, 78px);
+  }
+
+  .subtitle {
+    font-size: clamp(14px, 4vw, 18px);
+  }
+
+  .cueShell {
+    width: 64px;
+    height: 64px;
+  }
+
+  .arrowTrack {
+    width: 36px;
+    height: 46px;
+  }
+
+  .arrow {
+    left: 3px;
+    width: 30px;
+    height: 30px;
+    stroke-width: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrow {
+    animation: none;
+  }
+
+  .arrow + .arrow {
+    display: none;
+  }
+
+  .scrollCue {
+    transition: none;
+  }
 }
