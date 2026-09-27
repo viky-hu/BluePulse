@@ -1,0 +1,9 @@
+[
+  {"slug": "policing", "name_zh": "警务应用", "name_en": "Policing"},
+  {"slug": "artificial-intelligence", "name_zh": "AI 与大模型", "name_en": "AI & LLMs"},
+  {"slug": "public-safety-tech", "name_zh": "公共安全技术装备", "name_en": "Public Safety Technology"},
+  {"slug": "cybersecurity", "name_zh": "网络与数据安全", "name_en": "Cybersecurity & Data"},
+  {"slug": "policy-standards", "name_zh": "政策与标准", "name_en": "Policy & Standards"},
+  {"slug": "procurement-projects", "name_zh": "采购与项目", "name_en": "Procurement & Projects"},
+  {"slug": "research", "name_zh": "研究成果", "name_en": "Research"}
+]

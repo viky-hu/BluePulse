@@ -1,0 +1,56 @@
+[
+  {
+    "slug": "gdelt-public-news",
+    "name": "GDELT 公共新闻检索",
+    "base_url": "https://api.gdeltproject.org/api/v2/doc/doc",
+    "adapter": "gdelt",
+    "region": null,
+    "country_code": null,
+    "language": "multi",
+    "source_type": "aggregator",
+    "topics": ["policing", "artificial-intelligence", "public-safety-tech"],
+    "trust_level": 2,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["api.gdeltproject.org"],
+      "query": "(\"police technology\" OR \"law enforcement technology\" OR \"police artificial intelligence\" OR \"police body camera\")",
+      "timespan": "7d",
+      "maxrecords": 50
+    }
+  },
+  {
+    "slug": "police1-recent",
+    "name": "Police1 Recently Published",
+    "base_url": "https://www.police1.com/recently-published.rss",
+    "adapter": "rss",
+    "region": "foreign",
+    "country_code": "US",
+    "language": "en",
+    "source_type": "media",
+    "topics": ["policing", "public-safety-tech"],
+    "trust_level": 3,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["police1.com", "www.police1.com"],
+      "max_items": 50
+    }
+  },
+  {
+    "slug": "openalex-policing-tech",
+    "name": "OpenAlex 警务科技研究",
+    "base_url": "https://api.openalex.org/works",
+    "adapter": "openalex",
+    "region": null,
+    "country_code": null,
+    "language": "en",
+    "source_type": "academic",
+    "topics": ["research", "artificial-intelligence", "public-safety-tech"],
+    "trust_level": 3,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["api.openalex.org"],
+      "search": "policing technology OR law enforcement artificial intelligence OR police surveillance",
+      "per_page": 25
+    }
+  }
+]

@@ -1,6 +1,11 @@
 "use client";
 
+<<<<<<< HEAD
 import { useId, useRef, useState } from "react";
+=======
+import { useCallback, useId, useRef, useState } from "react";
+import type { ReactNode } from "react";
+>>>>>>> 0dddb298933755ffa692a5f7b4f2cbe120520e67
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 import { CustomEase } from "gsap/CustomEase";
@@ -11,7 +16,10 @@ import { LatestReportTitle } from "./LatestReportTitle";
 import { LogoMark } from "./LogoMark";
 import { ReportLine } from "./ReportLine";
 import { WhitePaper } from "./WhitePaper";
-import { MOCK_WHITE_PAPER_ARTICLES } from "./white-paper-data";
+import {
+  MOCK_WHITE_PAPER_ARTICLES,
+  type WhitePaperArticle,
+} from "./white-paper-data";
 import {
   calculatePanelGeometry,
   calculateReportGeometry,
@@ -47,6 +55,26 @@ const REPORT_TITLE_SPLIT_EASE_PATH =
 const REPORT_TEXT_EASE_PATH =
   "M0,0 C0.08,0.25 0.22,0.58 0.42,0.82 C0.62,0.95 0.84,0.995 1,1";
 
+function LinkedWhitePaper({
+  article,
+  children,
+}: {
+  article: WhitePaperArticle;
+  children: ReactNode;
+}) {
+  if (!article.url) return children;
+  return (
+    <a
+      href={article.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`打开来源原文：${article.title}`}
+    >
+      {children}
+    </a>
+  );
+}
+
 function getViewportGeometries() {
   const viewport = window.visualViewport;
   const width = Math.round(viewport?.width ?? window.innerWidth);
@@ -59,7 +87,11 @@ function getViewportGeometries() {
   };
 }
 
-export function InitialIntro() {
+export function InitialIntro({
+  articles = MOCK_WHITE_PAPER_ARTICLES,
+}: {
+  articles?: WhitePaperArticle[];
+}) {
   const rootRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<SVGSVGElement>(null);
   const geometryRef = useRef<PanelGeometry>(INITIAL_GEOMETRY);
@@ -421,7 +453,19 @@ export function InitialIntro() {
         );
       };
 
+<<<<<<< HEAD
       const startExit = safeContext(runExit);
+=======
+      requestExitRef.current = (source) => safeContext(() => runExit(source))();
+
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.target instanceof Element && event.target.closest("a[href]")) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (phaseRef.current !== "ready") return;
+        event.preventDefault();
+        requestExitRef.current("keyboard");
+      };
+>>>>>>> 0dddb298933755ffa692a5f7b4f2cbe120520e67
 
       const onResize = () => {
         const nextGeometries = getViewportGeometries();
@@ -520,7 +564,7 @@ export function InitialIntro() {
     whitePaperLayout.papers.map((paper) => [paper.id, paper]),
   );
   const articlesById = new Map(
-    MOCK_WHITE_PAPER_ARTICLES.map((article) => [article.id, article]),
+    articles.map((article) => [article.id, article]),
   );
 
   return (
@@ -536,7 +580,8 @@ export function InitialIntro() {
         className={styles.scene}
         viewBox={`0 0 ${geometry.viewportWidth} ${geometry.viewportHeight}`}
         preserveAspectRatio="none"
-        aria-hidden="true"
+        role="group"
+        aria-label="精选警务科技情报；聚焦白纸可打开来源原文"
       >
         <defs>
           <clipPath id={curtainClipId} clipPathUnits="userSpaceOnUse">
@@ -619,6 +664,7 @@ export function InitialIntro() {
           geometry={reportGeometry}
           fill={INTRO_COLORS.reportGreen}
         />
+<<<<<<< HEAD
         <FloatingCanvas
           geometry={geometry}
           curtainClipId={curtainClipId}
@@ -641,6 +687,44 @@ export function InitialIntro() {
             shadowFilterId={paperShadowFilterId}
           />
         ))}
+=======
+        <LinkedWhitePaper article={articlesById.get("p0")!}>
+          <FloatingCanvas
+            geometry={geometry}
+            curtainClipId={curtainClipId}
+            shadowFilterId={shadowFilterId}
+            lightFill={INTRO_COLORS.panel}
+            darkFill={INTRO_COLORS.curtain}
+          >
+            <WhitePaper
+              article={articlesById.get("p0")!}
+              layout={paperLayoutsById.get("p0")!}
+              animated={false}
+              renderSurface={false}
+            />
+          </FloatingCanvas>
+        </LinkedWhitePaper>
+        {(["p2", "p1", "p3", "p4", "p5"] as const).map((id) => {
+          const article = articlesById.get(id)!;
+          return (
+            <LinkedWhitePaper key={id} article={article}>
+              <WhitePaper
+                article={article}
+                layout={paperLayoutsById.get(id)!}
+                shadowFilterId={paperShadowFilterId}
+              />
+            </LinkedWhitePaper>
+          );
+        })}
+        <MaskedSvgTitle
+          geometry={geometry}
+          curtainClipId={curtainClipId}
+          title={INTRO_COPY.title}
+          subtitle={INTRO_COPY.subtitle}
+          lightAreaFill={INTRO_COLORS.curtain}
+          darkAreaFill={INTRO_COLORS.gold}
+        />
+>>>>>>> 0dddb298933755ffa692a5f7b4f2cbe120520e67
         <LatestReportTitle
           geometry={reportGeometry}
           upperClipId={reportUpperClipId}
