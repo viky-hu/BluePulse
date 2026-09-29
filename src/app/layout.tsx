@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import "cn-fontsource-ding-talk-jin-bu-ti-regular/font.css";
 import "./globals.css";
 
 const googleSans = localFont({
@@ -17,8 +18,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="zh-CN">
-      <body className={googleSans.variable}>{children}</body>
+    <html lang="zh-CN" className={googleSans.variable}>
+      <body>{children}</body>
     </html>
   );
 }

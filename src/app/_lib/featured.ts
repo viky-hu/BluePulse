@@ -1,7 +1,4 @@
-import {
-  MOCK_WHITE_PAPER_ARTICLES,
-  type WhitePaperArticle,
-} from "../_components/intro/white-paper-data";
+import type { WhitePaperArticle } from "../_components/intro/white-paper-data";
 
 interface FeaturedArticle {
   title?: unknown;
@@ -17,8 +14,6 @@ interface FeaturedItem {
 interface FeaturedResponse {
   items?: FeaturedItem[];
 }
-
-const WHITE_PAPER_IDS = ["p0", "p1", "p2", "p3", "p4", "p5"] as const;
 
 function formatDate(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -46,42 +41,35 @@ export async function getFeaturedWhitePapers(): Promise<WhitePaperArticle[]> {
       cache: "no-store",
       signal: AbortSignal.timeout(2000),
     });
-    if (!response.ok) return MOCK_WHITE_PAPER_ARTICLES;
+    if (!response.ok) return [];
 
     const payload = (await response.json()) as FeaturedResponse;
-    if (!Array.isArray(payload.items) || payload.items.length === 0) {
-      return MOCK_WHITE_PAPER_ARTICLES;
-    }
-
-    const articles = new Map(
-      MOCK_WHITE_PAPER_ARTICLES.map((article) => [article.id, article]),
-    );
+    if (!Array.isArray(payload.items)) return [];
+    const articles: WhitePaperArticle[] = [];
 
     for (const item of payload.items) {
       if (
         typeof item.slot !== "string" ||
-        !WHITE_PAPER_IDS.includes(item.slot as (typeof WHITE_PAPER_IDS)[number]) ||
+        !/^p[0-5]$/.test(item.slot) ||
         !item.article
       ) {
         continue;
       }
 
       const id = item.slot as WhitePaperArticle["id"];
-      const fallback = articles.get(id)!;
+      const title = typeof item.article.title === "string" ? item.article.title.trim() : "";
+      if (!title) continue;
       const article: WhitePaperArticle = {
         id,
-        date: formatDate(item.article.published_at) ?? fallback.date,
-        title:
-          typeof item.article.title === "string" && item.article.title.trim()
-            ? item.article.title.trim()
-            : fallback.title,
+        date: formatDate(item.article.published_at) ?? "日期待补",
+        title,
       };
       if (isSafeHttpUrl(item.article.url)) article.url = item.article.url;
-      articles.set(id, article);
+      articles.push(article);
     }
 
-    return WHITE_PAPER_IDS.map((id) => articles.get(id)!);
+    return articles;
   } catch {
-    return MOCK_WHITE_PAPER_ARTICLES;
+    return [];
   }
 }

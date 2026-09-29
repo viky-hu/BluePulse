@@ -1,0 +1,37 @@
+<h2>先确认 p0 白纸与菜单的空间关系</h2>
+<p class="subtitle">三种都遵守“右侧白纸就是唯一内容容器”，差别只在白纸占比与菜单留白。点击最接近你预期的一项。</p>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>右侧约 2/3 · 菜单独立浮置</h3>
+      <div style="height:150px;display:flex;gap:12px;margin-top:12px;background:#f1f0eb;padding:14px">
+        <div style="width:25%;background:#324d42;position:relative"><div style="position:absolute;inset:12px 8px;background:#d4d0c6"></div></div>
+        <div style="flex:1;background:#fff;padding:12px"><div style="height:10px;width:35%;background:#333;margin-bottom:14px"></div><div style="height:1px;background:#ddd;margin-bottom:10px"></div><div style="height:10px;width:90%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:76%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:82%;background:#ddd;margin:8px 0"></div></div>
+      </div>
+      <p>菜单固定完整展开；白纸横向余量最少，资讯密度最高。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>右侧约 70% · 白纸更宽</h3>
+      <div style="height:150px;display:flex;gap:10px;margin-top:12px;background:#f1f0eb;padding:14px">
+        <div style="width:21%;background:#324d42;position:relative"><div style="position:absolute;inset:12px 8px;background:#d4d0c6"></div></div>
+        <div style="flex:1;background:#fff;padding:12px"><div style="height:10px;width:35%;background:#333;margin-bottom:14px"></div><div style="height:1px;background:#ddd;margin-bottom:10px"></div><div style="height:10px;width:90%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:76%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:82%;background:#ddd;margin:8px 0"></div></div>
+      </div>
+      <p>更强调阅读区；适合正文、摘要和缩略图并列，但菜单可用宽度更紧。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>右侧约 62% · 左侧更宽</h3>
+      <div style="height:150px;display:flex;gap:14px;margin-top:12px;background:#f1f0eb;padding:14px">
+        <div style="width:29%;background:#324d42;position:relative"><div style="position:absolute;inset:12px 8px;background:#d4d0c6"></div></div>
+        <div style="flex:1;background:#fff;padding:12px"><div style="height:10px;width:35%;background:#333;margin-bottom:14px"></div><div style="height:1px;background:#ddd;margin-bottom:10px"></div><div style="height:10px;width:90%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:76%;background:#ddd;margin:8px 0"></div><div style="height:10px;width:82%;background:#ddd;margin:8px 0"></div></div>
+      </div>
+      <p>菜单与分类树拥有更多横向空间；白纸仍是主容器但内容压缩更明显。</p>
+    </div>
+  </div>
+</div>

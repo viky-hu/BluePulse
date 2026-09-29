@@ -11,6 +11,9 @@ importers:
       '@gsap/react':
         specifier: ^2.1.2
         version: 2.1.2(gsap@3.15.0)(react@19.2.8)
+      cn-fontsource-ding-talk-jin-bu-ti-regular:
+        specifier: 1.0.3
+        version: 1.0.3
       gsap:
         specifier: ^3.15.0
         version: 3.15.0
@@ -891,6 +894,9 @@ packages:
 
   client-only@0.0.1:
     resolution: {integrity: sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==}
+
+  cn-fontsource-ding-talk-jin-bu-ti-regular@1.0.3:
+    resolution: {integrity: sha512-DeSn8ooCvRnYxC2306F/rFb5jI9AquYGwGlTlc1LeJjpoSE/rKPndGlGrjyFFXsPyJq4vbrlU+Rwtp2DzWXEJw==}
 
   color-convert@2.0.1:
     resolution: {integrity: sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==}
@@ -2813,6 +2819,8 @@ snapshots:
       supports-color: 7.2.0
 
   client-only@0.0.1: {}
+
+  cn-fontsource-ding-talk-jin-bu-ti-regular@1.0.3: {}
 
   color-convert@2.0.1:
     dependencies:

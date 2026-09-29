@@ -3,6 +3,9 @@
 :root {
   --background: #f2f2f2;
   --foreground: #353330;
+  --font-chinese: "DingTalk JinBuTi", "DingTalk Sans", "PingFang SC",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-ui: var(--font-google-sans), "Google Sans", var(--font-chinese);
 }
 
 * {
@@ -20,7 +23,7 @@ body {
 
 body {
   color: var(--foreground);
-  font-family: var(--font-google-sans), "Google Sans", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
 }
 
 button,
