@@ -28,9 +28,9 @@
   gap: 8px;
   padding: 14px 13px 11px;
   overflow: auto;
-  background: #f9faf7;
-  border: 1px solid rgb(37 42 38 / 10%);
-  box-shadow: 0 13px 40px rgb(20 31 24 / 10%);
+  background: #FDFDFD;
+  border: 1px solid rgb(37 42 38 / 7%);
+  box-shadow: 0 10px 30px rgb(20 31 24 / 7%);
 }
 
 .menuItem {
@@ -733,7 +733,7 @@
   padding: 0 9px;
   color: #758078;
   font-size: 12px;
-  background: #f9faf7;
+  background: #FDFDFD;
 }
 
 .treeHeading > span:last-child {
@@ -939,8 +939,8 @@
     width: min(86vw, 320px);
     padding: 10px;
     visibility: hidden;
-    background: #f9faf7;
-    box-shadow: 0 14px 42px rgb(20 31 24 / 19%);
+    background: #FDFDFD;
+    box-shadow: 0 12px 34px rgb(20 31 24 / 12%);
     transform: translateX(-108%);
   }
 
