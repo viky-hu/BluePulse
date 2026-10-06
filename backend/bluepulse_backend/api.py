@@ -14,12 +14,16 @@ from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, func, inspect, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from bluepulse_backend.db import create_database_engine
-from bluepulse_backend.models import Article, FeaturedEdition, FeaturedSlot, Source, Topic
+from bluepulse_backend.editorial import (
+    featured_article_condition, featured_reason, public_article_conditions,
+)
+from bluepulse_backend.ingestion.llm import MAX_TRANSLATION_CHARS
+from bluepulse_backend.models import Article, ArticleEntity, Entity, FeaturedEdition, FeaturedSlot, Source, Topic
 
 router = APIRouter(prefix="/api/v1")
 
@@ -58,10 +62,11 @@ def _filter_key(
     region: str | None,
     source: UUID | None,
     source_type: str | None,
+    entity: str | None,
     q: str | None,
 ) -> str:
     payload = json.dumps(
-        [period, topic, region, str(source) if source else None, source_type, q],
+        [period, topic, region, str(source) if source else None, source_type, entity, q],
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -122,12 +127,38 @@ def _source_out(source: Source) -> dict[str, object]:
     }
 
 
+def _content_status(article: Article) -> tuple[str, str]:
+    body = (article.source_body or "").strip()
+    if body:
+        body_status = (article.parse_status if article.parse_status in
+                       {"full_text", "abstract_only", "summary_only"} else "partial_text")
+    else:
+        body_status = "summary_only" if (article.zh_summary or "").strip() else "metadata_only"
+    if not article.language.lower().startswith("en"):
+        translation_status = "not_required"
+    elif (article.zh_body or "").strip():
+        translation_status = "available"
+    elif article.translation_status == "failed":
+        translation_status = "failed"
+    elif body_status != "full_text":
+        translation_status = "source_unavailable"
+    elif len(body) > MAX_TRANSLATION_CHARS:
+        translation_status = "too_long"
+    else:
+        translation_status = "pending"
+    return body_status, translation_status
+
+
 def _card_out(article: Article) -> dict[str, object]:
+    body_status, translation_status = _content_status(article)
+    preview = next((media for media in sorted(article.media, key=lambda item: item.position)
+                    if media.kind == "image" and media.status == "linked"), None)
     return {
         "id": str(article.id),
         "title": article.zh_title or article.source_title,
         "source_title": article.source_title,
         "published_at": _iso_utc(article.published_at),
+        "first_seen_at": _iso_utc(article.first_seen_at),
         "language": article.language,
         "region": article.region,
         "country_code": article.country_code,
@@ -136,6 +167,19 @@ def _card_out(article: Article) -> dict[str, object]:
         "importance_score": article.importance_score,
         "processing_status": article.processing_status,
         "parse_status": article.parse_status,
+        "body_status": body_status,
+        "translation_status": translation_status,
+        "media_preview": ({
+            "kind": preview.kind,
+            "url": preview.url,
+            "thumbnail_url": preview.thumbnail_url,
+            "caption": preview.caption,
+            "alt_text": preview.alt_text,
+        } if preview else None),
+        "entities": [
+            {"slug": entity.slug, "name": entity.name, "entity_type": entity.entity_type}
+            for entity in article.entities if entity.enabled
+        ],
     }
 
 
@@ -177,6 +221,41 @@ def list_taxonomy(session: SessionDep) -> dict[str, object]:
     }
 
 
+@router.get("/entities")
+def list_entities(
+    session: SessionDep,
+    entity_type: str | None = Query(None, alias="type", pattern="^(vendor|model|organization)$"),
+    region: str | None = Query(None, pattern="^(domestic|foreign)$"),
+    q: str | None = Query(None, max_length=120),
+    cursor: str | None = Query(None, max_length=100),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, object]:
+    query = (
+        select(Entity, func.count(Article.id).label("article_count"))
+        .join(ArticleEntity, ArticleEntity.entity_id == Entity.id)
+        .join(Article, Article.id == ArticleEntity.article_id)
+        .where(Entity.enabled.is_(True), *public_article_conditions())
+    )
+    if entity_type:
+        query = query.where(Entity.entity_type == entity_type)
+    if region:
+        query = query.where(Entity.region == region)
+    if q:
+        escaped = q.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(func.lower(Entity.name).like(f"%{escaped}%", escape="\\"))
+    if cursor:
+        query = query.where(Entity.slug > cursor)
+    rows = session.execute(query.group_by(Entity.id).order_by(Entity.slug.asc()).limit(limit + 1)).all()
+    items = rows[:limit]
+    return {
+        "items": [{"slug": entity.slug, "name": entity.name, "entity_type": entity.entity_type,
+                   "region": entity.region, "article_count": count}
+                  for entity, count in items],
+        "next_cursor": items[-1][0].slug if len(rows) > limit else None,
+        "limit": limit,
+    }
+
+
 @router.get("/home/featured")
 def featured(session: SessionDep) -> dict[str, object]:
     edition = session.scalar(
@@ -187,8 +266,14 @@ def featured(session: SessionDep) -> dict[str, object]:
     rows = session.execute(
         select(FeaturedSlot, Article)
         .join(Article, FeaturedSlot.article_id == Article.id)
-        .where(FeaturedSlot.edition_id == edition.id, Article.deleted_at.is_(None))
+        .where(
+            FeaturedSlot.edition_id == edition.id,
+            *public_article_conditions(),
+            featured_article_condition(),
+        )
         .options(joinedload(Article.source))
+        .options(selectinload(Article.entities))
+        .options(selectinload(Article.media))
         .order_by(FeaturedSlot.slot.asc())
     ).all()
     return {
@@ -199,38 +284,66 @@ def featured(session: SessionDep) -> dict[str, object]:
                 "slot": slot.slot,
                 "article": _card_out(article),
                 "importance_score": slot.importance_score,
+                "featured_reason": featured_reason(article),
             }
             for slot, article in rows
         ],
     }
 
 
+@router.get("/home/recently-collected")
+def recently_collected(session: SessionDep) -> dict[str, object]:
+    """Previously published public articles, ordered by when BluePulse collected them."""
+    articles = session.scalars(
+        select(Article)
+        .where(*public_article_conditions())
+        .options(joinedload(Article.source), selectinload(Article.topics),
+                 selectinload(Article.entities), selectinload(Article.media))
+        .order_by(Article.first_seen_at.desc(), Article.id.asc())
+        .limit(6)
+    ).all()
+    return {
+        "items": [{
+            **_card_out(article),
+            "topics": [topic.slug for topic in article.topics],
+            "summary": article.zh_summary,
+        } for article in articles],
+    }
+
+
 @router.get("/articles")
 def list_articles(
     session: SessionDep,
-    period: str = Query("30d", pattern="^(24h|7d|30d)$"),
+    period: str = Query("30d", pattern="^(24h|7d|30d|all)$"),
     topic: str | None = None,
     region: str | None = Query(None, pattern="^(domestic|foreign)$"),
     source: UUID | None = None,
     source_type: str | None = None,
+    entity: str | None = Query(None, pattern="^[a-z0-9-]{1,100}$"),
     q: str | None = Query(None, max_length=200),
     cursor: str | None = None,
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("recent", pattern="^(recent|importance)$"),
 ) -> dict[str, object]:
     now = datetime.now(UTC)
-    period_start = now - {
+    period_window = {
         "24h": timedelta(hours=24),
         "7d": timedelta(days=7),
         "30d": timedelta(days=30),
-    }[period]
+    }.get(period)
+    period_start = now - period_window if period_window is not None else None
     effective_date = func.coalesce(Article.published_at, Article.first_seen_at)
     query = (
         select(Article)
         .join(Source)
-        .options(joinedload(Article.source), selectinload(Article.topics))
-        .where(Article.deleted_at.is_(None), effective_date >= period_start)
+        .options(joinedload(Article.source), selectinload(Article.topics),
+                 selectinload(Article.entities), selectinload(Article.media))
+        .where(
+            *public_article_conditions(),
+        )
     )
+    if period_start is not None:
+        query = query.where(effective_date >= period_start)
     if topic:
         query = query.where(Article.topics.any(Topic.slug == topic))
     if region:
@@ -239,19 +352,30 @@ def list_articles(
         query = query.where(Article.source_id == source)
     if source_type:
         query = query.where(Source.source_type == source_type)
+    if entity:
+        query = query.where(Article.entities.any(Entity.slug == entity))
     if q:
-        escaped = q.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        term = f"%{escaped}%"
-        query = query.where(
-            or_(
-                func.lower(Article.source_title).like(term, escape="\\"),
-                func.lower(Article.zh_title).like(term, escape="\\"),
-                func.lower(Article.source_body).like(term, escape="\\"),
-                func.lower(Article.zh_summary).like(term, escape="\\"),
-            )
-        )
+        search = q.strip()
+        if search:
+            if (session.bind is not None and session.bind.dialect.name == "sqlite"
+                    and len(search) >= 3 and inspect(session.bind).has_table("article_search")):
+                phrase = '"' + search.replace('"', '""') + '"'
+                query = query.where(text(
+                    "articles.rowid IN (SELECT rowid FROM article_search "
+                    "WHERE article_search MATCH :search_phrase)"
+                ).bindparams(search_phrase=phrase))
+            else:
+                escaped = search.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                term = f"%{escaped}%"
+                query = query.where(or_(
+                    func.lower(Article.source_title).like(term, escape="\\"),
+                    func.lower(Article.zh_title).like(term, escape="\\"),
+                    func.lower(Article.source_body).like(term, escape="\\"),
+                    func.lower(Article.zh_body).like(term, escape="\\"),
+                    func.lower(Article.zh_summary).like(term, escape="\\"),
+                ))
 
-    filter_key = _filter_key(period, topic, region, source, source_type, q)
+    filter_key = _filter_key(period, topic, region, source, source_type, entity, q)
     if cursor:
         decoded = _decode_cursor(cursor, sort, filter_key)
         cursor_date = decoded["published_at"]
@@ -298,11 +422,15 @@ def list_articles(
 def article_detail(article_id: UUID, session: SessionDep) -> dict[str, object]:
     article = session.scalar(
         select(Article)
-        .where(Article.id == article_id, Article.deleted_at.is_(None))
+        .where(
+            Article.id == article_id,
+            *public_article_conditions(),
+        )
         .options(
             joinedload(Article.source),
             selectinload(Article.topics),
             selectinload(Article.media),
+            selectinload(Article.entities),
         )
     )
     if article is None:

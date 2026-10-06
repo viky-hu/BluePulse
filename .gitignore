@@ -50,3 +50,6 @@ Thumbs.db
 # Python generated files
 __pycache__/
 *.py[cod]
+/backend/.venv/
+/backend/data/
+*.egg-info/

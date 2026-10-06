@@ -26,6 +26,12 @@ body {
   font-family: var(--font-ui);
 }
 
+html:has([data-reading-page]),
+body:has([data-reading-page]) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 button,
 input,
 textarea,

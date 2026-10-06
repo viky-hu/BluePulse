@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BluePulse · 人工标注工作台</title>
+  <style nonce="__NONCE__">
+    :root { color-scheme: light; --ink:#152943; --muted:#607082; --line:#d9dcd8; --paper:#f8f7f2; --card:#fffefa; --accent:#b45132; --soft:#eee9dd; --green:#2c6d5a; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif; font-size:14px; line-height:1.65; }
+    button, select, textarea { font:inherit; }
+    button, select { cursor:pointer; }
+    button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+    .masthead { background:var(--ink); color:#fff; padding:24px max(24px,calc((100vw - 1220px)/2)); display:flex; justify-content:space-between; align-items:flex-end; gap:24px; }
+    .brand { font:700 30px/1.15 Georgia,"Noto Serif CJK SC",serif; letter-spacing:-.04em; }
+    .brand span { color:#e8aa84; }
+    .eyebrow { color:#b5c5d1; font-size:11px; letter-spacing:.2em; text-transform:uppercase; margin-bottom:8px; }
+    .mastnote { max-width:360px; color:#cbd6dd; text-align:right; font-size:13px; }
+    .shell { max-width:1220px; margin:0 auto; padding:34px 24px 72px; display:grid; grid-template-columns:245px minmax(0,1fr); gap:38px; align-items:start; }
+    aside { position:sticky; top:24px; border-top:3px solid var(--accent); padding-top:20px; }
+    aside h2 { font:700 21px/1.35 Georgia,"Noto Serif CJK SC",serif; margin:0 0 10px; }
+    aside p { color:var(--muted); margin:0 0 12px; }
+    aside ol { padding-left:20px; color:var(--muted); margin:16px 0 24px; }
+    aside li { margin-bottom:10px; }
+    .rule { padding:14px 15px; background:var(--soft); border-left:3px solid var(--accent); color:#494739; font-size:12px; }
+    .rule strong { color:var(--ink); }
+    .mainhead { display:flex; justify-content:space-between; gap:18px; align-items:end; margin-bottom:16px; }
+    h1 { font:700 28px/1.25 Georgia,"Noto Serif CJK SC",serif; letter-spacing:-.025em; margin:0 0 6px; }
+    .subtitle { color:var(--muted); margin:0; }
+    .counter { white-space:nowrap; font:700 16px Georgia,serif; padding-bottom:4px; }
+    .counter b { color:var(--accent); font-size:26px; }
+    .progress { height:5px; background:#e2e4e0; margin-bottom:25px; overflow:hidden; }
+    .progress span { display:block; height:100%; width:0; background:var(--accent); transition:width .25s; }
+    .case { background:var(--card); border:1px solid var(--line); margin-bottom:20px; box-shadow:0 7px 24px #1529430a; }
+    .case-top { padding:22px 25px 18px; border-bottom:1px solid var(--line); }
+    .meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; color:var(--muted); font-size:12px; }
+    .index { color:var(--accent); font:700 17px Georgia,serif; }
+    .badge { color:var(--ink); border:1px solid #c9d3d7; padding:1px 8px; border-radius:20px; }
+    .badge.done { color:var(--green); border-color:#9ac5b3; background:#eaf5ee; }
+    .case h3 { font:700 21px/1.55 "Noto Serif CJK SC","Songti SC",Georgia,serif; margin:11px 0 12px; overflow-wrap:anywhere; }
+    .source-link { color:var(--accent); text-decoration-thickness:1px; text-underline-offset:3px; overflow-wrap:anywhere; }
+    .source-link:hover { color:#7c2f1d; }
+    details { margin-top:13px; background:#f4f3ee; border:1px solid #ebe8df; }
+    summary { cursor:pointer; padding:9px 12px; color:#324b5e; font-weight:600; }
+    .excerpt { padding:0 13px 12px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:310px; overflow:auto; color:#344250; font-size:13px; }
+    .empty-body { margin-top:12px; color:#9a5238; font-size:12px; }
+    .proposal { margin-top:16px; padding:14px 16px; background:#edf2ef; border-left:3px solid var(--green); }
+    .proposal strong { color:var(--green); font-size:12px; letter-spacing:.06em; }
+    .proposal p { margin:6px 0 0; font-size:14px; }
+    .proposal small { display:block; color:var(--muted); margin-top:5px; }
+    .conflict { color:#9a5238; font-size:12px; margin-top:8px; }
+    .form { padding:21px 25px 23px; }
+    .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 18px; }
+    label { display:block; font-size:12px; font-weight:700; color:#475b69; }
+    .field-help { display:block; font-size:11px; font-weight:400; color:#778592; margin:2px 0 6px; min-height:17px; }
+    select, textarea { display:block; width:100%; background:#fff; color:var(--ink); border:1px solid #bdc7c8; border-radius:3px; padding:9px 10px; min-height:42px; }
+    textarea { min-height:78px; resize:vertical; cursor:text; }
+    .reason { grid-column:1/-1; }
+    .save-line { margin-top:15px; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+    .save-status { flex:1 1 160px; }
+    .save-line .error { color:#b52d22; font-weight:700; }
+    .retry { border:1px solid var(--line); color:var(--ink); background:#fff; padding:4px 10px; display:none; }
+    .retry.visible { display:inline-block; }
+    .confirm { background:var(--green); color:#fff; border:0; padding:8px 13px; margin-left:auto; }
+    .confirm:hover { background:#1e5042; }
+    .pager { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+    .pager button { background:var(--ink); color:#fff; border:0; min-width:96px; padding:10px 17px; }
+    .pager button:disabled { opacity:.35; cursor:default; }
+    .pager span { color:var(--muted); }
+    #notice { color:#a43928; margin:12px 0; min-height:18px; }
+    @media(max-width:850px) { .shell { grid-template-columns:1fr; gap:28px; } aside { position:static; } aside ol { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:12px 0; } aside li { margin:0; } }
+    @media(max-width:570px) { .masthead { display:block; } .mastnote { text-align:left; margin:14px 0 0; } .shell { padding:23px 14px 60px; } .mainhead { align-items:start; } h1 { font-size:23px; } .counter { font-size:12px; } .counter b { font-size:20px; } .case-top,.form { padding:17px; } .fields { grid-template-columns:1fr; } .reason { grid-column:auto; } .confirm { width:100%; margin-left:0; } aside ol { display:block; } aside li { margin-bottom:6px; } }
+    @media(prefers-reduced-motion:reduce) { .progress span { transition:none; } }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <div><div class="eyebrow">BluePulse / Research desk</div><div class="brand">情报<span>筛选</span> · 人工标注</div></div>
+    <p class="mastnote">首轮试标 · 20 条公开来源材料<br>按既有七类判断；每次修改立即写入本地文件。</p>
+  </header>
+  <div class="shell">
+    <aside aria-label="标注说明">
+      <h2>怎么判断</h2>
+      <p>先按现有七类判断是否属于本平台范围，再判断是否值得进入精选。</p>
+      <ol>
+        <li>读标题及可用原文；信息不足时打开原站。</li>
+        <li>大模型、智能体、无人机是重点，不是唯一范围；重要上游 AI 进展也可纳入。</li>
+        <li>选相关性、精选、主主题、内容类型和证据等级。</li>
+        <li>用一句话解释判断；暂时不确定也可以如实标注。</li>
+      </ol>
+      <div class="rule"><strong>注意</strong>：普通案件、人事消息不因出现“警察”就相关。官方公告能证明已宣布，不能证明效果已验证。无关条目请选择“不精选”。</div>
+    </aside>
+    <main>
+      <div class="mainhead"><div><h1>建议标注 · 请复核</h1><p class="subtitle">每页 8 条；建议不会自动成为正式标签，逐条核对后点“确认本条”。</p></div><div class="counter"><b id="done">0</b> / <span id="total">20</span> 已复核</div></div>
+      <div class="progress" role="progressbar" aria-label="标注进度" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"><span id="bar"></span></div>
+      <p id="notice" role="alert"></p>
+      <div id="cases"></div>
+      <nav class="pager" aria-label="分页"><button id="previous">上一页</button><span id="page-label"></span><button id="next">下一页</button></nav>
+    </main>
+  </div>
+  <script nonce="__NONCE__">
+    const token = "__NONCE__";
+    const options = {
+      relevance: [["direct","直接相关"],["potential","重要上游进展"],["irrelevant","不相关"],["uncertain","证据不足"]],
+      select: [["select","值得精选"],["reject","不精选"],["uncertain","待复核"]],
+      primary_topic: [["policing","警务应用"],["artificial-intelligence","AI 与大模型"],["public-safety-tech","公共安全技术装备"],["cybersecurity","网络与数据安全"],["policy-standards","政策与标准"],["procurement-projects","采购与项目"],["research","研究成果"]],
+      content_kind: [["research","技术研究"],["equipment","产品装备"],["deployment","落地案例"],["policy","政策标准"],["industry","行业动态"],["procurement","采购／招标"]],
+      evidence_level: [["marketing","宣传说法"],["announcement","正式公告"],["lab_test","实验测试"],["pilot_observation","试点观察"],["field_evaluation","实地评估"],["unknown","未知／不足"]]
+    };
+    const labels = {relevance:"相关性",select:"精选判断",primary_topic:"主主题",content_kind:"内容类型",evidence_level:"原文证据等级"};
+    const helps = {relevance:"七类主题或重要上游进展？",select:"相关不等于值得精选",primary_topic:"相关资料请选择；无关可留空",content_kind:"相关资料请选择；无关可留空",evidence_level:"评价原文证据，不是来源权威性"};
+    const empty = {primary_topic:"不适用／暂不确定",content_kind:"不适用／暂不确定"};
+    const basisNames = {full_text:"依据本地已采集正文",abstract_only:"依据论文摘要",summary_only:"依据来源提供的摘要",title_only:"仅依据标题，细节待核",source_article:"依据原站正文核对"};
+    const state = {page:1,pages:1,unsaved:new Map(),queues:new Map(),timers:new Map()};
+    const el = (tag, className, text) => { const node=document.createElement(tag); if(className) node.className=className; if(text!==undefined) node.textContent=text; return node; };
+    const notice = document.getElementById("notice");
+    function fieldNode(row, field) {
+      const wrapper=el("label"); wrapper.textContent=labels[field];
+      wrapper.append(el("span","field-help",helps[field]));
+      const select=el("select"); select.name=field;
+      select.append(new Option(empty[field] || "请选择", ""));
+      for(const [value,text] of options[field]) select.append(new Option(text,value));
+      select.value=row.gold[field] || row.proposal?.gold[field] || "";
+      select.addEventListener("change",()=>save(row.case_id,field,select.value || null,wrapper.closest(".case")));
+      wrapper.append(select); return wrapper;
+    }
+    function renderCase(row, position) {
+      const card=el("article","case"); card.dataset.caseId=row.case_id;
+      const top=el("div","case-top"), meta=el("div","meta");
+      const confirmed=row.review_status==="confirmed";
+      meta.append(el("span","index",String(position).padStart(2,"0")),el("span","badge status"+(confirmed?" done":""),confirmed?"已复核":"待复核"),el("span",null,row.source_name || row.source_slug),el("span",null,row.published_at ? String(row.published_at).slice(0,10) : "日期未知"));
+      top.append(meta,el("h3",null,row.title));
+      try { const url=new URL(row.source_url); if(["http:","https:"].includes(url.protocol)) { const link=el("a","source-link","打开原站 ↗"); link.href=url.href; link.target="_blank"; link.rel="noopener noreferrer"; top.append(link); } } catch {}
+      if(row.source_excerpt) {
+        const detail=el("details"), summary=el("summary",null,row.parse_status==="full_text"?"查看已采集正文":"查看已采集摘要");
+        const body=el("div","excerpt",row.source_excerpt+(row.excerpt_truncated?"\n\n……节选至此，请打开原站阅读全文。":"")); detail.append(summary,body); top.append(detail);
+      } else top.append(el("div","empty-body","本地无正文／摘要；请打开原站核对。仅凭标题无法判断时选“证据不足”。"));
+      if(row.proposal) {
+        const proposal=el("div","proposal"); proposal.append(el("strong",null,"我的摘要建议"),el("p",null,row.proposal.summary),el("small",null,basisNames[row.proposal.basis] || "依据待核"));
+        const suggested=row.proposal.gold;
+        const parts=[options.relevance,options.select,options.primary_topic,options.content_kind,options.evidence_level].map((choices,i)=>{
+          const key=["relevance","select","primary_topic","content_kind","evidence_level"][i];
+          return choices.find(([value])=>value===suggested[key])?.[1] || "不适用";
+        });
+        proposal.append(el("small",null,"建议标签："+parts.join(" · ")));
+        if(row.conflicts?.length) proposal.append(el("div","conflict","你已填的字段与建议不同："+row.conflicts.map(field=>labels[field] || field).join("、")+"。页面保留你的填写，请决定是否修改。"));
+        top.append(proposal);
+      }
+      card.append(top);
+      const form=el("div","form"), fields=el("div","fields");
+      for(const field of ["relevance","select","primary_topic","content_kind","evidence_level"]) fields.append(fieldNode(row,field));
+      const reason=el("label","reason","一句话理由"); reason.append(el("span","field-help","写清七类主题关联、证据与精选／不精选原因；上游进展说明实际新信息和影响路径"));
+      const textarea=el("textarea"); textarea.maxLength=2000; textarea.value=row.gold.reason || row.proposal?.gold.reason || ""; textarea.placeholder="例：涉及事故勘查的试点流程，但没有可核对的效果数据，暂不精选。";
+      textarea.addEventListener("input",()=>{ markUnsaved(row.case_id,"reason",textarea.value,card); clearTimeout(state.timers.get(row.case_id)); state.timers.set(row.case_id,setTimeout(()=>save(row.case_id,"reason",textarea.value,card),700)); });
+      textarea.addEventListener("blur",()=>{clearTimeout(state.timers.get(row.case_id)); if(state.unsaved.has(row.case_id+":reason")) save(row.case_id,"reason",textarea.value,card);});
+      reason.append(textarea); fields.append(reason); form.append(fields);
+      const line=el("div","save-line"), status=el("span","save-status","建议稿待你确认；手动修改会自动保存"), retry=el("button","retry","重试保存"); retry.type="button";
+      retry.addEventListener("click",()=>retryCase(row.case_id,card)); line.append(status,retry);
+      if(row.proposal) { const confirm=el("button","confirm",confirmed?"再次确认本条":"确认本条"); confirm.type="button"; confirm.addEventListener("click",()=>confirmCase(row.case_id,card)); line.append(confirm); }
+      form.append(line); card.append(form); return card;
+    }
+    function markUnsaved(id,field,value,card) { state.unsaved.set(id+":"+field,{id,field,value}); card.querySelector(".save-status").textContent="正在保存…"; }
+    async function save(id,field,value,card) {
+      markUnsaved(id,field,value,card);
+      const key=id+":"+field, previous=state.queues.get(id) || Promise.resolve();
+      const task=previous.catch(()=>{}).then(async()=>{
+        const response=await fetch("/api/label",{method:"POST",headers:{"Content-Type":"application/json","X-Review-Token":token},body:JSON.stringify({case_id:id,field,value})});
+        const result=await response.json(); if(!response.ok) throw Error(result.error || "保存失败");
+        if(state.unsaved.get(key)?.value===value) state.unsaved.delete(key);
+        paintResult(card,result);
+        if(![...state.unsaved.values()].some(item=>item.id===id)) { card.querySelector(".save-status").textContent="已保存到本地"; card.querySelector(".save-status").classList.remove("error"); card.querySelector(".retry").classList.remove("visible"); }
+      }).catch(error=>{card.querySelector(".save-status").textContent="未保存："+error.message; card.querySelector(".save-status").classList.add("error"); card.querySelector(".retry").classList.add("visible");});
+      state.queues.set(id,task); await task;
+    }
+    function paintResult(card,result) {
+      const confirmed=result.review_status==="confirmed", count=result.reviewed;
+      card.querySelector(".status").textContent=confirmed?"已复核":"待复核";
+      card.querySelector(".status").classList.toggle("done",confirmed);
+      document.getElementById("done").textContent=count;
+      document.getElementById("bar").style.width=100*count/Number(document.getElementById("total").textContent)+"%";
+      document.querySelector(".progress").setAttribute("aria-valuenow",count);
+    }
+    async function retryCase(id,card) { for(const item of [...state.unsaved.values()].filter(item=>item.id===id)) await save(id,item.field,item.value,card); }
+    async function confirmCase(id,card) {
+      clearTimeout(state.timers.get(id));
+      await (state.queues.get(id) || Promise.resolve());
+      const gold={}; for(const field of ["relevance","select","primary_topic","content_kind","evidence_level"]) gold[field]=card.querySelector(`select[name="${field}"]`).value || null;
+      gold.reason=card.querySelector("textarea").value;
+      const status=card.querySelector(".save-status"); status.textContent="正在确认…";
+      try {
+        const response=await fetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json","X-Review-Token":token},body:JSON.stringify({case_id:id,gold})});
+        const result=await response.json(); if(!response.ok) throw Error(result.error || "确认失败");
+        for(const key of [...state.unsaved.keys()]) if(key.startsWith(id+":")) state.unsaved.delete(key);
+        status.textContent="已确认并保存"; status.classList.remove("error"); card.querySelector(".retry").classList.remove("visible");
+        card.querySelector(".confirm").textContent="再次确认本条"; paintResult(card,result);
+      } catch(error) { status.textContent="确认失败："+error.message; status.classList.add("error"); }
+    }
+    async function go(number) {
+      if(state.unsaved.size) { notice.textContent="有未保存内容，请点击对应条目的“重试保存”后再翻页。"; return; }
+      notice.textContent="";
+      try {
+        const response=await fetch("/api/cases?page="+number); const data=await response.json(); if(!response.ok) throw Error(data.error);
+        state.page=data.page; state.pages=data.pages;
+        const root=document.getElementById("cases"); root.replaceChildren();
+        data.cases.forEach((row,i)=>root.append(renderCase(row,(data.page-1)*8+i+1)));
+        document.getElementById("done").textContent=data.reviewed; document.getElementById("total").textContent=data.total;
+        document.getElementById("bar").style.width=100*data.reviewed/data.total+"%";
+        document.querySelector(".progress").setAttribute("aria-valuemax",data.total);
+        document.querySelector(".progress").setAttribute("aria-valuenow",data.reviewed);
+        document.getElementById("page-label").textContent=`第 ${data.page} / ${data.pages} 页`;
+        document.getElementById("previous").disabled=data.page===1; document.getElementById("next").disabled=data.page===data.pages;
+        window.scrollTo({top:0,behavior:"auto"});
+      } catch(error) { notice.textContent="加载失败："+error.message; }
+    }
+    document.getElementById("previous").addEventListener("click",()=>go(state.page-1));
+    document.getElementById("next").addEventListener("click",()=>go(state.page+1));
+    window.addEventListener("beforeunload",event=>{if(state.unsaved.size){event.preventDefault(); event.returnValue="";}});
+    go(1);
+  </script>
+</body>
+</html>

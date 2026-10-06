@@ -1,0 +1,12 @@
+[
+  {"slug":"axon","entity_type":"vendor","name":"Axon","aliases":["Axon Enterprise","Axon 公共安全"],"region":"foreign"},
+  {"slug":"dji","entity_type":"vendor","name":"大疆创新","aliases":["DJI","大疆创新"],"region":"domestic"},
+  {"slug":"hikvision","entity_type":"vendor","name":"海康威视","aliases":["Hikvision","海康威视"],"region":"domestic"},
+  {"slug":"palantir","entity_type":"vendor","name":"Palantir","aliases":["Palantir Technologies","Palantir"],"region":"foreign"},
+  {"slug":"openai","entity_type":"vendor","name":"OpenAI","aliases":["OpenAI"],"region":"foreign"},
+  {"slug":"anthropic","entity_type":"vendor","name":"Anthropic","aliases":["Anthropic"],"region":"foreign"},
+  {"slug":"deepseek","entity_type":"vendor","name":"DeepSeek","aliases":["DeepSeek","深度求索"],"region":"domestic"},
+  {"slug":"qwen","entity_type":"model","name":"通义千问 / Qwen","aliases":["Qwen","通义千问"],"region":"domestic"},
+  {"slug":"chatgpt","entity_type":"model","name":"ChatGPT","aliases":["ChatGPT"],"region":"foreign"},
+  {"slug":"claude","entity_type":"model","name":"Claude","aliases":["Claude AI","Claude model","Claude 模型"],"region":"foreign"}
+]

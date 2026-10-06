@@ -97,14 +97,23 @@ class Article(Base):
     content_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     importance_score: Mapped[int] = mapped_column(Integer, default=0)
     relevance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    featured_candidate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    featured_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    editorial_relevance: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    editorial_select: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    editorial_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    editorial_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    editorial_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_status: Mapped[str] = mapped_column(String(32), default="pending_model")
     parse_status: Mapped[str] = mapped_column(String(32), default="metadata_only")
+    translation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     quality_status: Mapped[str] = mapped_column(String(32), default="unreviewed")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     source: Mapped[Source] = relationship(back_populates="articles")
     topics: Mapped[list[Topic]] = relationship(secondary="article_topics")
     media: Mapped[list[ArticleMedia]] = relationship(back_populates="article")
+    entities: Mapped[list[Entity]] = relationship(secondary="article_entities", back_populates="articles")
 
 
 class ArticleTopic(Base):
@@ -117,6 +126,33 @@ class ArticleTopic(Base):
         ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
     )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Entity(Base):
+    __tablename__ = "entities"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    entity_type: Mapped[str] = mapped_column(String(24), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
+    region: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    articles: Mapped[list[Article]] = relationship(secondary="article_entities", back_populates="entities")
+
+
+class ArticleEntity(Base):
+    __tablename__ = "article_entities"
+
+    article_id: Mapped[UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
+    )
+    entity_id: Mapped[UUID] = mapped_column(
+        ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True
+    )
+    evidence_field: Mapped[str] = mapped_column(String(32))
+    matched_alias: Mapped[str] = mapped_column(String(120))
 
 
 class ArticleMedia(Base):
@@ -140,11 +176,23 @@ class IngestionRun(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     trigger_type: Mapped[str] = mapped_column(String(24), default="manual")
+    source_slug: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="running")
     counts: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class IngestionLease(Base):
+    __tablename__ = "ingestion_lease"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_token: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    run_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SourceRun(Base):

@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 import Image from "next/image";
+import Link from "next/link";
 import {
   fetchArticleDetail,
   fetchHomeArticles,
   fetchHomeFeatured,
+  fetchRecentlyCollected,
   fetchSources,
   fetchTaxonomy,
   type ArticleCard,
@@ -75,6 +77,15 @@ function formatDateTime(value?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+  }).format(date);
+}
+
+function formatFullDate(value?: string | null): string {
+  if (!value) return "日期待核";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "日期待核";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(date);
 }
 
@@ -174,6 +185,9 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
   const [loadedFeatured, setLoadedFeatured] = useState<ArticleCard[]>([]);
   const [loadedFeaturedStatus, setLoadedFeaturedStatus] = useState<ListStatus>("loading");
   const [featuredError, setFeaturedError] = useState("");
+  const [collected, setCollected] = useState<ArticleCard[]>([]);
+  const [collectedStatus, setCollectedStatus] = useState<ListStatus>("loading");
+  const [collectedError, setCollectedError] = useState("");
   const [loadedTopicStatus, setLoadedTopicStatus] = useState<ListStatus>("loading");
   const [loadedSourceStatus, setLoadedSourceStatus] = useState<ListStatus>("loading");
   const [listResult, setListResult] = useState<{
@@ -435,10 +449,24 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     ]).then(([featuredResult, topicsResult, sourcesResult]) => {
       if (controller.signal.aborted) return;
       if (featuredResult.status === "fulfilled") {
-        const nextFeatured = featuredResult.value.items.map((item) => item.article);
+        const nextFeatured = featuredResult.value.items.map((item) => ({
+          ...item.article, featured_reason: item.featured_reason ?? null,
+        }));
         setLoadedFeatured(nextFeatured);
         setLoadedFeaturedStatus(nextFeatured.length ? "ready" : "empty");
         setFeaturedError("");
+        if (!nextFeatured.length) {
+          void fetchRecentlyCollected(controller.signal).then((response) => {
+            if (controller.signal.aborted) return;
+            setCollected(response.items);
+            setCollectedStatus(response.items.length ? "ready" : "empty");
+            setCollectedError("");
+          }).catch((error: unknown) => {
+            if (controller.signal.aborted) return;
+            setCollectedStatus("error");
+            setCollectedError(error instanceof Error ? error.message : "最近收录暂时无法载入。");
+          });
+        }
       } else {
         setLoadedFeatured([]);
         setLoadedFeaturedStatus("error");
@@ -520,8 +548,8 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
   const nextCursor = visibleListResult.nextCursor;
 
   useEffect(() => {
-    articleCardsRef.current = [...articles, ...featured, ...history.map((entry) => entry.article)];
-  }, [articles, featured, history]);
+    articleCardsRef.current = [...articles, ...featured, ...collected, ...history.map((entry) => entry.article)];
+  }, [articles, featured, collected, history]);
 
   useEffect(() => {
     const target = view.kind === "article" ? 0 : savedScrollPositions.current.get(getViewKey(view)) ?? 0;
@@ -626,6 +654,15 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
       );
     }
     if (listStatus === "empty") {
+      if (view.kind === "home" && !filters.topic && !filters.region && !filters.source && !filters.sourceType && !filters.q) {
+        return (
+          <div className={styles.statePanel} role="status">
+            <strong>{filters.period === "24h" ? "近 24 小时" : filters.period === "7d" ? "近 7 天" : "近 30 天"}暂无新发布的已审核资讯</strong>
+            <p>上方“最近收录”可能包含往期文章，请以每条显示的原文日期为准。</p>
+            {filters.period !== "30d" ? <button className={styles.inlineButton} type="button" onClick={() => applyFilters({ ...filters, period: "30d" })}>查看近 30 天 <Icon name="arrow" size={15} /></button> : null}
+          </div>
+        );
+      }
       return (
         <div className={styles.statePanel}>
           <strong>没有匹配的资讯</strong>
@@ -636,7 +673,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     return null;
   };
 
-  const renderArticleList = (rows: ArticleCard[], listFrom: PageView, startIndex = 0, kind: "article" | "featured" = "article") => (
+  const renderArticleList = (rows: ArticleCard[], listFrom: PageView, startIndex = 0, kind: "article" | "featured" | "collected" = "article") => (
     <div className={styles.articleList} data-home-stagger>
       {rows.map((article, index) => (
         <button
@@ -646,11 +683,12 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
           key={article.id}
           onClick={() => openArticle(article, listFrom)}
         >
-          <span className={styles.articleIndex}>{kind === "featured" ? `TOP ${startIndex + index + 1}` : String((pageIndex * (mock ? MOCK_PAGE_SIZE : PAGE_SIZE)) + index + 1).padStart(2, "0")}</span>
+          <span className={styles.articleIndex}>{kind === "featured" ? `TOP ${startIndex + index + 1}` : String(kind === "collected" ? index + 1 : (pageIndex * (mock ? MOCK_PAGE_SIZE : PAGE_SIZE)) + index + 1).padStart(2, "0")}</span>
           <span className={styles.articleRowBody}>
-            <span className={styles.articleRowMeta}><time>{formatDateTime(articleDate(article))}</time><span className={styles.metaDot} />{article.source.name}<span className={styles.metaDot} />{regionLabel(article.region)}</span>
+            {kind === "collected" ? <span className={styles.articleRowMeta}><time dateTime={article.first_seen_at || undefined}>收录于 {formatFullDate(article.first_seen_at)}</time><span className={styles.metaDot} /><time dateTime={article.published_at || undefined}>原文 {formatFullDate(article.published_at)}</time><span className={styles.metaDot} />{article.source.name}</span> : <span className={styles.articleRowMeta}><time>{article.published_at ? formatDateTime(article.published_at) : `发现于 ${formatDateTime(article.first_seen_at)}`}</time><span className={styles.metaDot} />{article.source.name}<span className={styles.metaDot} />{regionLabel(article.region)}</span>}
             <strong>{article.title || article.source_title}</strong>
-            {kind === "featured" && article.summary ? <span className={styles.articleRowSummary}>{article.summary}</span> : null}
+            {kind !== "article" && article.summary ? <span className={styles.articleRowSummary}>{article.summary}</span> : null}
+            {kind === "featured" && article.featured_reason ? <span className={styles.articleRowSummary}>关注理由 · {article.featured_reason}</span> : null}
           </span>
           {imagePreview(article) ? <Image className={styles.articleThumbnail} src={imagePreview(article)!} alt={article.media_preview?.alt_text || ""} width={88} height={60} unoptimized loading="lazy" /> : null}
           <span className={styles.articleRowArrow}><Icon name="arrow" size={16} /></span>
@@ -666,8 +704,17 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
           <div className={`${styles.statePanel} ${featuredStatus === "error" ? styles.stateError : ""}`} role={featuredStatus === "error" ? "alert" : undefined}>
             <strong>{featuredStatus === "error" ? "精选资讯暂时无法载入" : featuredStatus === "empty" ? "暂无精选资讯" : "正在载入精选资讯…"}</strong>
             {featuredStatus === "error" ? <p>{featuredError}</p> : null}
+            {featuredStatus === "empty" ? <p>近 7 天暂无符合精选条件的文章；下方会显示近期资讯，若近期也为空则显示往期收录。</p> : null}
           </div>
         )}
+      </section> : null}
+      {includeFeatured && featuredStatus === "empty" && listStatus === "empty" ? <section className={styles.collectedSection} aria-labelledby="collected-title" data-home-stagger>
+        <div className={styles.feedTools}><span id="collected-title" className={styles.feedLabel}>最近收录</span><Link className={styles.inlineButton} href="/articles?period=all">查看全部 <Icon name="arrow" size={15} /></Link></div>
+        <p className={styles.collectedNote}>按本站收录时间排列，可能包含往期文章；每条同时标明原文日期，不代表今日新闻或本期精选。</p>
+        {collectedStatus === "ready" ? renderArticleList(collected, feedView, 0, "collected") : <div className={`${styles.statePanel} ${collectedStatus === "error" ? styles.stateError : ""}`} role={collectedStatus === "error" ? "alert" : "status"}>
+          <strong>{collectedStatus === "error" ? "最近收录暂时无法载入" : collectedStatus === "empty" ? "暂无已审核文章" : "正在载入最近收录…"}</strong>
+          {collectedStatus === "error" ? <p>{collectedError}</p> : null}
+        </div>}
       </section> : null}
       <section className={styles.feedSection} aria-labelledby="feed-title" data-home-stagger>
         <div className={styles.feedTools}>
@@ -712,7 +759,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     return (
        <article className={styles.detailArticle} data-home-stagger>
         <button className={styles.detailBack} type="button" onClick={detailBack}><Icon name="back" size={16} />返回列表</button>
-        <div className={styles.detailTopline}><span>{regionLabel(detail.region)} / {detail.source.name}</span><time>{formatDateTime(articleDate(detail))}</time><span>重要性 {Math.round(detail.importance_score)}%</span></div>
+        <div className={styles.detailTopline}><span>{regionLabel(detail.region)} / {detail.source.name}</span><time>{detail.published_at ? formatDateTime(detail.published_at) : `发现于 ${formatDateTime(detail.first_seen_at)}`}</time><span>重要性 {Math.round(detail.importance_score)}%</span></div>
         <h2>{detail.title || detail.source_title}</h2>
         {detail.summary ? <p className={styles.detailSummary}>{detail.summary}</p> : null}
         <div className={styles.detailLabels}>{(detail.topics ?? []).map((slug) => <span key={slug}>{topicLabel(slug, topics)}</span>)}<span>{detail.language.toLocaleUpperCase()}</span></div>

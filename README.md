@@ -1,5 +1,9 @@
 # Blue Pulse
 
+Windows 本地启动、网页使用、采集、标注与故障排查见[使用说明](docs/使用说明.md)。
+
+截至 2026-10-06 的功能、验证结果与待办见[开发进度记录](docs/development-progress-2026-10-06.md)。
+
 Blue Pulse 是一个面向国内外警务科技情报展示的前端项目。当前技术栈为 Next.js 16.3.5、React 19、TypeScript、Tailwind CSS 4 与 GSAP 3.15。
 
 ## 本地开发

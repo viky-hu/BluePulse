@@ -49,15 +49,19 @@ export interface ArticleCard {
   importance_score: number;
   processing_status: string;
   parse_status: string;
+  body_status?: "full_text" | "abstract_only" | "summary_only" | "metadata_only" | "partial_text";
+  translation_status?: "not_required" | "available" | "pending" | "failed" | "source_unavailable" | "too_long";
   topics?: string[];
   summary?: string | null;
   media_preview?: MediaPreview | null;
+  featured_reason?: string | null;
 }
 
 export interface FeaturedItem {
   slot: FeaturedSlot;
   article: ArticleCard;
   importance_score?: number;
+  featured_reason?: string | null;
 }
 
 export interface FeaturedResponse {
@@ -104,6 +108,12 @@ export async function fetchHomeFeatured(
   signal?: AbortSignal,
 ): Promise<FeaturedResponse> {
   return fetchJson<FeaturedResponse>("/api/bluepulse/home/featured", signal);
+}
+
+export async function fetchRecentlyCollected(
+  signal?: AbortSignal,
+): Promise<ItemsResponse<ArticleCard>> {
+  return fetchJson<ItemsResponse<ArticleCard>>("/api/bluepulse/home/recently-collected", signal);
 }
 
 export async function fetchHomeArticles(

@@ -123,6 +123,7 @@
 }
 
 .featuredSection,
+.collectedSection,
 .feedSection {
   max-width: 920px;
   margin-inline: auto;
@@ -130,6 +131,17 @@
 
 .featuredSection {
   padding-bottom: 16px;
+}
+
+.collectedSection {
+  padding-top: 12px;
+}
+
+.collectedNote {
+  margin: 0 0 13px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .articleList {

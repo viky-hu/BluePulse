@@ -13,6 +13,13 @@
     "enabled": true,
     "config": {
       "allowed_hosts": ["api.gdeltproject.org"],
+      "article_hosts": {
+        "www.police1.com": ["/technology/articles/"],
+        "nij.ojp.gov": ["/topics/articles/"]
+      },
+      "max_detail_pages": 3,
+      "store_metadata_only": false,
+      "request_delay_seconds": 1,
       "query": "(\"police technology\" OR \"law enforcement technology\" OR \"police artificial intelligence\" OR \"police body camera\")",
       "timespan": "7d",
       "maxrecords": 50
@@ -32,7 +39,10 @@
     "enabled": true,
     "config": {
       "allowed_hosts": ["police1.com", "www.police1.com"],
-      "max_items": 50
+      "max_items": 50,
+      "fetch_article_html": true,
+      "max_detail_pages": 4,
+      "request_delay_seconds": 1
     }
   },
   {
@@ -49,8 +59,184 @@
     "enabled": true,
     "config": {
       "allowed_hosts": ["api.openalex.org"],
-      "search": "policing technology OR law enforcement artificial intelligence OR police surveillance",
-      "per_page": 25
+      "search_parameter": "search.title_and_abstract",
+      "search": "(police OR policing OR \"law enforcement\") AND (\"artificial intelligence\" OR \"large language model\" OR drone OR \"computer vision\" OR \"digital forensics\")",
+      "per_page": 100,
+      "max_filtered_items": 25
+    }
+  },
+  {
+    "slug": "ccgp-policing-tech",
+    "name": "中国政府采购网警务科技公告",
+    "base_url": "https://www.ccgp.gov.cn/cggg/zygg/gkzb/",
+    "adapter": "ccgp_html",
+    "region": "domestic",
+    "country_code": "CN",
+    "language": "zh",
+    "source_type": "government",
+    "topics": ["policing", "procurement-projects", "public-safety-tech"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["www.ccgp.gov.cn"],
+      "listing_urls": [
+        "https://www.ccgp.gov.cn/cggg/zygg/gkzb/",
+        "https://www.ccgp.gov.cn/cggg/dfgg/gkzb/"
+      ],
+      "max_candidates": 12,
+      "max_listing_pages": 5,
+      "max_articles": 4,
+      "max_model_calls": 6,
+      "request_delay_seconds": 2
+    }
+  },
+  {
+    "slug": "nij-policing-tech",
+    "name": "NIJ 警务科技文章",
+    "base_url": "https://nij.ojp.gov/library/articles/list?subtopic=304581",
+    "adapter": "nij_html",
+    "region": "foreign",
+    "country_code": "US",
+    "language": "en",
+    "source_type": "government",
+    "topics": ["policing", "public-safety-tech", "research"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["nij.ojp.gov"],
+      "max_listing_pages": 1,
+      "max_articles": 4,
+      "max_analysis_candidates": 4,
+      "request_delay_seconds": 1
+    }
+  },
+  {
+    "slug": "jiangsu-police-news",
+    "name": "江苏省公安厅警务动态",
+    "base_url": "https://gat.jiangsu.gov.cn/col/col6372/index.html",
+    "adapter": "jiangsu_police_html",
+    "region": "domestic",
+    "country_code": "CN",
+    "language": "zh",
+    "source_type": "government",
+    "topics": ["policing", "artificial-intelligence", "public-safety-tech", "policy-standards"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["gat.jiangsu.gov.cn"],
+      "max_articles": 6,
+      "max_analysis_candidates": 6,
+      "request_delay_seconds": 2
+    }
+  },
+  {
+    "slug": "nist-public-safety-rss",
+    "name": "NIST Public Safety 官方 RSS",
+    "base_url": "https://www.nist.gov/news-events/Public%20safety/rss.xml",
+    "adapter": "rss",
+    "region": "foreign",
+    "country_code": "US",
+    "language": "en",
+    "source_type": "government",
+    "topics": ["public-safety-tech", "research", "policy-standards"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["www.nist.gov"],
+      "allowed_entry_hosts": ["www.nist.gov"],
+      "allowed_entry_paths": ["/news-events/news/"],
+      "max_items": 40,
+      "max_age_days": 180,
+      "max_analysis_candidates": 3,
+      "fetch_article_html": false
+    }
+  },
+  {
+    "slug": "nist-forensic-science-rss",
+    "name": "NIST Forensic Science 官方 RSS",
+    "base_url": "https://www.nist.gov/news-events/forensic%20science/rss.xml",
+    "adapter": "rss",
+    "region": "foreign",
+    "country_code": "US",
+    "language": "en",
+    "source_type": "government",
+    "topics": ["research", "public-safety-tech", "policy-standards"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["www.nist.gov"],
+      "allowed_entry_hosts": ["www.nist.gov"],
+      "allowed_entry_paths": ["/news-events/news/"],
+      "max_items": 40,
+      "max_age_days": 180,
+      "max_analysis_candidates": 3,
+      "fetch_article_html": false
+    }
+  },
+  {
+    "slug": "govuk-policing-tech",
+    "name": "GOV.UK 警务科技与政策",
+    "base_url": "https://www.gov.uk/api/search.json",
+    "adapter": "govuk_api",
+    "region": "foreign",
+    "country_code": "GB",
+    "language": "en",
+    "source_type": "government",
+    "topics": ["policing", "artificial-intelligence", "policy-standards"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["www.gov.uk"],
+      "queries": ["police artificial intelligence", "police facial recognition", "police drone"],
+      "recent_days": 180,
+      "count_per_query": 30,
+      "max_content_pages": 5,
+      "max_analysis_candidates": 5,
+      "request_delay_seconds": 0.2
+    }
+  },
+  {
+    "slug": "npcc-policing-tech",
+    "name": "NPCC 英国警务科技动态",
+    "base_url": "https://news.npcc.police.uk/releases",
+    "adapter": "npcc_html",
+    "region": "foreign",
+    "country_code": "GB",
+    "language": "en",
+    "source_type": "government",
+    "topics": ["policing", "artificial-intelligence", "public-safety-tech", "policy-standards"],
+    "trust_level": 4,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["news.npcc.police.uk"],
+      "max_articles": 3,
+      "max_analysis_candidates": 3,
+      "max_age_days": 90,
+      "request_delay_seconds": 1
+    }
+  },
+  {
+    "slug": "biometric-update-law-enforcement-rss",
+    "name": "Biometric Update 执法生物识别 RSS",
+    "base_url": "https://www.biometricupdate.com/biometric-news/law-enforcement/feed",
+    "adapter": "rss",
+    "region": "foreign",
+    "country_code": null,
+    "language": "en",
+    "source_type": "media",
+    "topics": ["policing", "public-safety-tech", "policy-standards"],
+    "trust_level": 3,
+    "enabled": true,
+    "config": {
+      "allowed_hosts": ["www.biometricupdate.com"],
+      "allowed_entry_hosts": ["www.biometricupdate.com"],
+      "allowed_entry_paths": ["/20"],
+      "max_items": 10,
+      "max_age_days": 45,
+      "max_analysis_candidates": 3,
+      "fetch_article_html": true,
+      "max_detail_pages": 3,
+      "request_delay_seconds": 1
     }
   }
 ]

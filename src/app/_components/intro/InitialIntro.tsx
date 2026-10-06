@@ -13,7 +13,7 @@ import { ReportLine } from "./ReportLine";
 import { ScrollCueButton } from "./ScrollCueButton";
 import { WhitePaper } from "./WhitePaper";
 import { HomeDashboard } from "../home/HomeDashboard";
-import { MOCK_WHITE_PAPER_ARTICLES } from "./white-paper-data";
+import type { WhitePaperArticle } from "./white-paper-data";
 import {
   calculatePanelGeometry,
   calculateCueGeometry,
@@ -69,7 +69,13 @@ function getViewportGeometries() {
   };
 }
 
-export function InitialIntro({ mockData = false }: { mockData?: boolean }) {
+export function InitialIntro({
+  mockData = false,
+  whitePapers,
+}: {
+  mockData?: boolean;
+  whitePapers: WhitePaperArticle[];
+}) {
   const rootRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<SVGSVGElement>(null);
   const geometryRef = useRef<PanelGeometry>(INITIAL_GEOMETRY);
@@ -738,7 +744,7 @@ export function InitialIntro({ mockData = false }: { mockData?: boolean }) {
     whitePaperLayout.papers.map((paper) => [paper.id, paper]),
   );
   const articlesById = new Map(
-    MOCK_WHITE_PAPER_ARTICLES.map((article) => [article.id, article]),
+    whitePapers.map((article) => [article.id, article]),
   );
   const cueGeometry = calculateCueGeometry(reportGeometry);
 

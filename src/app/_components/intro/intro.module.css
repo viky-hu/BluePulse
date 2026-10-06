@@ -8,6 +8,29 @@
   touch-action: none;
 }
 
+.archiveLink {
+  position: absolute;
+  right: clamp(22px, 4vw, 64px);
+  bottom: clamp(22px, 4vw, 54px);
+  z-index: 4;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  padding: 13px 15px;
+  border: 1px solid #353330;
+  color: #353330;
+  background: #f2f2f2;
+  text-decoration: none;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease, background 220ms ease;
+}
+
+.stage[data-phase="complete"] .archiveLink { opacity: 1; pointer-events: auto; }
+.archiveLink:hover { background: #a4d7c7; }
+.archiveLink:focus-visible { outline: 2px solid #353330; outline-offset: 3px; }
+
 .scene {
   position: absolute;
   inset: 0;

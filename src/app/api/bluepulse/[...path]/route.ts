@@ -11,7 +11,8 @@ type RouteContext = {
 };
 
 function isAllowedPath(path: string[]): boolean {
-  if (path.length === 2 && path[0] === "home" && path[1] === "featured") {
+  if (path.length === 2 && path[0] === "home" &&
+      (path[1] === "featured" || path[1] === "recently-collected")) {
     return true;
   }
 
