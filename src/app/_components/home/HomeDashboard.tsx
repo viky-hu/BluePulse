@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 import Image from "next/image";
@@ -29,6 +29,7 @@ import {
 } from "../../_lib/home-mock";
 import { BranchedTopicMenu } from "./BranchedTopicMenu";
 import { TOPIC_MENU_SLUGS } from "./topic-menu-config";
+import { requestNavigation, finishExit, finishEnter, type NavigationState, type NavigationStep, type TransitionPhase } from "./view-transition";
 import styles from "./home.module.css";
 import type { PanelRect } from "../intro/intro-config";
 
@@ -177,6 +178,7 @@ function imagePreview(article: ArticleCard): string | null {
 
 export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect?: PanelRect }) {
   const [view, setView] = useState<ActiveView>({ kind: "home" });
+  const [transitionPhase, setTransitionPhase] = useState<TransitionPhase>("idle");
   const [menuOpen, setMenuOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [draftQuery, setDraftQuery] = useState("");
@@ -212,14 +214,13 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
   const viewStageRef = useRef<HTMLDivElement>(null);
   const readingAreaRef = useRef<HTMLElement>(null);
   const savedScrollPositions = useRef(new Map<string, number>());
-  const activeViewRef = useRef<ActiveView>(view);
+  const navigationRef = useRef<NavigationState<ActiveView>>({ phase: "idle", currentKey: "home", pending: null });
+  const restoreScrollRef = useRef(false);
   const articleCardsRef = useRef<ArticleCard[]>([]);
   const contextSafeRef = useRef<((callback: () => void) => () => void) | null>(null);
   const introTimelineRef = useRef<gsap.core.Timeline | null>(null);
   const viewTransitionTimelineRef = useRef<gsap.core.Timeline | null>(null);
   const menuTimelineRef = useRef<gsap.core.Timeline | null>(null);
-  const transitionLockedRef = useRef(false);
-  const pendingRevealRef = useRef(false);
   const reducedMotionRef = useRef(false);
   const historyStorageKey = mock ? `${HISTORY_STORAGE_KEY}:mock` : HISTORY_STORAGE_KEY;
   const dashboardStyle = p0Rect
@@ -251,45 +252,33 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     else callback();
   }, []);
 
-  const transitionTo = useCallback((next: ActiveView) => {
-    const current = activeViewRef.current;
-    if (getViewKey(current) === getViewKey(next) || transitionLockedRef.current) return;
-
-    if (current.kind !== "article" && readingAreaRef.current) {
-      savedScrollPositions.current.set(getViewKey(current), readingAreaRef.current.scrollTop);
-    }
-
-    transitionLockedRef.current = true;
-    pendingRevealRef.current = true;
-    setMenuOpen(false);
-
-    const commit = () => {
-      activeViewRef.current = next;
-      setView(next);
-    };
-
-    runGsap(() => {
-      const stage = viewStageRef.current;
-      viewTransitionTimelineRef.current?.kill();
-      if (!stage || reducedMotionRef.current) {
-        commit();
-        return;
+  const applyNavigationStep = useCallback((step: NavigationStep<ActiveView>) => {
+    navigationRef.current = step.state;
+    if (step.commit) {
+      step.commit.commit?.();
+      if (step.commit.view.kind === "article") {
+        setDetail(null);
+        setDetailStatus("loading");
+        setDetailError("");
       }
-      viewTransitionTimelineRef.current = gsap.timeline({
-        onComplete: commit,
-        defaults: { overwrite: "auto" },
-      }).to(stage, {
-        autoAlpha: 0.12,
-        y: -8,
-        duration: 0.22,
-        ease: "power2.in",
-      });
-    });
-  }, [getViewKey, runGsap]);
+      restoreScrollRef.current = true;
+      setView(step.commit.view);
+    }
+    setTransitionPhase(step.state.phase);
+  }, []);
 
-  const navigate = useCallback((next: PageView) => {
-    transitionTo(next);
-  }, [transitionTo]);
+  const transitionTo = useCallback((next: ActiveView, commit?: () => void) => {
+    const current = navigationRef.current;
+    const step = requestNavigation(current, { key: getViewKey(next), view: next, commit }, reducedMotionRef.current);
+    if (step.state === current) return;
+    if (current.phase === "idle" && readingAreaRef.current) {
+      savedScrollPositions.current.set(current.currentKey, readingAreaRef.current.scrollTop);
+    }
+    applyNavigationStep(step);
+    setMenuOpen(false);
+  }, [applyNavigationStep, getViewKey]);
+
+  const navigate = transitionTo;
 
   useGSAP(
     (_context, contextSafe) => {
@@ -304,25 +293,22 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
       const select = gsap.utils.selector(root);
       const staggerItems = select<HTMLElement>("[data-home-stagger]");
       const isMobile = window.matchMedia("(max-width: 768px)").matches;
-      const matchMedia = gsap.matchMedia();
+      const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      reducedMotionRef.current = motionQuery.matches;
 
-      matchMedia.add("(prefers-reduced-motion: reduce)", () => {
-        reducedMotionRef.current = true;
+      if (motionQuery.matches) {
         gsap.set([stage, mobileBar, staggerItems], {
           autoAlpha: 1,
           clearProps: "transform",
         });
         gsap.set(sidebar, { autoAlpha: isMobile ? 0 : 1, clearProps: "transform" });
         gsap.set(scrim, { autoAlpha: 0 });
-      });
-
-      matchMedia.add("(prefers-reduced-motion: no-preference)", () => {
-        reducedMotionRef.current = false;
+      } else {
         gsap.set(stage, { autoAlpha: 0, y: 10 });
         gsap.set(staggerItems, { autoAlpha: 0, y: 8 });
         gsap.set(mobileBar, { autoAlpha: isMobile ? 0 : 1, y: isMobile ? -8 : 0 });
         if (isMobile) {
-          gsap.set(sidebar, { autoAlpha: 0, xPercent: -108 });
+          gsap.set(sidebar, { autoAlpha: 0, x: 0, xPercent: -108 });
           gsap.set(scrim, { autoAlpha: 0 });
         } else {
           gsap.set(sidebar, { autoAlpha: 0, y: 10 });
@@ -347,10 +333,30 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
             duration: 0.36,
             stagger: 0.025,
           }, "<0.04");
-      });
+      }
+
+      const handleMotionChange = () => {
+        reducedMotionRef.current = motionQuery.matches;
+        if (!motionQuery.matches) return;
+        introTimelineRef.current?.kill();
+        introTimelineRef.current = null;
+        viewTransitionTimelineRef.current?.kill();
+        viewTransitionTimelineRef.current = null;
+        menuTimelineRef.current?.kill();
+        gsap.set([stage, staggerItems, mobileBar], { autoAlpha: 1, clearProps: "transform" });
+        gsap.set(sidebar, { autoAlpha: isMobile ? 0 : 1, clearProps: "transform" });
+        gsap.set(scrim, { autoAlpha: 0 });
+        setMenuOpen(false);
+        const current = navigationRef.current;
+        applyNavigationStep(current.pending
+          ? requestNavigation(current, current.pending, true)
+          : { state: { ...current, phase: "idle" } });
+      };
+      const onMotionChange = contextSafe ? contextSafe(handleMotionChange) : handleMotionChange;
+      motionQuery.addEventListener("change", onMotionChange);
 
       return () => {
-        matchMedia.revert();
+        motionQuery.removeEventListener("change", onMotionChange);
         introTimelineRef.current?.kill();
         viewTransitionTimelineRef.current?.kill();
         menuTimelineRef.current?.kill();
@@ -360,33 +366,44 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     { scope: dashboardRef },
   );
 
-  useEffect(() => {
-    if (!pendingRevealRef.current) return;
-    pendingRevealRef.current = false;
-    const frame = requestAnimationFrame(() => {
-      runGsap(() => {
-        const stage = viewStageRef.current;
-        if (!stage) {
-          transitionLockedRef.current = false;
-          return;
-        }
-        const staggerItems = stage.querySelectorAll<HTMLElement>("[data-home-stagger]");
-        if (reducedMotionRef.current) {
-          gsap.set([stage, staggerItems], { autoAlpha: 1, clearProps: "transform" });
-          transitionLockedRef.current = false;
-          return;
-        }
-        viewTransitionTimelineRef.current?.kill();
-        viewTransitionTimelineRef.current = gsap.timeline({
-          onComplete: () => { transitionLockedRef.current = false; },
-          defaults: { ease: "power2.out" },
-        })
-          .fromTo(stage, { autoAlpha: 0.12, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.4 })
-          .fromTo(staggerItems, { autoAlpha: 0, y: 7 }, { autoAlpha: 1, y: 0, duration: 0.3, stagger: 0.022 }, "<0.04");
+  useLayoutEffect(() => {
+    const stage = viewStageRef.current;
+    const scroller = readingAreaRef.current;
+    if (!stage || !scroller) return;
+    if (transitionPhase === "idle") return;
+
+    const startExit = () => runGsap(() => {
+      // Read the latest destination only after the departing content is invisible.
+      savedScrollPositions.current.set(navigationRef.current.currentKey, scroller.scrollTop);
+      viewTransitionTimelineRef.current?.kill();
+      const timeline = gsap.timeline();
+      viewTransitionTimelineRef.current = timeline;
+      timeline.to(stage, {
+        autoAlpha: 0, y: -8, duration: 0.22, ease: "power1.out",
+        onComplete: () => {
+          timeline.pause();
+          applyNavigationStep(finishExit(navigationRef.current));
+        },
       });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [runGsap, view]);
+    if (transitionPhase === "exiting") {
+      const intro = introTimelineRef.current;
+      if (intro && intro.progress() < 1 && !reducedMotionRef.current) {
+        intro.eventCallback("onComplete", startExit);
+      } else startExit();
+    } else {
+      runGsap(() => {
+        // The same DOM container stays hidden across the React content commit.
+        gsap.set(stage, { autoAlpha: 0, y: 8 });
+        const timeline = viewTransitionTimelineRef.current;
+        if (!timeline) return;
+        timeline.to(stage, {
+          autoAlpha: 1, y: 0, duration: 0.4, ease: "power2.out",
+          onComplete: () => applyNavigationStep(finishEnter(navigationRef.current)),
+        }).play();
+      });
+    }
+  }, [applyNavigationStep, getViewKey, runGsap, transitionPhase, view]);
 
   useEffect(() => {
     const sidebar = sidebarRef.current;
@@ -395,12 +412,12 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     runGsap(() => {
       menuTimelineRef.current?.kill();
       if (reducedMotionRef.current) {
-        gsap.set(sidebar, { autoAlpha: menuOpen ? 1 : 0, xPercent: menuOpen ? 0 : -108 });
+        gsap.set(sidebar, { autoAlpha: menuOpen ? 1 : 0, x: 0, xPercent: menuOpen ? 0 : -108 });
         gsap.set(scrim, { autoAlpha: menuOpen ? 1 : 0 });
         return;
       }
       menuTimelineRef.current = gsap.timeline({ defaults: { ease: "power3.out" } })
-        .to(sidebar, { autoAlpha: menuOpen ? 1 : 0, xPercent: menuOpen ? 0 : -108, duration: 0.28 })
+        .to(sidebar, { autoAlpha: menuOpen ? 1 : 0, x: 0, xPercent: menuOpen ? 0 : -108, duration: 0.28 })
         .to(scrim, { autoAlpha: menuOpen ? 1 : 0, duration: 0.22 }, menuOpen ? "<0.04" : 0);
     });
   }, [menuOpen, runGsap]);
@@ -504,6 +521,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     if (cursor) params.set("cursor", cursor);
     const controller = new AbortController();
     void fetchHomeArticles(params, controller.signal).then((response) => {
+      if (controller.signal.aborted) return;
       setListResult({
         key: requestKey,
         status: response.items.length ? "ready" : "empty",
@@ -512,7 +530,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
         error: "",
       });
     }).catch((error: unknown) => {
-      if (error instanceof Error && error.name === "AbortError") return;
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       setListResult({
         key: requestKey,
         status: "error",
@@ -547,15 +565,19 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
   const listError = visibleListResult.error;
   const nextCursor = visibleListResult.nextCursor;
 
+  useLayoutEffect(() => {
+    if (!restoreScrollRef.current || !readingAreaRef.current) return;
+    const target = view.kind === "article" ? 0 : savedScrollPositions.current.get(getViewKey(view)) ?? 0;
+    readingAreaRef.current.scrollTop = target;
+    const isList = view.kind === "home" || view.kind === "topic" || view.kind === "search";
+    if (!isList || listStatus !== "loading" || readingAreaRef.current.scrollTop === target) {
+      restoreScrollRef.current = false;
+    }
+  }, [getViewKey, listStatus, view]);
+
   useEffect(() => {
     articleCardsRef.current = [...articles, ...featured, ...collected, ...history.map((entry) => entry.article)];
   }, [articles, featured, collected, history]);
-
-  useEffect(() => {
-    const target = view.kind === "article" ? 0 : savedScrollPositions.current.get(getViewKey(view)) ?? 0;
-    const frame = requestAnimationFrame(() => readingAreaRef.current?.scrollTo({ top: target, behavior: "instant" }));
-    return () => cancelAnimationFrame(frame);
-  }, [view, getViewKey]);
 
   useEffect(() => {
     if (view.kind !== "article") return;
@@ -583,10 +605,11 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     }
     const controller = new AbortController();
     void fetchArticleDetail(view.id, controller.signal).then((response) => {
+      if (controller.signal.aborted) return;
       setDetail(response);
       setDetailStatus("ready");
     }).catch((error: unknown) => {
-      if (error instanceof Error && error.name === "AbortError") return;
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       setDetailError(error instanceof Error ? error.message : "文章详情暂时无法载入。");
       setDetailStatus("error");
     });
@@ -609,11 +632,12 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
   }, [transitionTo]);
 
   const setTopic = (topic: Topic) => {
-    setFilters({ ...INITIAL_FILTERS, topic: topic.slug });
-    setDraftQuery("");
-    setPageCursors([null]);
-    setPageIndex(0);
-    navigate({ kind: "topic", topic });
+    navigate({ kind: "topic", topic }, () => {
+      setFilters({ ...INITIAL_FILTERS, topic: topic.slug });
+      setDraftQuery("");
+      setPageCursors([null]);
+      setPageIndex(0);
+    });
   };
 
   const applyFilters = (next: Filters) => {
@@ -640,7 +664,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     setHistoryCleared(true);
   };
 
-  const renderListState = () => {
+  const renderListState = (feedView: PageView) => {
     if (listStatus === "loading") {
       return <div className={styles.statePanel} role="status"><span className={styles.stateMark} />正在载入资讯…</div>;
     }
@@ -654,7 +678,7 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
       );
     }
     if (listStatus === "empty") {
-      if (view.kind === "home" && !filters.topic && !filters.region && !filters.source && !filters.sourceType && !filters.q) {
+      if (feedView.kind === "home" && !filters.topic && !filters.region && !filters.source && !filters.sourceType && !filters.q) {
         return (
           <div className={styles.statePanel} role="status">
             <strong>{filters.period === "24h" ? "近 24 小时" : filters.period === "7d" ? "近 7 天" : "近 30 天"}暂无新发布的已审核资讯</strong>
@@ -718,10 +742,10 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
       </section> : null}
       <section className={styles.feedSection} aria-labelledby="feed-title" data-home-stagger>
         <div className={styles.feedTools}>
-          <span id="feed-title" className={styles.feedLabel}>{activeTopic ? activeTopic.name_zh : feedView.kind === "search" ? "搜索结果" : "近期资讯"}</span>
+          <span id="feed-title" className={styles.feedLabel}>{feedView.kind === "topic" ? feedView.topic.name_zh : feedView.kind === "search" ? "搜索结果" : "近期资讯"}</span>
           {includeFeatured || feedView.kind === "topic" ? <div className={styles.periodSwitch} aria-label="资讯时间范围">{(["24h", "7d", "30d"] as const).map((period) => <button type="button" key={period} className={filters.period === period ? styles.periodActive : ""} aria-pressed={filters.period === period} onClick={() => applyFilters({ ...filters, period })}>{period === "24h" ? "24 小时" : period === "7d" ? "7 天" : "30 天"}</button>)}</div> : null}
         </div>
-        {renderListState()}
+        {renderListState(feedView)}
         {listStatus === "ready" ? renderArticleList(articles, feedView) : null}
         {listStatus === "ready" ? (
           <div className={styles.pagination}>
@@ -772,11 +796,32 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
     );
   };
 
+  const renderView = (currentView: ActiveView) => {
+    if (currentView.kind === "home") return renderFeed(currentView, true);
+    if (currentView.kind === "topic") return renderFeed(currentView, false);
+    if (currentView.kind === "search") return <>{renderSearchControls()}{renderFeed(currentView, false)}</>;
+    if (currentView.kind === "article") return renderArticleDetail();
+    if (currentView.kind === "history") {
+      return (
+        <section className={styles.historySection} data-home-stagger>
+          <div className={styles.viewTools}><span className={styles.feedLabel}>浏览历史</span>{history.length ? <button className={styles.clearButton} type="button" onClick={clearHistory}><Icon name="clear" size={15} />清空</button> : null}</div>
+          {!historyReady ? <div className={styles.statePanel}>正在读取…</div> : history.length ? <div className={styles.historyList}>{history.map((entry, index) => <button type="button" className={styles.historyRow} key={`${entry.article.id}-${entry.viewedAt}`} onClick={() => openArticle(entry.article, currentView)}><span className={styles.historyNo}>{String(index + 1).padStart(2, "0")}</span><span className={styles.historyCopy}><small>{formatDateTime(articleDate(entry.article))} · {entry.article.source.name} · {timeAgo(entry.viewedAt)}</small><strong>{entry.article.title || entry.article.source_title}</strong></span><Icon name="arrow" size={16} /></button>)}</div> : <div className={styles.emptyHistory}><strong>{historyCleared ? "浏览历史已清空" : "暂无浏览记录"}</strong><button className={styles.inlineButton} type="button" onClick={() => navigate({ kind: "home" })}>返回资讯列表 <Icon name="arrow" size={15} /></button></div>}
+        </section>
+      );
+    }
+    return (
+      <section className={styles.accountPage} data-home-stagger>
+        <div className={styles.viewTools}><span className={styles.feedLabel}>账号</span></div>
+        <div className={styles.accountRows}><div><span>账号状态</span><strong>访客</strong></div><div><span>浏览历史</span><strong>{history.length} 条</strong></div><div><span>可用主题</span><strong>{topics.length} 个</strong></div><div><span>登录</span><strong>暂未开放</strong></div></div>
+      </section>
+    );
+  };
+
   return (
     <div ref={dashboardRef} className={styles.dashboard} style={dashboardStyle}>
       <button ref={scrimRef} className={`${styles.mobileScrim} ${menuOpen ? styles.mobileScrimOpen : ""}`} type="button" aria-label="关闭菜单" onClick={() => setMenuOpen(false)} tabIndex={menuOpen ? 0 : -1} />
       <aside ref={sidebarRef} className={`${styles.sidebar} ${menuOpen ? styles.sidebarOpen : ""}`} aria-label="主菜单" data-home-sidebar>
-        <button className={`${styles.menuItem} ${view.kind === "search" ? styles.menuItemActive : ""}`} type="button" onClick={() => { setDraftQuery(filters.q); navigate({ kind: "search" }); }}><Icon name="search" size={18} /><span>搜索</span></button>
+        <button className={`${styles.menuItem} ${view.kind === "search" ? styles.menuItemActive : ""}`} type="button" onClick={() => navigate({ kind: "search" }, () => setDraftQuery(filters.q))}><Icon name="search" size={18} /><span>搜索</span></button>
         <BranchedTopicMenu topics={topics} activeSlug={activeTopic?.slug ?? ""} status={topicStatus} onSelect={setTopic} />
         <button className={`${styles.menuItem} ${view.kind === "history" ? styles.menuItemActive : ""}`} type="button" onClick={() => navigate({ kind: "history" })}><Icon name="clock" size={18} /><span>浏览历史</span>{history.length ? <span className={styles.historyCount}>{history.length}</span> : null}</button>
         <div className={styles.menuSpacer} aria-hidden="true" />
@@ -788,19 +833,8 @@ export function HomeDashboard({ mock = false, p0Rect }: { mock?: boolean; p0Rect
           {view.kind === "article" ? <button className={styles.mobileBack} type="button" onClick={detailBack} aria-label="返回列表"><Icon name="back" size={19} /><span>返回</span></button> : null}
         </div>
         <main ref={readingAreaRef} className={styles.readingArea}>
-          <div ref={viewStageRef} className={styles.viewStage} data-home-view>
-            {view.kind === "home" ? renderFeed(view, true) : null}
-            {view.kind === "topic" ? renderFeed(view, false) : null}
-            {view.kind === "search" ? <>{renderSearchControls()}{renderFeed(view, false)}</> : null}
-            {view.kind === "article" ? renderArticleDetail() : null}
-            {view.kind === "history" ? <section className={styles.historySection} data-home-stagger>
-            <div className={styles.viewTools}><span className={styles.feedLabel}>浏览历史</span>{history.length ? <button className={styles.clearButton} type="button" onClick={clearHistory}><Icon name="clear" size={15} />清空</button> : null}</div>
-            {!historyReady ? <div className={styles.statePanel}>正在读取…</div> : history.length ? <div className={styles.historyList}>{history.map((entry, index) => <button type="button" className={styles.historyRow} key={`${entry.article.id}-${entry.viewedAt}`} onClick={() => openArticle(entry.article, view)}><span className={styles.historyNo}>{String(index + 1).padStart(2, "0")}</span><span className={styles.historyCopy}><small>{formatDateTime(articleDate(entry.article))} · {entry.article.source.name} · {timeAgo(entry.viewedAt)}</small><strong>{entry.article.title || entry.article.source_title}</strong></span><Icon name="arrow" size={16} /></button>)}</div> : <div className={styles.emptyHistory}><strong>{historyCleared ? "浏览历史已清空" : "暂无浏览记录"}</strong><button className={styles.inlineButton} type="button" onClick={() => navigate({ kind: "home" })}>返回资讯列表 <Icon name="arrow" size={15} /></button></div>}
-            </section> : null}
-            {view.kind === "account" ? <section className={styles.accountPage} data-home-stagger>
-            <div className={styles.viewTools}><span className={styles.feedLabel}>账号</span></div>
-            <div className={styles.accountRows}><div><span>账号状态</span><strong>访客</strong></div><div><span>浏览历史</span><strong>{history.length} 条</strong></div><div><span>可用主题</span><strong>{topics.length} 个</strong></div><div><span>登录</span><strong>暂未开放</strong></div></div>
-            </section> : null}
+          <div ref={viewStageRef} className={styles.viewStage} data-home-view={getViewKey(view)} data-phase={transitionPhase} inert={transitionPhase !== "idle"}>
+            {renderView(view)}
           </div>
         </main>
       </div>
