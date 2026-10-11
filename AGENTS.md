@@ -57,3 +57,15 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Put the majority of implementation effort into frontend composition and motion quality.
 - At minimum, run lint and a production build after changes, then perform focused checks at one representative desktop viewport, one mobile viewport, and with reduced motion enabled.
 - Do not expand routine visual work into a large browser matrix, long performance capture, or unrelated regression suite unless the change's risk requires it or the user asks for it.
+
+## AIHOT adoption and required research
+
+- Read `docs/aihot-understanding.md` and `docs/aihot-backend-stage-map.md` before implementing AIHOT-derived behavior. The evidence is a static, non-Git `D:/AIHOT` download snapshot checked on 2026-10-11; it is not a runtime or production validation.
+- Keep Pulse branding and the existing Next.js/GSAP frontend and Python/FastAPI backend. Adopt AIHOT's mature business rules through explicit contracts; do not directly transplant React Router loaders, PostgreSQL SQL, or pg-boss into this stack.
+- Public reading is anonymous. Browser bookmarks/read/history/preferences do not require normal user accounts or cloud sync. A future same-site `/admin` must have server-enforced admin sessions, CSRF, and audit; an existing account table or local command is not a completed admin backend.
+- Never turn absent event/report/module APIs into fabricated results. The local AIHOT module lists are empty; online-only model rankings and monitors are not available implementations in this snapshot.
+- For routes and HTTP integration read research §2 and §11, then `D:/AIHOT/apps/web/app/routes.ts`, `apps/api/src/routes/site.ts`, and `packages/contracts/src/site.ts`. For browser state/cache read §9 and `apps/web/app/lib/{local-state,restore,session-cache,page-reuse,api.server}.ts`; persistent preferences, 30-minute history restoration, and server-deadline page reuse are separate lifecycles.
+- For collection/model work read §3–4 and §10, then `D:/AIHOT/packages/backend/src/content/materials.ts`, `editorial/analyze.ts`, `providers/receipts.ts`, and `operations/recover.ts`. Bind results to input/prompt versions, preserve human overrides, store paid-call results before business writes, and treat unknown outcomes explicitly.
+- For events/selection/hot/reports read §5–8, then `D:/AIHOT/packages/backend/src/events/{group,relate,hot}.ts`, `reports/{edition,compose}.ts`, and `publication/{scope,publish,representative}.ts`. A score-qualified candidate waits for grouping; heat counts independent participants; a homepage six-slot edition is not a daily report.
+- Every public exit must share visibility, release, withdrawal, evidence, and full-text permission policies. Read research §8–12 before adding RSS/MCP/Markdown/SEO/media or deploying; use the backend stage map to report actual gaps and dependencies.
+- Preserve AIHOT's MIT notice and `Copyright (c) 2026 数字生命卡兹克` when copying substantial code. Its name/logo and third-party news full-text rights are not granted by that software license.

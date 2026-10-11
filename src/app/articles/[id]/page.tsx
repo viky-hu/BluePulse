@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { RouteReady } from "../../_components/home/MainShell";
+import { ArticleActions } from "../../_components/home/ArticleActions";
+import { mockArticle, MOCK_TAXONOMY } from "../_mock";
 import { notFound } from "next/navigation";
 import type { ArticleDetail, TopicInfo } from "../_data";
 import { formatArticleDate, formatArticleTimeline, formatRegion, readApi, safeSourceUrl } from "../_data";
@@ -25,22 +28,30 @@ function translationLabel(status: ArticleDetail["translation_status"]): string {
   }[status] ?? "状态待核";
 }
 
-export default async function ArticleDetailPage({ params }: {
+export default async function ArticleDetailPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [response, topicResponse] = await Promise.all([
+  const mock = (await searchParams).mock === "1";
+  const fixture = mock ? mockArticle(id) : null;
+  const [response, topicResponse] = mock ? [
+    { status: fixture ? 200 : 404, data: fixture },
+    { status: 200, data: MOCK_TAXONOMY },
+  ] : await Promise.all([
     readApi<ArticleDetail>(`/articles/${id}`),
     readApi<{ items: TopicInfo[] }>("/taxonomy"),
   ]);
+  const readingHref = (href: string) => mock ? `${href}${href.includes("?") ? "&" : "?"}mock=1` : href;
   if (response.status === 404) notFound();
   const article = response.data;
   const topicNames = new Map((topicResponse.data?.items ?? []).map((item) => [item.slug, item.name_zh]));
 
   if (!article) {
     return (
-      <main data-reading-page className={styles.shell}>
+      <div data-reading-page className={styles.shell}>
+        <RouteReady />
         <header className={styles.topbar}>
           <Link href="/" className={styles.brand}>BLUE PULSE<span> / 警务科技情报</span></Link>
         </header>
@@ -48,10 +59,10 @@ export default async function ArticleDetailPage({ params }: {
           <span className={styles.eyebrow}>CONNECTION / 连接状态</span>
           <h1>暂时无法读取这篇文章。</h1>
           <p>请确认后端服务已启动，然后重试。</p>
-          <Link href={`/articles/${id}`}>重新载入 ↗</Link>
-          <Link href="/articles">返回情报列表 ←</Link>
+          <Link href={readingHref(`/articles/${id}`)}>重新载入 ↗</Link>
+          <Link href={readingHref("/articles")}>返回情报列表 ←</Link>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -70,13 +81,14 @@ export default async function ArticleDetailPage({ params }: {
           : "以下显示已取得的原文正文。";
 
   return (
-    <main data-reading-page className={styles.shell}>
+    <div data-reading-page className={styles.shell}>
+        <RouteReady />
       <header className={styles.topbar}>
         <Link href="/" className={styles.brand}>BLUE PULSE<span> / 警务科技情报</span></Link>
-        <Link href="/articles" className={styles.topbarLink}>情报列表 ↗</Link>
+        <Link href={readingHref("/articles")} className={styles.topbarLink}>情报列表 ↗</Link>
       </header>
       <nav className={styles.breadcrumb} aria-label="当前位置">
-        <Link href="/articles">情报库</Link><span>/</span><span>文章详情</span>
+        <Link href={readingHref("/articles")}>情报库</Link><span>/</span><span>文章详情</span>
       </nav>
 
       <article className={styles.detailLayout}>
@@ -92,6 +104,7 @@ export default async function ArticleDetailPage({ params }: {
             <time>{formatArticleTimeline(article)}</time>
             {article.author ? <><span aria-hidden="true">·</span><span>{article.author}</span></> : null}
           </div>
+          <div className={styles.detailActions}><ArticleActions article={article} recordRead /></div>
           <div className={styles.detailDivider} />
 
           <section className={styles.abstract} aria-labelledby="abstract-title">
@@ -157,7 +170,7 @@ export default async function ArticleDetailPage({ params }: {
           <div className={styles.asideTopics}>
             <span className={styles.asideIndex}>TOPICS / 主题</span>
             <div>{article.topics.map((topic) => (
-              <Link key={topic} href={`/articles?topic=${encodeURIComponent(topic)}`}>
+              <Link key={topic} href={readingHref(`/articles?topic=${encodeURIComponent(topic)}`)}>
                 {topicNames.get(topic) ?? topic} ↗
               </Link>
             ))}</div>
@@ -166,7 +179,7 @@ export default async function ArticleDetailPage({ params }: {
             <div className={styles.asideTopics}>
               <span className={styles.asideIndex}>ENTITIES / 厂商与模型</span>
               <div>{article.entities.map((entity) => (
-                <Link key={entity.slug} href={`/articles?period=all&entity=${encodeURIComponent(entity.slug)}`}>
+                <Link key={entity.slug} href={readingHref(`/articles?period=all&entity=${encodeURIComponent(entity.slug)}`)}>
                   {entity.name} ↗
                 </Link>
               ))}</div>
@@ -175,8 +188,8 @@ export default async function ArticleDetailPage({ params }: {
           <p className={styles.asideFootnote}>Blue Pulse 对公开材料进行整理。模型生成的标题、摘要与译文不代替原始资料。</p>
         </aside>
       </article>
-      <div className={styles.detailBottom}><Link href="/articles">← 返回情报列表</Link></div>
+      <div className={styles.detailBottom}><Link href={readingHref("/articles")}>← 返回情报列表</Link></div>
       <footer className={styles.footer}>BLUE PULSE <span>以原始来源为准 · 不将模型整理内容视作独立事实</span></footer>
-    </main>
+    </div>
   );
 }

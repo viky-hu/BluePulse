@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import type { Topic } from "../../_lib/home-data";
 import styles from "./home.module.css";
 
@@ -36,16 +37,16 @@ export function BranchedTopicMenu({
   topics,
   activeSlug,
   status,
-  onSelect,
+  hrefForTopic,
 }: {
   topics: Topic[];
   activeSlug: string;
   status: "loading" | "ready" | "empty" | "error";
-  onSelect: (topic: Topic) => void;
+  hrefForTopic: (slug: string) => string;
 }) {
   const groups = useMemo(() => buildTopicMenuGroups(topics), [topics]);
   const availableCount = groups.reduce((count, group) => count + group.topics.filter((entry) => entry.available).length, 0);
-  const showGroups = status === "ready" || status === "empty";
+  const showGroups = true;
 
   return (
     <nav className={styles.topicTree} aria-label="主题分类">
@@ -77,15 +78,13 @@ export function BranchedTopicMenu({
                     const label = topic?.name_zh ?? TOPIC_MENU_LABELS[entry.slug] ?? entry.slug;
                     return (
                       <div className={styles.treeRow} key={entry.slug}>
-                        <button
-                          type="button"
+                        <Link
+                          href={hrefForTopic(entry.slug)}
                           className={`${styles.topicButton} ${isActive ? styles.topicButtonActive : ""}`}
                           aria-current={isActive ? "page" : undefined}
-                          disabled={!topic}
-                          onClick={() => topic && onSelect(topic)}
                         >
                           <span>{label}</span>
-                        </button>
+                        </Link>
                       </div>
                     );
                   })}
@@ -94,7 +93,8 @@ export function BranchedTopicMenu({
             );
           })}
         </div>
-      ) : <p className={styles.treeMessage}>{status === "loading" ? "载入中" : status === "error" ? "暂不可用" : "暂无分类"}</p>}
+      ) : null}
+      {status === "error" ? <p className={styles.treeMessage}>分类目录暂不可用，仍可打开分类页面。</p> : null}
     </nav>
   );
 }

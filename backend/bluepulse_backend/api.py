@@ -418,6 +418,27 @@ def list_articles(
     }
 
 
+@router.get("/articles/availability")
+def article_availability(
+    session: SessionDep,
+    ids: str = Query(""),
+) -> dict[str, object]:
+    if not ids:
+        return {"items": []}
+    raw_ids = ids.split(",")
+    if len(raw_ids) > 100:
+        raise ApiError(422, "invalid_request", "请求参数无效。")
+    try:
+        article_ids = list(dict.fromkeys(UUID(value) for value in raw_ids))
+    except ValueError:
+        raise ApiError(422, "invalid_request", "请求参数无效。") from None
+    available = set(session.scalars(
+        select(Article.id).where(Article.id.in_(article_ids), *public_article_conditions())
+    ))
+    return {"items": [{"id": str(article_id), "available": article_id in available}
+                      for article_id in article_ids]}
+
+
 @router.get("/articles/{article_id}")
 def article_detail(article_id: UUID, session: SessionDep) -> dict[str, object]:
     article = session.scalar(
@@ -483,6 +504,8 @@ def create_app() -> FastAPI:
         request.state.request_id = str(uuid.uuid4())
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
+        if request.url.path == "/api/v1/articles/availability":
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ApiError)

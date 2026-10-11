@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { RouteReady } from "../_components/home/MainShell";
+import { ArticleActions } from "../_components/home/ArticleActions";
 import type { ArticleCard, ArticleListResponse, EntityInfo, SourceInfo, TopicInfo } from "./_data";
 import { formatArticleTimeline, formatRegion, readApi } from "./_data";
 import styles from "./reading.module.css";
+import { mockArticles, MOCK_SOURCES, MOCK_TAXONOMY } from "./_mock";
 
 type SearchValues = Record<string, string | string[] | undefined>;
 type Period = "24h" | "7d" | "30d" | "all";
@@ -31,14 +34,15 @@ function buildHref(values: Record<string, string>, changes: Record<string, strin
   return `/articles${query ? `?${query}` : ""}`;
 }
 
-function ArticleRow({ article, index, topicNames }: {
+function ArticleRow({ article, index, topicNames, mock }: {
+  mock: boolean;
   article: ArticleCard;
   index: number;
   topicNames: Map<string, string>;
 }) {
   return (
     <article className={`${styles.articleRow} ${index === 0 ? styles.leadRow : ""}`}>
-      <Link className={styles.rowLink} href={`/articles/${article.id}`} aria-label={`阅读：${article.title}`}>
+      <Link className={styles.rowLink} href={`/articles/${article.id}${mock ? "?mock=1" : ""}`} aria-label={`阅读：${article.title}`}>
         <span className={styles.rowNumber}>{String(index + 1).padStart(2, "0")}</span>
         <div className={styles.rowContent}>
           <div className={styles.rowMeta}>
@@ -63,6 +67,7 @@ function ArticleRow({ article, index, topicNames }: {
         </div>
         <span className={styles.rowArrow} aria-hidden="true">↗</span>
       </Link>
+      <div className={styles.rowActions}><ArticleActions article={article} /></div>
     </article>
   );
 }
@@ -73,24 +78,30 @@ export default async function ArticlesPage({
   searchParams: Promise<SearchValues>;
 }) {
   const raw = await searchParams;
+  const mock = scalar(raw.mock) === "1";
   const requestedPeriod = scalar(raw.period);
   const period = PERIODS.some((item) => item.value === requestedPeriod)
     ? requestedPeriod as Period : "30d";
   const topic = scalar(raw.topic).slice(0, 80);
   const region = ["domestic", "foreign"].includes(scalar(raw.region)) ? scalar(raw.region) : "";
-  const source = /^[0-9a-f-]{36}$/i.test(scalar(raw.source)) ? scalar(raw.source) : "";
+  const source = (/^[0-9a-f-]{36}$/i.test(scalar(raw.source)) || (mock && MOCK_SOURCES.items.some((item) => item.id === scalar(raw.source)))) ? scalar(raw.source) : "";
   const sourceType = /^[a-z_-]{1,32}$/.test(scalar(raw.source_type)) ? scalar(raw.source_type) : "";
   const entity = /^[a-z0-9-]{1,100}$/.test(scalar(raw.entity)) ? scalar(raw.entity) : "";
   const q = scalar(raw.q).trim().slice(0, 200);
   const sort = scalar(raw.sort) === "importance" ? "importance" : "recent";
   const cursor = scalar(raw.cursor).slice(0, 2000);
-  const values = { period, topic, region, source, source_type: sourceType, entity, q, sort };
+  const values = { period, topic, region, source, source_type: sourceType, entity, q, sort, ...(mock ? { mock: "1" } : {}) };
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries({ ...values, ...(cursor ? { cursor } : {}) })) {
     if (value) query.set(key, value);
   }
 
-  const [listing, topicResponse, sourceResponse, entityResponse] = await Promise.all([
+  const [listing, topicResponse, sourceResponse, entityResponse] = mock ? [
+    { status: 200, data: mockArticles(values, cursor) },
+    { status: 200, data: MOCK_TAXONOMY },
+    { status: 200, data: MOCK_SOURCES },
+    { status: 200, data: { items: [] as EntityInfo[] } },
+  ] : await Promise.all([
     readApi<ArticleListResponse>(`/articles?${query.toString()}`),
     readApi<{ items: TopicInfo[] }>("/taxonomy"),
     readApi<{ items: SourceInfo[] }>("/sources"),
@@ -104,10 +115,11 @@ export default async function ArticlesPage({
   const items = listing.data?.items ?? [];
 
   return (
-    <main data-reading-page className={styles.shell}>
+    <div data-reading-page className={styles.shell}>
+      <RouteReady />
       <header className={styles.topbar}>
         <Link href="/" className={styles.brand}>BLUE PULSE<span> / 警务科技情报</span></Link>
-        <Link href="/entities" className={styles.topbarLink}>厂商 / 模型目录 ↗</Link>
+        <Link href={mock ? "/entities?mock=1" : "/entities"} className={styles.topbarLink}>厂商 / 模型目录 ↗</Link>
       </header>
 
       <section className={styles.hero} aria-labelledby="articles-title">
@@ -136,6 +148,7 @@ export default async function ArticlesPage({
           <div className={styles.panelHeading}><span>筛选 / FILTER</span><span>01—06</span></div>
           <form action="/articles" method="get" className={styles.filterForm}>
             <input type="hidden" name="period" value={period} />
+            {mock ? <input type="hidden" name="mock" value="1" /> : null}
             <div className={`${styles.filterField} ${styles.searchField}`}>
               <label htmlFor="query">关键词</label>
               <input id="query" name="q" type="search" placeholder="标题或正文" defaultValue={q} />
@@ -184,7 +197,7 @@ export default async function ArticlesPage({
               </select>
             </div>
             <button type="submit">应用筛选 <span aria-hidden="true">↗</span></button>
-            <Link href="/articles" className={styles.clearLink}>清除条件</Link>
+            <Link href={mock ? "/articles?mock=1" : "/articles"} className={styles.clearLink}>清除条件</Link>
           </form>
         </aside>
 
@@ -211,7 +224,7 @@ export default async function ArticlesPage({
             <>
               <div className={styles.articleList}>
                 {items.map((item, index) => (
-                  <ArticleRow key={item.id} article={item} index={index} topicNames={topicNames} />
+                  <ArticleRow key={item.id} article={item} index={index} topicNames={topicNames} mock={mock} />
                 ))}
               </div>
               {listing.data.next_cursor ? (
@@ -224,6 +237,6 @@ export default async function ArticlesPage({
         </section>
       </div>
       <footer className={styles.footer}>BLUE PULSE <span>以原始来源为准 · 不将模型整理内容视作独立事实</span></footer>
-    </main>
+    </div>
   );
 }

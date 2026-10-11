@@ -1,5 +1,5 @@
 export type FeaturedSlot = "p0" | "p1" | "p2" | "p3" | "p4" | "p5";
-export type ArticlePeriod = "24h" | "7d" | "30d";
+export type ArticlePeriod = "24h" | "7d" | "30d" | "all";
 export type ArticleSort = "recent" | "importance";
 export type ArticleRegion = "domestic" | "foreign";
 

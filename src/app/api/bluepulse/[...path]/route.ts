@@ -24,7 +24,7 @@ function isAllowedPath(path: string[]): boolean {
     (path.length === 1 && path[0] === "articles") ||
     (path.length === 2 &&
       path[0] === "articles" &&
-      ARTICLE_ID_PATTERN.test(path[1]))
+      (path[1] === "availability" || ARTICLE_ID_PATTERN.test(path[1])))
   );
 }
 

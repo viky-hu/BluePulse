@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 import { CustomEase } from "gsap/CustomEase";
@@ -12,7 +12,6 @@ import { LogoMark } from "./LogoMark";
 import { ReportLine } from "./ReportLine";
 import { ScrollCueButton } from "./ScrollCueButton";
 import { WhitePaper } from "./WhitePaper";
-import { HomeDashboard } from "../home/HomeDashboard";
 import type { WhitePaperArticle } from "./white-paper-data";
 import {
   calculatePanelGeometry,
@@ -25,7 +24,6 @@ import {
   calculateMainPanelRect,
   type IntroPhase,
   type PanelGeometry,
-  type PanelRect,
   type ReportGeometry,
 } from "./intro-config";
 import {
@@ -43,10 +41,6 @@ const INITIAL_WHITE_PAPER_LAYOUT = calculateWhitePaperLayout(
   1440,
   900,
   INITIAL_GEOMETRY,
-);
-const INITIAL_MAIN_PANEL_RECT = calculateMainPanelRect(
-  INITIAL_GEOMETRY,
-  INITIAL_REPORT_GEOMETRY,
 );
 const CURTAIN_EXIT_EASE_PATH =
   "M0,0 C0.04,0.12 0.08,0.48 0.2,0.78 C0.36,0.95 0.7,0.995 1,1";
@@ -70,11 +64,11 @@ function getViewportGeometries() {
 }
 
 export function InitialIntro({
-  mockData = false,
   whitePapers,
+  onMainReady,
 }: {
-  mockData?: boolean;
   whitePapers: WhitePaperArticle[];
+  onMainReady: () => void;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<SVGSVGElement>(null);
@@ -100,11 +94,9 @@ export function InitialIntro({
   const [whitePaperLayout, setWhitePaperLayout] = useState(
     INITIAL_WHITE_PAPER_LAYOUT,
   );
-  const [mainPanelRect, setMainPanelRect] = useState<PanelRect>(
-    INITIAL_MAIN_PANEL_RECT,
-  );
   const [cueDisabled, setCueDisabled] = useState(true);
-  const [mainReady, setMainReady] = useState(false);
+  const onMainReadyRef = useRef(onMainReady);
+  useLayoutEffect(() => { onMainReadyRef.current = onMainReady; }, [onMainReady]);
   const idSeed = useId().replaceAll(":", "");
   const curtainClipId = `intro-curtain-clip-${idSeed}`;
   const shadowFilterId = `intro-panel-shadow-${idSeed}`;
@@ -185,13 +177,7 @@ export function InitialIntro({
         root.dataset.phase = nextPhase;
         setCueDisabled(nextPhase !== "complete");
         if (nextPhase === "main") {
-          setMainPanelRect(
-            calculateMainPanelRect(
-              geometryRef.current,
-              reportGeometryRef.current,
-            ),
-          );
-          setMainReady(true);
+          onMainReadyRef.current();
         }
       };
 
@@ -643,9 +629,6 @@ export function InitialIntro({
         geometryRef.current = nextGeometries.panel;
         reportGeometryRef.current = nextGeometries.report;
         whitePaperLayoutRef.current = nextGeometries.whitePapers;
-        setMainPanelRect(
-          calculateMainPanelRect(nextGeometries.panel, nextGeometries.report),
-        );
         setGeometry(nextGeometries.panel);
         setReportGeometry(nextGeometries.report);
         setWhitePaperLayout(nextGeometries.whitePapers);
@@ -889,11 +872,6 @@ export function InitialIntro({
         />
       </div>
 
-      {mainReady ? (
-        <div className={styles.mainLayer} data-main-layer>
-          <HomeDashboard mock={mockData} p0Rect={mainPanelRect} />
-        </div>
-      ) : null}
     </main>
   );
 }
