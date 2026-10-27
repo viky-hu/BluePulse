@@ -13,6 +13,9 @@
 }
 
 .content { --ink: #252a26; --muted: #727a73; --line: #e0e4df; --green: #386451; color: var(--ink); }
+.pageHeader { margin-bottom: 28px; }
+.pageHeader h1 { margin: 0 0 12px; font-size: 26px; font-weight: 400; line-height: 1.4; }
+.pageHeader p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.8; }
 .menuItem, .topicButton, .articleRow, .historyRow, .inlineButton { text-decoration: none; }
 .articleEntry { position: relative; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
 .articleEntry .articleRow { border-bottom: 0; grid-template-columns: 44px minmax(0, 1fr) 17px; }

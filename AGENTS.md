@@ -10,6 +10,16 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Blue Pulse Project Rules
 
+## 项目主线与模块工作约定
+
+- 主线：从 `D:/AIHOT` 尽可能完整地复用已选模块的真实实现，将其改造成国内外警务科技情报系统，并接入 Pulse 现有界面。
+- 范围：以当前用户要求及 README 的最新具体菜单清单为准。早期设想和 AIHOT 原站栏目仅供参考；分组名不代表允许补齐所有条目。每个会话只处理指定模块及必要的共享适配。
+- “照搬复用”：优先复用实际组件、信息层级、交互状态、样式参数和成熟业务行为，再做必要适配；未经要求不另行设计、删减模块功能或只制作外观空壳。
+- 界面映射：保留 Pulse 品牌、菜单、共享 p0 白纸和导航动效；移除原站重复的整页背景与外层框架，按 p0 容器重新编排，并适配内部滚动、吸顶、弹层及移动端。
+- 领域改造：替换 AI 行业的信源、主题、机构、案例和文案，保留适用的通用机制。沿用既有技术栈，版本差异正常适配，不作为回避复用的理由。
+- 开工：核对当前分支和未提交改动；阅读 README 的宏观规划、AIHOT 基础功能和具体菜单清单，再按研究索引阅读本模块的 AIHOT 原始源码及 Pulse 现状。研究记录不代替源码核对。
+- 交付：简述“原始源码 → 复用内容 → Pulse 适配 → 验证结果”。缺失后端应列明接口依赖和真实状态；模块结论写回相关文档，不把静态研究、占位页面或测试数据当作业务完成。
+
 ## Technology and source of truth
 
 - Keep the existing stack: Next.js 16, React 19, TypeScript, Tailwind CSS 4, and GSAP 3 with `@gsap/react`.
@@ -61,7 +71,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## AIHOT adoption and required research
 
 - Read `docs/aihot-understanding.md` and `docs/aihot-backend-stage-map.md` before implementing AIHOT-derived behavior. The evidence is a static, non-Git `D:/AIHOT` download snapshot checked on 2026-10-11; it is not a runtime or production validation.
-- Keep Pulse branding and the existing Next.js/GSAP frontend and Python/FastAPI backend. Adopt AIHOT's mature business rules through explicit contracts; do not directly transplant React Router loaders, PostgreSQL SQL, or pg-boss into this stack.
+- Reuse the selected modules' actual frontend implementations and business behavior within Pulse's existing Next.js/GSAP frontend and Python/FastAPI backend. Adapt framework integrations and contracts rather than transplanting React Router loaders, PostgreSQL SQL, or pg-boss.
 - Public reading is anonymous. Browser bookmarks/read/history/preferences do not require normal user accounts or cloud sync. A future same-site `/admin` must have server-enforced admin sessions, CSRF, and audit; an existing account table or local command is not a completed admin backend.
 - Never turn absent event/report/module APIs into fabricated results. The local AIHOT module lists are empty; online-only model rankings and monitors are not available implementations in this snapshot.
 - For routes and HTTP integration read research §2 and §11, then `D:/AIHOT/apps/web/app/routes.ts`, `apps/api/src/routes/site.ts`, and `packages/contracts/src/site.ts`. For browser state/cache read §9 and `apps/web/app/lib/{local-state,restore,session-cache,page-reuse,api.server}.ts`; persistent preferences, 30-minute history restoration, and server-deadline page reuse are separate lifecycles.

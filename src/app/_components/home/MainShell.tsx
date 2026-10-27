@@ -2,18 +2,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { fetchTaxonomy, type Topic } from "../../_lib/home-data";
 import { MOCK_TAXONOMY } from "../../_lib/home-mock";
 import { useBrowserState } from "../../_lib/use-browser-state";
 import { readSessionSnapshot, saveSessionSnapshot } from "../../_lib/session-restore";
-import { BranchedTopicMenu } from "./BranchedTopicMenu";
+import { PulseSidebar } from "./menu/PulseSidebar";
 import { canonicalHref, entryMode, parseHomeRoute } from "./home-routes";
 import { finishEnter, finishExit, requestNavigation, type NavigationState } from "./view-transition";
 import { MainScene } from "./MainScene";
-import menuStyles from "./home.module.css";
 import styles from "./main-shell.module.css";
 
 gsap.registerPlugin(useGSAP);
@@ -22,7 +20,7 @@ type ShellContext = {
   mock: boolean; routeKey: string; pathname: string; restore: boolean; entry: Entry;
   introHost: HTMLDivElement | null; introFinished: () => void;
   ready: (key: string, value: boolean) => void; navigate: (href: string) => void;
-  href: (href: string) => string; topics: Topic[]; refreshRevision: number;
+  href: (href: string) => string; topics: Topic[]; topicStatus: "loading" | "ready" | "error"; refreshRevision: number;
 };
 const Context = createContext<ShellContext | null>(null);
 export function useMainShell() { const context = useContext(Context); if (!context) throw Error("Missing Pulse shared layout"); return context; }
@@ -45,6 +43,7 @@ export function MainShell({ children }: { children: ReactNode }) {
   const key = canonicalHref(`${pathname}?${search}`);
   const { state: browser, store } = useBrowserState(mock);
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), scroller = useRef<HTMLElement>(null), menu = useRef<HTMLElement>(null);
+  const menuToggle = useRef<HTMLButtonElement>(null);
   const motion = useRef<gsap.core.Animation | null>(null), motionKey = useRef("");
   const [entry, setEntry] = useState<Entry>("pending");
   const [introHost, setIntroHost] = useState<HTMLDivElement | null>(null);
@@ -57,6 +56,7 @@ export function MainShell({ children }: { children: ReactNode }) {
   // An owned push carries its intent before URL commit. Any other key change is history traversal.
   const restore = pendingRoute === null && (activation.key !== key || activation.restore);
   const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => { setMenuOpen(false); menuToggle.current?.focus({ preventScroll: true }); }, []);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [topicStatus, setTopicStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -203,8 +203,7 @@ export function MainShell({ children }: { children: ReactNode }) {
 
   useEffect(() => () => { motion.current?.kill(); }, []);
   const introFinished = useCallback(() => { document.documentElement.dataset.pulseEntry = "stable"; setEntry("revealing"); }, []);
-  const context = useMemo<ShellContext>(() => ({ mock, routeKey: key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, topics: visibleTopics, refreshRevision }), [mock, key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, visibleTopics, refreshRevision]);
-  const route = parseHomeRoute(pathname, search);
+  const context = useMemo<ShellContext>(() => ({ mock, routeKey: key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, topics: visibleTopics, topicStatus: visibleTopicStatus, refreshRevision }), [mock, key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, visibleTopics, visibleTopicStatus, refreshRevision]);
   const capture = (event: MouseEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
@@ -216,16 +215,10 @@ export function MainShell({ children }: { children: ReactNode }) {
   return <Context.Provider value={context}>
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>
       <MainScene />
-      <div className={menuStyles.dashboard}>
-        <button className={styles.mobileToggle} onClick={() => setMenuOpen(!menuOpen)} aria-label={menuOpen ? "关闭菜单" : "打开菜单"} aria-expanded={menuOpen}>☰ 菜单</button>
-        <button className={styles.scrim} data-open={menuOpen} onClick={() => setMenuOpen(false)} aria-label="关闭菜单" tabIndex={menuOpen ? 0 : -1} />
-        <aside ref={menu} className={`${menuStyles.sidebar} ${styles.menu}`} data-open={menuOpen} aria-label="主菜单" data-home-sidebar inert={entry === "intro" || entry === "revealing"}>
-          <Link href={href("/")} className={styles.brand}>Blue Pulse · 精选</Link>
-          <Link href={href("/search")} className={`${menuStyles.menuItem} ${route.kind === "search" ? menuStyles.menuItemActive : ""}`} aria-current={route.kind === "search" ? "page" : undefined}><span aria-hidden>⌕</span><span>搜索</span></Link>
-          <BranchedTopicMenu topics={visibleTopics} activeSlug={route.filters.topic} status={visibleTopicStatus} hrefForTopic={slug => href(`/topics/${slug}`)} />
-          <Link className={`${menuStyles.menuItem} ${route.kind === "history" ? menuStyles.menuItemActive : ""}`} href={href("/history")}><span aria-hidden>◷</span><span>浏览历史</span>{browser.history.length ? <span className={menuStyles.historyCount}>{browser.history.length}</span> : null}</Link>
-          <Link className={`${menuStyles.menuItem} ${route.kind === "starred" ? menuStyles.menuItemActive : ""}`} href={href("/starred")}><span aria-hidden>☆</span><span>本机收藏</span>{browser.starred.length ? <span className={menuStyles.historyCount}>{browser.starred.length}</span> : null}</Link>
-        </aside>
+      <div className={styles.menuLayer}>
+        <button ref={menuToggle} className={styles.mobileToggle} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} aria-label={menuOpen ? "关闭菜单" : "打开菜单"} aria-expanded={menuOpen} aria-controls="pulse-main-menu">☰ 菜单</button>
+        <button className={styles.scrim} data-open={menuOpen} onClick={closeMenu} aria-label="关闭菜单" tabIndex={menuOpen ? 0 : -1} />
+        <PulseSidebar ref={menu} className={styles.menu} pathname={pathname} hrefFor={href} open={menuOpen} inactive={entry === "intro" || entry === "revealing"} onClose={closeMenu} />
       </div>
       <div className={styles.frame} data-p0-content>
         {navigation.phase === "entering" && !readyKeys[key] ? <div className={styles.navigationStatus} role="status">正在载入内容…</div> : null}

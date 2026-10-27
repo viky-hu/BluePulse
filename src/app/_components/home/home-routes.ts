@@ -1,4 +1,5 @@
 import { TOPIC_MENU_SLUGS } from "./topic-menu-config.ts";
+import { isSectionPath } from "./navigation-config.ts";
 import type { ArticlePeriod, ArticleRegion, ArticleSort } from "../../_lib/home-data";
 
 export type HomeFilters = {
@@ -12,7 +13,7 @@ export type HomeFilters = {
   sort: ArticleSort;
 };
 export type HomeRoute = {
-  kind: "home" | "search" | "topic" | "history" | "starred" | "article" | "library" | "entities" | "unknown";
+  kind: "home" | "search" | "all" | "topics" | "section" | "topic" | "history" | "starred" | "article" | "library" | "entities" | "unknown";
   filters: HomeFilters;
   cursor: string | null;
   articleId: string | null;
@@ -36,12 +37,15 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
   const id = pathname.startsWith("/articles/") ? pathname.slice(10) : null;
   const kind: HomeRoute["kind"] = pathname === "/" ? "home"
     : pathname === "/search" ? "search"
+    : pathname === "/all" ? "all"
+    : pathname === "/topics" ? "topics"
+    : isSectionPath(pathname) ? "section"
     : pathname === "/history" ? "history"
     : pathname === "/starred" ? "starred"
     : pathname === "/articles" ? "library"
     : pathname === "/entities" ? "entities"
     : slug ? "topic" : id ? "article" : "unknown";
-  const fallback = kind === "library" ? "30d" : "7d";
+  const fallback = kind === "library" || kind === "all" ? "30d" : "7d";
   const period = params.get("period");
   const region = params.get("region");
   return {
@@ -65,7 +69,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
 export function buildHomeHref(pathname: string, filters?: HomeFilters, options: { cursor?: string | null; mock?: boolean } = {}): string {
   const params = new URLSearchParams();
   if (filters) {
-    if (filters.period !== (pathname === "/articles" ? "30d" : "7d")) params.set("period", filters.period);
+    if (filters.period !== (pathname === "/articles" || pathname === "/all" ? "30d" : "7d")) params.set("period", filters.period);
     if (filters.q) params.set("q", filters.q.trim().slice(0, 200));
     if (filters.topic && !pathname.startsWith("/topics/")) params.set("topic", filters.topic);
     if (filters.region) params.set("region", filters.region);

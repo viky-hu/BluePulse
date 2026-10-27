@@ -60,7 +60,7 @@ function Filters({ filters, apply }: { filters: HomeFilters; apply: (filters: Ho
       <label><span>具体来源</span><select value={filters.source} onChange={event => apply({ ...filters, source: event.target.value })}><option value="">全部来源</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select></label>
       <label><span>来源类型</span><select value={filters.sourceType} onChange={event => apply({ ...filters, sourceType: event.target.value })}><option value="">全部来源</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
       <label><span>排列方式</span><select value={filters.sort} onChange={event => apply({ ...filters, sort: event.target.value as HomeFilters["sort"] })}><option value="recent">最新发布</option><option value="importance">关注度优先</option></select></label>
-    </div><div className={styles.searchFootnote}><button type="button" onClick={() => apply(parseHomeRoute("/search", new URLSearchParams()).filters)}>重置筛选</button></div>
+    </div><div className={styles.searchFootnote}><button type="button" onClick={() => apply(parseHomeRoute(shell.pathname, new URLSearchParams()).filters)}>重置筛选</button></div>
   </section>;
 }
 
@@ -81,7 +81,6 @@ export function HomeDashboard() {
       return () => { active = false; };
     }
     const next = emptyFeed(key);
-    queueMicrotask(() => { if (active) setFeed(next); });
     async function load() {
       const filters = JSON.parse(filterKey) as HomeFilters;
       const params = new URLSearchParams({ period: filters.period, sort: filters.sort, limit: "20" });
@@ -104,22 +103,28 @@ export function HomeDashboard() {
       next.status = next.error ? "error" : "ready";
       if (active) { setFeed(next); if (next.status === "ready") saveSessionSnapshot(`feed:${key}`, next, shell.mock); }
     }
-    load().catch(error => { if (active) setFeed({ ...next, status: "error", error: error instanceof Error ? error.message : "资讯暂时无法载入" }); });
+    queueMicrotask(() => {
+      if (!active) return;
+      // Publish a separate loading snapshot before starting either immediate mock or async HTTP work.
+      setFeed(emptyFeed(key));
+      load().catch(error => { if (active) setFeed({ ...next, status: "error", error: error instanceof Error ? error.message : "资讯暂时无法载入" }); });
+    });
     return () => { active = false; controller.abort(); };
   }, [shell.routeKey, shell.pathname, shell.mock, shell.restore, shell.refreshRevision, filterKey, route.kind, route.cursor, retry]);
   const current = feed.key === shell.routeKey ? feed : emptyFeed(shell.routeKey);
   const apply = (filters: HomeFilters) => shell.navigate(buildHomeHref(shell.pathname, filters, { mock: shell.mock }));
   const nextHref = buildHomeHref(shell.pathname, route.filters, { cursor: current.next, mock: shell.mock });
   const previous = readSessionSnapshot<string>(`previous:${shell.routeKey}`, shell.mock);
-  const header = route.kind === "home" ? "近期资讯" : route.kind === "topic" ? TOPIC_MENU_LABELS[route.filters.topic] : "搜索结果";
+  const header = route.kind === "home" ? "近期资讯" : route.kind === "all" ? "全部动态" : route.kind === "topic" ? TOPIC_MENU_LABELS[route.filters.topic] : "搜索结果";
   if (!route.valid) return <><RouteReady /><p role="alert">没有这个分类。<Link href={shell.href("/")}>返回精选</Link></p></>;
   return <div className={styles.content}>
     <RouteReady ready={current.status !== "loading"} />
-    {route.kind === "search" ? <Filters key={filterKey} filters={route.filters} apply={apply} /> : null}
+    {route.kind === "all" ? <header className={styles.pageHeader}><h1>全部动态</h1><p>浏览国内外警务科技资讯，按时间、主题与来源筛选。</p></header> : null}
+    {route.kind === "search" || route.kind === "all" ? <Filters key={filterKey} filters={route.filters} apply={apply} /> : null}
     {route.kind === "home" && current.featured.length ? <section className={styles.featuredSection} aria-label="精选资讯"><ArticleRows articles={current.featured} kind="featured" /></section> : null}
     {current.collected.length ? <section className={styles.collectedSection}><div className={styles.feedTools}><span className={styles.feedLabel}>最近收录</span><Link href={shell.href("/articles?period=all")} className={styles.inlineButton}>查看全部</Link></div><p className={styles.collectedNote}>可能包含往期文章；请以原文日期为准，不代表本期精选。</p><ArticleRows articles={current.collected} kind="collected" /></section> : null}
     <section className={styles.feedSection} aria-label={header}>
-      <div className={styles.feedTools}><span className={styles.feedLabel}>{header}</span>{route.kind !== "search" ? <div className={styles.periodSwitch}>{(["24h", "7d", "30d", "all"] as const).map(period => <button key={period} type="button" aria-pressed={route.filters.period === period} className={route.filters.period === period ? styles.periodActive : ""} onClick={() => apply({ ...route.filters, period })}>{period === "all" ? "全部" : period === "24h" ? "24 小时" : period === "7d" ? "7 天" : "30 天"}</button>)}</div> : null}</div>
+      <div className={styles.feedTools}><span className={styles.feedLabel}>{header}</span>{route.kind !== "search" && route.kind !== "all" ? <div className={styles.periodSwitch}>{(["24h", "7d", "30d", "all"] as const).map(period => <button key={period} type="button" aria-pressed={route.filters.period === period} className={route.filters.period === period ? styles.periodActive : ""} onClick={() => apply({ ...route.filters, period })}>{period === "all" ? "全部" : period === "24h" ? "24 小时" : period === "7d" ? "7 天" : "30 天"}</button>)}</div> : null}</div>
       {current.status === "loading" ? <div className={styles.statePanel} role="status">正在载入资讯…</div> : null}
       {current.status === "error" ? <div className={`${styles.statePanel} ${styles.stateError}`} role="alert"><strong>资讯暂时无法载入</strong><p>{current.error}</p><button type="button" className={styles.inlineButton} onClick={() => setRetry(value => value + 1)}>重试</button></div> : null}
       {current.articles.length ? <ArticleRows articles={current.articles} /> : current.status === "ready" ? <div className={styles.statePanel} role="status">{route.kind === "home" ? "本期暂无已审核资讯" : "没有匹配的资讯"}</div> : null}

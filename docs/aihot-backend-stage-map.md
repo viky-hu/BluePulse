@@ -15,7 +15,7 @@
 | 管理 | `AdminAccount`、受控本机脚本、人工覆盖字段 | 没有完整同站管理员登录/session/CSRF/审计/运行后台。数据表存在不等于权限链完成 |
 | 公众阅读 | `/api/v1/articles`、详情、taxonomy、sources、entities、home/featured、recently-collected | 支持真实文字阅读/检索；事件热点、日报与专题关系、MCP/RSS/许可层缺失。媒体已有元数据不等于图片系统验收 |
 
-本轮基础前端路由、匿名浏览器记忆及 API 小扩展正在实施；是否通过 lint/build/离线 API/浏览器检查由本轮最终记录提供。不会因为新增 availability 或主题入口便宣布上述事件、报告和后台完成。
+本轮基础前端路由、匿名浏览器记忆及 availability API 扩展已完成，2026-10-25 的 lint/build、离线 API 与浏览器检查见 [验收记录](aihot-foundations-verification-2026-10-25.md)。这不代表上述事件、报告和后台已经完成。
 
 ## 2. 前端先行的数据约定
 
@@ -29,7 +29,7 @@
 
 ### 阶段 A：冻结公共契约及浏览器基础
 
-范围：保留真实文章列表/详情与分类/来源/实体筛选，前端薄适配；将收藏可用性核验作为匿名读接口，移除普通账号文案。本轮处于实施中。
+范围：保留真实文章列表/详情与分类/来源/实体筛选，前端薄适配；将收藏可用性核验作为匿名读接口，移除普通账号文案。本轮基础部分已验收，覆盖与边界见上述记录。
 
 AIHOT 来源：`D:/AIHOT/apps/api/src/routes/site.ts: registerSite`、`publication/availability.ts: itemAvailability`；浏览器 `apps/web/app/lib/local-state.ts`、`restore.ts`、`page-reuse.ts`。Pulse 使用既有 API 错误格式、UUID、游标与状态字段，不能复用 AIHOT 短ID/数字页假装契约兼容。
 
