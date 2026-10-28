@@ -22,7 +22,7 @@
 | --- | --- | --- | --- | --- |
 | DOCK-001 | 关于页统计、信源河与最近精选 | `/about` | 建议 `GET /api/v1/site/stats` | 前端已预留，后端待实现 |
 | DOCK-001 附项 | 团队头像和联系方式 | `/about` | 本轮静态资源，无新增后台接口 | 已实现静态展示 |
-| DOCK-002 | 更新日志与未读提示 | `/changelog` | Next.js `GET /api/bluepulse/site/{changelog,meta}` | 已实现真实文件数据，待本轮验收；无 FastAPI 依赖 |
+| DOCK-002 | 更新日志与未读提示 | `/changelog` | Next.js `GET /api/bluepulse/site/{changelog,meta}` | 已实现真实文件数据并通过本轮前端验收；无 FastAPI 依赖 |
 | DOCK-003 | 匿名反馈、草稿与截图 | `/feedback` | `POST /api/bluepulse/site/feedback` → 建议 FastAPI `/api/v1/site/feedback` | 前端及代理已预留，真实接收与查看待后端实施 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）

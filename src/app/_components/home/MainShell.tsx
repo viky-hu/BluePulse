@@ -229,8 +229,10 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
     if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
     const url = new URL(anchor.href);
-    if (url.origin !== location.origin || url.hash || !parseHomeRoute(url.pathname, url.searchParams).valid) return;
-    event.preventDefault(); navigate(`${url.pathname}${url.search}`);
+    const sameView = canonicalHref(`${url.pathname}${url.search}`) === keyRef.current;
+    if (url.origin !== location.origin || (url.hash && sameView) || !parseHomeRoute(url.pathname, url.searchParams).valid) return;
+    // A cross-page anchor is a new owned navigation, not history restoration of the old page.
+    event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`);
   };
   return <Context.Provider value={context}>
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>

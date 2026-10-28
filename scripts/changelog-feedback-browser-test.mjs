@@ -9,6 +9,7 @@ let playwright = process.env.PULSE_PLAYWRIGHT_MODULE;
 if (!playwright) { try { await access(bundled); playwright = bundled; } catch {} }
 const { chromium } = await import(playwright ? pathToFileURL(playwright).href : "playwright");
 const artifacts = "test-results/changelog-feedback";
+const reportName = process.env.PULSE_FEEDBACK_TEST_FILTER ? "verification-filtered.json" : "verification.json";
 const disabledOrigin = "http://localhost:3140", liveOrigin = "http://localhost:3142";
 const changelog = JSON.parse(await readFile("site/changelog.json", "utf8"));
 const keys = { live: "bluepulse:feedback-draft:v1:live", mock: "bluepulse:feedback-draft:v1:mock", seen: "blue-pulse-changelog-seen-v1:mock" };
@@ -80,7 +81,7 @@ async function context(options = {}) {
 }
 async function fit(page) { assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, "p0 horizontal overflow"); }
 async function saveResults() {
-  await writeFile(`${artifacts}/verification.json`, JSON.stringify({ date: new Date().toISOString(), checks, errors, browserErrors, upstreamFeedbackCount: posts.length, requests, posts, serverLogs }, null, 2));
+  await writeFile(`${artifacts}/${reportName}`, JSON.stringify({ date: new Date().toISOString(), checks, errors, browserErrors, upstreamFeedbackCount: posts.length, requests, posts, serverLogs }, null, 2));
 }
 async function run(name, fn) {
   if (process.env.PULSE_FEEDBACK_TEST_FILTER && !name.includes(process.env.PULSE_FEEDBACK_TEST_FILTER)) return;
@@ -194,6 +195,16 @@ try {
     assert.equal(await page.locator('[data-feedback-mode="disabled"] a').getAttribute("href"), "/about#pulse-contact");
     await page.locator('[data-feedback-draft="local"]').waitFor();
     assert.equal(posts.length, before); assert.equal(await page.evaluate(() => window.__feedbackFetches), 0);
+    // A previously visited about page has its own saved reading position. An explicit
+    // contact link must take precedence over restoring that old position.
+    await goto(page, "/about"); await page.locator('[data-p0-scroller][aria-busy="false"]').waitFor();
+    await paper(page).evaluate(el => { el.scrollTop = 100; });
+    await page.locator('[data-home-sidebar] a[href="/feedback"]').click(); await ready(page, "/feedback");
+    await page.locator('[data-feedback-mode="disabled"] a').click(); await ready(page, "/about");
+    await page.waitForFunction(() => {
+      const area = document.querySelector('[data-p0-scroller]'), contact = document.getElementById('pulse-contact');
+      return area?.getAttribute('aria-busy') === 'false' && contact && Math.abs(contact.getBoundingClientRect().top - area.getBoundingClientRect().top) < 45;
+    });
   }));
 
   await run("400ms drafts survive reload/SPA return, isolate live/mock, flush immediate departure", () => withPage(async page => {
@@ -255,44 +266,34 @@ try {
     }
   }));
 
-  await run("live guarded submission forwards exact multipart screenshot and strips cookies/authorization", () => withPage(async page => {
+  await run("live guarded receipt, exact multipart screenshot and HTTP credential boundary", () => withPage(async page => {
     mode = "success"; delay = 300;
-    console.log("STEP receipt: context ready");
     await goto(page, "/feedback", liveOrigin); await page.locator('[data-feedback-mode="live"]').waitFor();
-    console.log("STEP receipt: page ready");
-    // Exercise a real same-origin browser cookie at the actual proxy boundary.
-    await page.evaluate(() => {
-      document.cookie = "private-local-test=must-not-forward; path=/";
-      const original = window.fetch;
-      window.fetch = function(input, init) {
-        if (!String(input).includes("/api/bluepulse/site/feedback")) return original.call(this, input, init);
-        const headers = new Headers(init?.headers); headers.set("Authorization", "Bearer local-test-only");
-        return original.call(this, input, { ...init, headers });
-      };
-    });
-    console.log("STEP receipt: credentials ready");
+    // Public readers use local storage, not an account/session credential fixture.
     await page.locator("#fb-content").fill("有效回执完整提交"); await page.locator("#fb-email").fill("local@example.test"); await page.locator("#fb-page").fill("/articles/check");
     await page.locator('input[type="file"]').setInputFiles({ name: "contract.png", mimeType: "image/png", buffer: png });
-    console.log("STEP receipt: attachment ready");
     const before = posts.length;
     const outgoing = page.waitForRequest(request => request.method() === "POST" && request.url().endsWith("/api/bluepulse/site/feedback"));
     await page.locator("form").evaluate(form => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
     assert.equal(await page.locator("#fb-content").isDisabled(), true);
-    await page.getByRole("heading", { name: "收到了，谢谢你", exact: true }).waitFor();
-    console.log("STEP receipt: valid receipt");
+    await page.getByRole("heading", { name: "收到了，谢谢你", exact: true }).waitFor({ timeout: 20000 });
     assert.equal(posts.length - before, 1); const post = posts.at(-1);
     const sentHeaders = await (await outgoing).allHeaders();
-    assert.match(sentHeaders.cookie, /private-local-test=must-not-forward/);
-    assert.equal(sentHeaders.authorization, "Bearer local-test-only");
+    assert.equal(sentHeaders.authorization, undefined);
     assert.deepEqual(post.fields, { content: "有效回执完整提交", email: "local@example.test", pageUrl: "/articles/check" });
     assert.deepEqual(post.file, { field: "screenshot", name: "contract.png", type: "image/png", size: png.length, bytes: png.toString("base64") });
     assert.equal(post.headers.cookie, undefined); assert.equal(post.headers.authorization, undefined); assert.equal(post.headers["x-real-ip"], undefined); assert.ok(post.headers["x-request-id"]);
     assert.match(await paper(page).innerText(), /#77/); assert.equal(await page.evaluate(key => localStorage.getItem(key), keys.live), null);
     await page.reload(); await ready(page, "/feedback"); assert.equal(await page.locator("#fb-content").inputValue(), ""); delay = 0;
+    // The public form never adds Authorization. Check that extra caller credential at the
+    // actual HTTP boundary without replacing the form's native browser fetch implementation.
+    const credentialForm = new FormData(); credentialForm.set("content", "HTTP credential boundary");
+    const credentialResponse = await fetch(`${liveOrigin}/api/bluepulse/site/feedback`, { method: "POST", body: credentialForm, headers: { Origin: liveOrigin, Cookie: "private-http-test=must-not-forward", Authorization: "Bearer local-test-only" } });
+    assert.equal(credentialResponse.status, 201); assert.equal((await credentialResponse.json()).id, 77);
+    assert.equal(posts.at(-1).headers.cookie, undefined); assert.equal(posts.at(-1).headers.authorization, undefined);
   }));
 
-  // Run the deliberately stalled transport last, so an abandoned local service connection
-  // does not become an implicit dependency of the normal receipt contract above.
+  // Stop the deliberately stalled transport after the normal receipt contract is verified.
   await run("network and timeout unknown outcomes preserve content", () => withPage(async page => {
     await goto(page, "/feedback", liveOrigin); await page.locator('[data-feedback-mode="live"]').waitFor();
     await page.route("**/api/bluepulse/site/feedback", route => route.abort("failed"));
@@ -313,5 +314,5 @@ finally {
   // Chromium may wait on a pending service connection; cap only teardown, after results are saved.
   if (browser) await Promise.race([browser.close(), wait(5000)]);
 }
-console.log(`Completed: ${checks.length} passed, ${errors.length} failed. See ${artifacts}/verification.json`);
+console.log(`Completed: ${checks.length} passed, ${errors.length} failed. See ${artifacts}/${reportName}`);
 if (errors.length) process.exitCode = 1;
