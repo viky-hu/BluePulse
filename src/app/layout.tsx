@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { MainShell } from "./_components/home/MainShell";
+import { changelog } from "./_lib/site-changelog";
 import "./globals.css";
 
 const googleSans = localFont({
@@ -24,7 +25,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="zh-CN" className={googleSans.variable} suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: `try{var m=new URLSearchParams(location.search).get('mock')==='1';var entered=localStorage.getItem('blue-pulse-entry-complete-v1'+(m?':mock':''))==='1';document.documentElement.dataset.pulseEntry=location.pathname==='/'&&!entered?'intro':'stable'}catch(e){document.documentElement.dataset.pulseEntry=location.pathname==='/'?'intro':'stable'}` }} /></head>
-      <body><Suspense><MainShell>{children}</MainShell></Suspense></body>
+      <body><Suspense><MainShell changelogVersion={changelog.latestVersion}>{children}</MainShell></Suspense></body>
     </html>
   );
 }

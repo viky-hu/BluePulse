@@ -14,14 +14,14 @@ const origin = `http://127.0.0.1:${port}`;
 const artifactDir = "test-results/pulse-sidebar";
 const starredKey = "blue-pulse-starred-items-v1", enteredKey = "blue-pulse-entry-complete-v1";
 const first = MOCK_HOME_DATA.articles[0];
-const menuPages = [["/all", "全部动态"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/topics", "主题"], ["/agent", "Agent 接入"], ["/about", "关于 Pulse"], ["/changelog", "更新日志"], ["/feedback", "反馈"]];
+const menuPages = [["/all", "全部动态"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/agent", "Agent 接入"], ["/about", /国内外警务科技每天都有新动静/], ["/changelog", "更新日志"], ["/feedback", "说说你的想法"]];
 const feedQueries = [];
 let articleOnline = true, availabilityOnline = true, feedRequests = 0, detailRequests = 0;
 const withdrawn = new Set();
 function detail(article) { return { ...article, body_status: article.body_status ?? "full_text", translation_status: article.translation_status ?? "not_required", entities: article.entities ?? [], media: article.media ?? [] }; }
 const api = createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${apiPort}`);
-  response.setHeader("Content-Type", "application/json"); response.setHeader("Cache-Control", "no-store");
+  response.setHeader("Content-Type", "application/json"); response.setHeader("Cache-Control", "public, max-age=60");
   let data;
   if (url.pathname === "/api/v1/taxonomy") data = MOCK_TAXONOMY;
   else if (url.pathname === "/api/v1/sources") data = MOCK_SOURCES;
@@ -57,6 +57,7 @@ const check = (name) => { checks.push(name); console.log(`PASS ${name}`); };
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function settled(page, pathname) {
   await page.waitForFunction(path => location.pathname === path && document.querySelector('[data-entry="stable"] [data-phase="idle"]') && document.querySelector('[data-home-view]')?.getAttribute("inert") === null, pathname, { timeout: 20000 });
+  await page.locator('[data-p0-scroller][aria-busy="false"]').waitFor({ timeout: 20000 });
   await page.waitForFunction(() => ![...document.querySelectorAll('[data-p0-scroller] [role="status"]')].some(item => item.getClientRects().length && getComputedStyle(item).visibility !== "hidden" && item.textContent.includes("正在载入")), null, { timeout: 20000 }).catch(async error => {
     await page.screenshot({ path: `${artifactDir}/failure.png` });
     console.error(await page.locator('[data-p0-scroller]').innerText());
@@ -105,7 +106,7 @@ try {
     await geometry(page, width, height);
     const sidebar = page.locator('[data-home-sidebar]');
     assert.deepEqual(await sidebar.locator('nav h2').allTextContents(), ["内容", "更多"]);
-    assert.deepEqual(await sidebar.locator('nav a').allTextContents(), ["精选", "全部动态", "热点榜", "AI日报", "主题", "Agent 接入", "关于", "更新日志", "反馈"]);
+    assert.deepEqual(await sidebar.locator('nav a').allTextContents(), ["精选", "全部动态", "热点榜", "AI日报", "Agent 接入", "关于", "更新日志", "反馈"]);
     assert.equal(await sidebar.locator('a[href^="/history"], a[href^="/starred"]').count(), 0);
     if (mode === "mobile") {
       assert.equal(await page.locator('aside[aria-label="主菜单"]').isVisible(), false);
@@ -156,11 +157,12 @@ try {
     await page.waitForURL(url => url.pathname === "/search" && url.searchParams.get("q") === "警务");
     await settled(page, "/search");
     assert.equal(new URL(page.url()).searchParams.get("q"), "警务");
-    await menu(page, "/topics");
-    await page.locator('[data-p0-scroller] a[href="/topics/policing?mock=1"]').click(); await settled(page, "/topics/policing");
-    assert.equal(await sidebar.locator('a[href="/topics?mock=1"]').getAttribute("aria-current"), "page");
+    await menu(page, "/all");
+    await page.getByRole("combobox", { name: "主题分类", exact: true }).selectOption("policing");
+    await page.waitForURL(url => url.pathname === "/all" && url.searchParams.get("topic") === "policing"); await settled(page, "/all");
+    assert.equal(await sidebar.locator('a[href="/all?mock=1"]').getAttribute("aria-current"), "page");
     assert.ok(await page.locator('[data-card-key]').count());
-    await page.screenshot({ path: `${artifactDir}/${mode}-topic.png` }); check(`${mode}: search and real topic URL`);
+    await page.screenshot({ path: `${artifactDir}/${mode}-classification-filter.png` }); check(`${mode}: search and article classification query filter`);
     if (mode === "desktop") {
       await page.evaluate(() => { window.__planes = document.querySelector('[data-main-scene]'); });
       await page.locator('aside a[href="/search?mock=1"]').click(); await pause(40);
@@ -211,11 +213,64 @@ try {
   await page.goto(`${origin}/search?mock=1`); await settled(page, "/search");
   assert.equal(await page.locator('[data-scroll-cue-shell]').count(), 0);
   await menu(page, "/"); assert.equal(await page.locator('[data-scroll-cue-shell]').count(), 0); check("fresh deep link then home remains stable");
+  await page.goto(`${origin}/search`); await settled(page, "/search");
+  const allMenuLink = page.locator('aside a[href="/all"]');
+  const allPrefetchResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/bluepulse/articles" && url.searchParams.get("period") === "30d";
+  });
+  await allMenuLink.hover(); await allPrefetchResponse;
+  const prefetchedFeedRequests = feedRequests;
+  const observeLoading = () => page.evaluate(() => {
+    window.__pulseLoadingSeen = false;
+    window.__pulseLoadingLog = [];
+    const inspect = () => {
+      for (const item of [...document.querySelectorAll('[role="status"]')]) {
+        if (item.getClientRects().length && getComputedStyle(item).visibility !== "hidden" && item.textContent?.includes("正在载入")) {
+          window.__pulseLoadingSeen = true;
+          window.__pulseLoadingLog.push({ text: item.textContent, cls: item.className, phase: document.querySelector('[data-stage]')?.getAttribute('data-phase') ?? document.querySelector('[data-phase]')?.getAttribute('data-phase') });
+        }
+      }
+    };
+    new MutationObserver(inspect).observe(document.body, { childList: true, subtree: true, characterData: true });
+    inspect();
+  });
+  await observeLoading(); await allMenuLink.click(); await settled(page, "/all");
+  assert.equal(feedRequests, prefetchedFeedRequests, "navigation should consume the hover-prefetched feed");
+  const prefetchLoading = await page.evaluate(() => ({ seen: window.__pulseLoadingSeen, log: window.__pulseLoadingLog }));
+  assert.equal(prefetchLoading.seen, false, `a prefetched menu page should not show an intermediate loading state: ${JSON.stringify(prefetchLoading.log)}`);
+  await page.getByRole("combobox", { name: "时间范围" }).selectOption("7d");
+  await page.waitForURL(url => url.pathname === "/all" && url.searchParams.get("period") === "7d"); await settled(page, "/all");
+  assert.equal(feedRequests, prefetchedFeedRequests + 1, "a query variant should load its own feed");
+  await page.getByRole("combobox", { name: "时间范围" }).selectOption("30d");
+  await page.waitForURL(url => url.pathname === "/all" && !url.searchParams.has("period")); await settled(page, "/all");
+  assert.equal(feedRequests, prefetchedFeedRequests + 1, "returning to the original query should reuse its distinct fresh feed");
+  const queryVariantFeedRequests = feedRequests;
+  check("query parameters use independent feed cache entries");
+  await page.locator('aside a[href="/hot"]').click(); await settled(page, "/hot");
+  await observeLoading(); await allMenuLink.click(); await settled(page, "/all");
+  assert.equal(feedRequests, queryVariantFeedRequests, "a fresh menu page revisit should reuse its feed");
+  assert.equal(await page.evaluate(() => window.__pulseLoadingSeen), false, "a fresh menu page revisit should not show an intermediate loading state");
+  const beforeManualRefresh = feedRequests;
+  const refreshResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/bluepulse/articles" && url.searchParams.get("period") === "30d";
+  });
+  await allMenuLink.click(); await refreshResponse; await settled(page, "/all");
+  assert.ok(feedRequests > beforeManualRefresh, "same-page activation should force a fresh feed request");
+  check("menu intent prefetch, 60-second page reuse, and manual refresh bypass");
   await page.goto(`${origin}/search?q=slow`);
-  await page.getByRole("status").filter({ hasText: "正在载入资讯" }).waitFor();
+  await page.locator('[data-navigation-progress][data-visible="true"]').waitFor();
   await settled(page, "/search"); assert.ok(await page.locator('[data-card-key]').count()); check("HTTP feed replaces loading state after delayed response");
   const requests = feedRequests; await page.reload(); await settled(page, "/search"); assert.ok(feedRequests > requests); check("active refresh requests fresh feed");
   await page.goto(`${origin}/search?q=fail`); await settled(page, "/search"); assert.ok(await page.getByRole("alert").count()); check("errors are terminal content states");
+  const beforeRetry = feedRequests;
+  const retryResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/bluepulse/articles" && url.searchParams.get("q") === "fail";
+  });
+  await page.getByRole("button", { name: "重试", exact: true }).click(); await retryResponse; await settled(page, "/search");
+  assert.ok(feedRequests > beforeRetry); check("failed feeds retry with a fresh request");
   await page.goto(`${origin}/search?q=pages`); await settled(page, "/search");
   await page.getByRole("link", { name: "下一页 →", exact: true }).click();
   await page.waitForURL(url => url.searchParams.get("cursor") === "page-2"); await settled(page, "/search");
@@ -229,7 +284,7 @@ try {
   await page.getByRole("textbox", { name: "搜索关键词" }).fill("slow");
   await page.getByRole("button", { name: "搜索资讯", exact: true }).click();
   await page.waitForURL(url => url.searchParams.get("q") === "slow");
-  await page.getByRole("status").filter({ hasText: "正在载入内容" }).waitFor();
+  await page.locator('[data-navigation-progress][data-visible="true"]').waitFor();
   await page.locator('aside a[href="/hot"]').click();
   await page.locator('aside a[href="/daily"]').click(); await settled(page, "/daily");
   await pause(850); assert.equal(new URL(page.url()).pathname, "/daily");
@@ -247,7 +302,7 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "排列方式" }).inputValue(), "importance");
   assert.equal(await page.getByRole("textbox", { name: "搜索关键词" }).inputValue(), "pages");
   check("all news uses existing HTTP contract, 30-day default, query filters and cursors");
-  for (const [path, heading] of menuPages.filter(([path]) => !["/all", "/topics"].includes(path))) {
+  for (const [path, heading] of menuPages.filter(([path]) => path !== "/all")) {
     await page.goto(`${origin}${path}`); await settled(page, path); await page.reload(); await settled(page, path);
     assert.equal(await page.getByRole("heading", { level: 1, name: heading, exact: true }).count(), 1);
     assert.equal(await page.locator('[data-scroll-cue-shell]').count(), 0);
@@ -256,17 +311,17 @@ try {
   await page.goto(`${origin}/hot`); await settled(page, "/hot");
   await page.locator('aside a[href="/daily"]').click(); await settled(page, "/daily");
   await page.goBack(); await settled(page, "/hot"); await page.goForward(); await settled(page, "/daily");
-  const [menuTab] = await Promise.all([deep.waitForEvent("page"), page.locator('aside a[href="/topics"]').click({ modifiers: ["Control"] })]);
-  await menuTab.waitForLoadState(); await settled(menuTab, "/topics"); await menuTab.close();
+  const [menuTab] = await Promise.all([deep.waitForEvent("page"), page.locator('aside a[href="/all"]').click({ modifiers: ["Control"] })]);
+  await menuTab.waitForLoadState(); await settled(menuTab, "/all"); await menuTab.close();
   check("new menu URLs support back, forward and Control-click in a new tab");
-  for (const path of ["/leaderboard", "/codex-reset"]) {
+  for (const path of ["/leaderboard", "/codex-reset", "/topics", "/topics/policing"]) {
     assert.equal((await fetch(`${origin}${path}`)).status, 404, `${path} must not remain as an unselected placeholder page`);
   }
   check("unselected AIHOT menu routes have been removed");
   await page.goto(`${origin}/about`); await settled(page, "/about");
-  await page.getByRole("heading", { name: "我们关注什么", exact: true }).waitFor();
-  await page.locator('[data-p0-scroller]').getByRole("link", { name: "查看更新日志", exact: true }).click(); await settled(page, "/changelog");
-  await page.getByRole("heading", { name: "匿名阅读与本地记录", exact: true }).waitFor();
+  await page.getByRole("heading", { name: /青朗先锋实验小组/ }).waitFor();
+  await page.locator('[data-p0-scroller]').getByRole("link", { name: "更新日志", exact: true }).click(); await settled(page, "/changelog");
+  await page.getByRole("heading", { name: "不用注册，收藏与阅读记录留在当前浏览器", exact: true }).waitFor();
   check("about describes Pulse and changelog records actual delivered changes");
   await page.goto(`${origin}/articles?mock=1&period=all&sort=importance`); await settled(page, "/articles");
   assert.equal(await page.locator('aside a[href="/all?mock=1"]').getAttribute("aria-current"), "page");

@@ -3,7 +3,6 @@
 .header h1 { margin: 0 0 12px; font-size: 26px; font-weight: 400; line-height: 1.4; }
 .header p { margin: 0; color: #59656b; font-size: 14px; line-height: 1.8; }
 .status { margin: 0; padding-block: 24px; border-top: 1px solid #dfe4e1; color: #657176; font-size: 14px; line-height: 1.8; }
-.directory { max-width: 580px; padding-top: 4px; border-top: 1px solid #dfe4e1; }
 .prose { max-width: 680px; font-size: 14px; line-height: 1.9; }
 .prose section { margin-block: 0 28px; padding-top: 20px; border-top: 1px solid #dfe4e1; }
 .prose h2 { margin: 0 0 10px; font-size: 17px; font-weight: 600; line-height: 1.6; }

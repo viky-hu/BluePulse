@@ -1,23 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchHomeArticles, fetchHomeFeatured, fetchRecentlyCollected, fetchSources, type ArticleCard, type Source } from "../../_lib/home-data";
-import { MOCK_HOME_DATA, MOCK_SOURCES } from "../../_lib/home-mock";
-import { readSessionSnapshot, saveSessionSnapshot } from "../../_lib/session-restore";
+import type { ArticleCard } from "../../_lib/home-data";
+import { invalidateSessionSnapshot, readSessionSnapshot, saveSessionSnapshot } from "../../_lib/session-restore";
 import { RouteReady, useMainShell } from "./MainShell";
 import { ArticleActions } from "./ArticleActions";
 import { buildHomeHref, canonicalHref, parseHomeRoute, type HomeFilters } from "./home-routes";
-import { TOPIC_MENU_LABELS } from "./topic-menu-config";
+import { emptyHomeFeed, getCachedHomeFeed, getCachedHomeSources, invalidateHomeFeed, loadHomeFeed, loadHomeSources, type HomeFeed } from "./home-feed-cache";
+import { ARTICLE_TOPIC_LABELS } from "./article-topic-labels";
 import styles from "./home.module.css";
 
-type Feed = { key: string; status: "loading" | "ready" | "error"; articles: ArticleCard[]; featured: ArticleCard[]; collected: ArticleCard[]; next: string | null; error: string | null };
-const emptyFeed = (key: string): Feed => ({ key, status: "loading", articles: [], featured: [], collected: [], next: null, error: null });
 export function displayDate(value?: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return "日期待核";
   return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
-function validCache(value: Feed | null, key: string): value is Feed {
+function validCache(value: HomeFeed | null, key: string): value is HomeFeed {
+  if (!value || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now()) return false;
   return !!value && value.key === key && value.status === "ready" && [value.articles, value.featured, value.collected].every(rows => Array.isArray(rows) && rows.every(row => row && typeof row.id === "string" && typeof row.title === "string" && typeof row.source?.name === "string"));
 }
 
@@ -40,13 +39,12 @@ export function ArticleRows({ articles, kind = "article" }: { articles: ArticleC
 
 function Filters({ filters, apply }: { filters: HomeFilters; apply: (filters: HomeFilters) => void }) {
   const shell = useMainShell();
-  const [query, setQuery] = useState(filters.q), [liveSources, setSources] = useState<Source[]>([]);
-  const sources = shell.mock ? MOCK_SOURCES.items : liveSources;
+  const [query, setQuery] = useState(filters.q), [liveSources, setSources] = useState(() => getCachedHomeSources(shell.mock) ?? []);
+  const sources = liveSources;
   useEffect(() => {
-    const controller = new AbortController();
-    if (shell.mock) return;
-    fetchSources(AbortSignal.any([controller.signal, AbortSignal.timeout(12000)])).then(data => setSources(data.items)).catch(() => {});
-    return () => controller.abort();
+    let active = true;
+    loadHomeSources(shell.mock).then(data => { if (active) setSources(data); }).catch(() => {});
+    return () => { active = false; };
   }, [shell.mock]);
   const types = [...new Set(sources.map(source => source.source_type))].sort();
   return <section className={styles.searchPanel} aria-label="资讯筛选">
@@ -56,7 +54,7 @@ function Filters({ filters, apply }: { filters: HomeFilters; apply: (filters: Ho
     <div className={styles.filterGrid}>
       <label><span>时间范围</span><select value={filters.period} onChange={event => apply({ ...filters, period: event.target.value as HomeFilters["period"] })}><option value="24h">近 24 小时</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="all">全部时间</option></select></label>
       <label><span>资讯地区</span><select value={filters.region} onChange={event => apply({ ...filters, region: event.target.value as HomeFilters["region"] })}><option value="">全部地区</option><option value="domestic">国内</option><option value="foreign">国外</option></select></label>
-      <label><span>主题分类</span><select value={filters.topic} onChange={event => apply({ ...filters, topic: event.target.value })}><option value="">全部主题</option>{Object.entries(TOPIC_MENU_LABELS).map(([slug, name]) => <option key={slug} value={slug}>{name}</option>)}</select></label>
+      <label><span>主题分类</span><select value={filters.topic} onChange={event => apply({ ...filters, topic: event.target.value })}><option value="">全部主题</option>{Object.entries(ARTICLE_TOPIC_LABELS).map(([slug, name]) => <option key={slug} value={slug}>{name}</option>)}</select></label>
       <label><span>具体来源</span><select value={filters.source} onChange={event => apply({ ...filters, source: event.target.value })}><option value="">全部来源</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select></label>
       <label><span>来源类型</span><select value={filters.sourceType} onChange={event => apply({ ...filters, sourceType: event.target.value })}><option value="">全部来源</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
       <label><span>排列方式</span><select value={filters.sort} onChange={event => apply({ ...filters, sort: event.target.value as HomeFilters["sort"] })}><option value="recent">最新发布</option><option value="importance">关注度优先</option></select></label>
@@ -68,54 +66,52 @@ function Filters({ filters, apply }: { filters: HomeFilters; apply: (filters: Ho
 export function HomeDashboard() {
   const shell = useMainShell();
   const route = parseHomeRoute(shell.pathname, new URLSearchParams(shell.routeKey.split("?")[1]));
-  const [feed, setFeed] = useState<Feed>(() => emptyFeed(shell.routeKey));
+  const [loaded, setLoaded] = useState(() => ({ activation: shell.activation, feed: getCachedHomeFeed(shell.routeKey, shell.mock) ?? emptyHomeFeed(shell.routeKey) }));
+  const feed = loaded.feed;
   const [retry, setRetry] = useState(0);
   const filterKey = JSON.stringify(route.filters);
+  const lastRequest = useRef({ key: shell.routeKey, refreshRevision: shell.refreshRevision, retry: 0 });
   useEffect(() => {
+    // The next activation is announced before Next replaces the outgoing page.
+    if (shell.activation.key !== shell.routeKey) return;
     let active = true;
-    const controller = new AbortController();
+    const setFeed = (value: HomeFeed) => setLoaded({ activation: shell.activation, feed: value });
     const key = shell.routeKey;
-    const cached = shell.restore ? readSessionSnapshot<Feed>(`feed:${key}`, shell.mock) : null;
+    const previousRequest = lastRequest.current;
+    const force = previousRequest.key === key
+      && (previousRequest.refreshRevision !== shell.refreshRevision || previousRequest.retry !== retry);
+    lastRequest.current = { key, refreshRevision: shell.refreshRevision, retry };
+    const cached = !force && shell.restore ? readSessionSnapshot<HomeFeed>(`feed:${key}`, shell.mock) : null;
     if (validCache(cached, key)) {
       queueMicrotask(() => { if (active) setFeed(cached); });
       return () => { active = false; };
     }
-    const next = emptyFeed(key);
-    async function load() {
-      const filters = JSON.parse(filterKey) as HomeFilters;
-      const params = new URLSearchParams({ period: filters.period, sort: filters.sort, limit: "20" });
-      for (const [name, value] of Object.entries({ q: filters.q, topic: filters.topic, region: filters.region, source: filters.source, source_type: filters.sourceType, entity: filters.entity, cursor: route.cursor })) if (value) params.set(name, value);
-      if (shell.mock) {
-        const query = filters.q.toLocaleLowerCase();
-        const rows = MOCK_HOME_DATA.articles.filter(article => (!filters.topic || article.topics?.includes(filters.topic)) && (!filters.region || article.region === filters.region) && (!filters.source || article.source.id === filters.source) && (!filters.sourceType || article.source.source_type === filters.sourceType) && (!query || `${article.title} ${article.source_title} ${article.summary ?? ""}`.toLocaleLowerCase().includes(query))).sort((a, b) => filters.sort === "importance" ? b.importance_score - a.importance_score : (b.published_at ?? "").localeCompare(a.published_at ?? ""));
-        const offset = /^mock-\d+$/.test(route.cursor ?? "") ? Number(route.cursor!.slice(5)) : 0;
-        next.articles = rows.slice(offset, offset + 8); next.next = offset + 8 < rows.length ? `mock-${offset + 8}` : null;
-        next.featured = route.kind === "home" ? MOCK_HOME_DATA.featured.slice(0, 6) : [];
-      } else {
-        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]);
-        const [list, featured] = await Promise.allSettled([fetchHomeArticles(params, signal), route.kind === "home" ? fetchHomeFeatured(signal) : Promise.resolve({ items: [] })]);
-        if (list.status === "fulfilled") { next.articles = list.value.items; next.next = list.value.next_cursor; }
-        else next.error = list.reason instanceof Error ? list.reason.message : "资讯暂时无法载入";
-        if (featured.status === "fulfilled") next.featured = featured.value.items.map(item => item.article);
-        else next.error = `${next.error ? `${next.error}；` : ""}精选暂时无法载入`;
-        if (route.kind === "home" && !next.error && !next.articles.length && !next.featured.length) next.collected = (await fetchRecentlyCollected(signal)).items;
-      }
-      next.status = next.error ? "error" : "ready";
-      if (active) { setFeed(next); if (next.status === "ready") saveSessionSnapshot(`feed:${key}`, next, shell.mock); }
+    const cachedPage = !force ? getCachedHomeFeed(key, shell.mock) : null;
+    if (cachedPage) {
+      queueMicrotask(() => { if (active) setFeed(cachedPage); });
+      return () => { active = false; };
     }
     queueMicrotask(() => {
       if (!active) return;
-      // Publish a separate loading snapshot before starting either immediate mock or async HTTP work.
-      setFeed(emptyFeed(key));
-      load().catch(error => { if (active) setFeed({ ...next, status: "error", error: error instanceof Error ? error.message : "资讯暂时无法载入" }); });
+      setFeed(emptyHomeFeed(key));
+      const filters = JSON.parse(filterKey) as HomeFilters;
+      void loadHomeFeed({ key, pathname: shell.pathname, filters, cursor: route.cursor, mock: shell.mock }, { force }).then(next => {
+        if (!active) return;
+        setFeed(next);
+        if (next.status === "ready" && next.expiresAt > Date.now()) saveSessionSnapshot(`feed:${key}`, next, shell.mock);
+        else invalidateSessionSnapshot(`feed:${key}`, shell.mock);
+      });
     });
-    return () => { active = false; controller.abort(); };
-  }, [shell.routeKey, shell.pathname, shell.mock, shell.restore, shell.refreshRevision, filterKey, route.kind, route.cursor, retry]);
-  const current = feed.key === shell.routeKey ? feed : emptyFeed(shell.routeKey);
+    return () => { active = false; };
+  }, [shell.activation, shell.routeKey, shell.pathname, shell.mock, shell.restore, shell.refreshRevision, filterKey, route.cursor, retry]);
+  const currentPage = getCachedHomeFeed(shell.routeKey, shell.mock);
+  const current = feed.key === shell.routeKey && (loaded.activation === shell.activation || shell.activation.key !== shell.routeKey)
+    ? feed
+    : currentPage ?? emptyHomeFeed(shell.routeKey);
   const apply = (filters: HomeFilters) => shell.navigate(buildHomeHref(shell.pathname, filters, { mock: shell.mock }));
   const nextHref = buildHomeHref(shell.pathname, route.filters, { cursor: current.next, mock: shell.mock });
   const previous = readSessionSnapshot<string>(`previous:${shell.routeKey}`, shell.mock);
-  const header = route.kind === "home" ? "近期资讯" : route.kind === "all" ? "全部动态" : route.kind === "topic" ? TOPIC_MENU_LABELS[route.filters.topic] : "搜索结果";
+  const header = route.kind === "home" ? "近期资讯" : route.kind === "all" ? "全部动态" : "搜索结果";
   if (!route.valid) return <><RouteReady /><p role="alert">没有这个分类。<Link href={shell.href("/")}>返回精选</Link></p></>;
   return <div className={styles.content}>
     <RouteReady ready={current.status !== "loading"} />
@@ -125,8 +121,7 @@ export function HomeDashboard() {
     {current.collected.length ? <section className={styles.collectedSection}><div className={styles.feedTools}><span className={styles.feedLabel}>最近收录</span><Link href={shell.href("/articles?period=all")} className={styles.inlineButton}>查看全部</Link></div><p className={styles.collectedNote}>可能包含往期文章；请以原文日期为准，不代表本期精选。</p><ArticleRows articles={current.collected} kind="collected" /></section> : null}
     <section className={styles.feedSection} aria-label={header}>
       <div className={styles.feedTools}><span className={styles.feedLabel}>{header}</span>{route.kind !== "search" && route.kind !== "all" ? <div className={styles.periodSwitch}>{(["24h", "7d", "30d", "all"] as const).map(period => <button key={period} type="button" aria-pressed={route.filters.period === period} className={route.filters.period === period ? styles.periodActive : ""} onClick={() => apply({ ...route.filters, period })}>{period === "all" ? "全部" : period === "24h" ? "24 小时" : period === "7d" ? "7 天" : "30 天"}</button>)}</div> : null}</div>
-      {current.status === "loading" ? <div className={styles.statePanel} role="status">正在载入资讯…</div> : null}
-      {current.status === "error" ? <div className={`${styles.statePanel} ${styles.stateError}`} role="alert"><strong>资讯暂时无法载入</strong><p>{current.error}</p><button type="button" className={styles.inlineButton} onClick={() => setRetry(value => value + 1)}>重试</button></div> : null}
+      {current.status === "error" ? <div className={`${styles.statePanel} ${styles.stateError}`} role="alert"><strong>资讯暂时无法载入</strong><p>{current.error}</p><button type="button" className={styles.inlineButton} onClick={() => { invalidateHomeFeed(shell.routeKey, shell.mock); setRetry(value => value + 1); }}>重试</button></div> : null}
       {current.articles.length ? <ArticleRows articles={current.articles} /> : current.status === "ready" ? <div className={styles.statePanel} role="status">{route.kind === "home" ? "本期暂无已审核资讯" : "没有匹配的资讯"}</div> : null}
       {current.status !== "loading" && (current.articles.length > 0 || route.cursor) ? <div className={styles.pagination}><span>{current.articles.length} 条</span><div>{route.cursor ? <Link className={styles.inlineButton} href={typeof previous === "string" && previous.startsWith("/") ? previous : buildHomeHref(shell.pathname, route.filters, { mock: shell.mock })}>上一页</Link> : null}{current.next ? <Link className={styles.inlineButton} href={nextHref} onClick={() => saveSessionSnapshot(`previous:${canonicalHref(nextHref)}`, shell.routeKey, shell.mock)}>下一页 →</Link> : null}</div></div> : null}
     </section>

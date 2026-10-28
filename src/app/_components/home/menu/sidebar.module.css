@@ -18,8 +18,9 @@
 }
 .header { flex: none; }
 .brand { display: flex; height: 50px; align-items: center; margin-bottom: 16px; padding-inline: 4px; color: inherit; text-decoration: none; }
-.wordmark { display: inline-flex; align-items: center; gap: .3em; font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -.03em; }
-.brandDot { width: .42em; height: .42em; flex: none; border-radius: 50%; background: var(--menu-accent); }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.brandMark { display: block; width: auto; height: 32px; flex: none; }
+.brandLettering { display: block; width: auto; height: 24px; flex: none; }
 .navigation { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #bdc8c0 transparent; }
 .sectionTitle { margin: 0; padding: 14px 10px 4px; color: #657176; font-size: 11px; font-weight: 400; line-height: 1.5; }
 .items { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -30,6 +31,7 @@
 .item[aria-current="page"] .icon { color: var(--menu-accent); }
 .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search { background: #eef1ed; }
+.unread { width: 6px; height: 6px; margin-left: auto; flex: none; border-radius: 50%; background: #b3402a; }
 .brand:focus-visible, .item:focus-visible { outline: 2px solid var(--menu-accent); outline-offset: -2px; }
 @media (max-height: 760px) and (min-width: 769px) { .sidebar { inset-block: 4%; padding-block: 9px; } }
 @media (max-width: 1000px) and (min-width: 769px) { .sidebar { left: 2.5%; width: 25%; } }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createBrowserState, browserKeys } from '../src/app/_lib/browser-state.ts';
-import { saveSessionSnapshot, readSessionSnapshot } from '../src/app/_lib/session-restore.ts';
+import { saveSessionSnapshot, readSessionSnapshot, invalidateSessionSnapshot } from '../src/app/_lib/session-restore.ts';
 class StorageMock {
   data = new Map(); fail = false;
   get length() { return this.data.size; }
@@ -29,6 +29,18 @@ test('history compatibility, deduplication, limits and UUID validation',()=>{
  storage.setItem(browserKeys().starred,JSON.stringify(Array.from({length:500},(_,i)=>({...star(i),savedAt:'2026-10-11T00:00:00Z'})))); store.toggleStar(star(501)); assert.equal(store.getSnapshot().starred.length,500); assert.equal(store.getSnapshot().starred[0].id,id(501)); store.toggleStar({...star(1),id:'bad'}); assert.equal(store.getSnapshot().starred.length,500); store.removeStar(id(501)); assert.equal(store.getSnapshot().starred.length,499);
 });
 test('blocked storage getter permits in memory entry and reading',()=>{const store=createBrowserState(false,{storage:()=>{throw Error('blocked');}}); store.hydrate(); store.markEntered(); store.recordRead(article(1)); assert.equal(store.getSnapshot().entered,true); assert.equal(store.getSnapshot().history.length,1);});
+
+test('invalidating feed data preserves its independent return position and recoverable damaged data',()=>{
+ const storage=new StorageMock(); globalThis.window={sessionStorage:storage};
+ try {
+  saveSessionSnapshot('feed:/invalidate',{revision:1}); saveSessionSnapshot('position:/invalidate',{top:450});
+  invalidateSessionSnapshot('feed:/invalidate');
+  assert.equal(readSessionSnapshot('feed:/invalidate'),null);
+  assert.deepEqual(readSessionSnapshot('position:/invalidate'),{top:450});
+  const key='blue-pulse-session-v1:live:damaged-invalidation'; storage.setItem(key,'{broken');
+  invalidateSessionSnapshot('damaged-invalidation'); assert.equal(storage.getItem(key),'{broken');
+ } finally { delete globalThis.window; }
+});
 test('star snapshots exclude full text and invalid dates; failed writes survive subsequent edits',()=>{
  const {store,storage}=setup(); store.hydrate(); store.toggleStar({...star(1),source_body:'private full text'}); assert.equal('source_body' in store.getSnapshot().starred[0],false); store.toggleStar({...star(2),publishedAt:'invalid'}); assert.equal(store.getSnapshot().starred.length,1); storage.fail=true; store.toggleStar(star(2)); store.removeStar(id(1)); assert.deepEqual(store.getSnapshot().starred.map(v=>v.id),[id(2)]); assert.match(store.getSnapshot().notice,/本次访问/);
  const mocked=createBrowserState(true,{storage:()=>storage}); mocked.hydrate(); assert.equal(mocked.getSnapshot().starred.length,0); mocked.toggleStar({...star(1),id:'mock-card'}); assert.equal(mocked.getSnapshot().starred[0].id,'mock-card');

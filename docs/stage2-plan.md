@@ -78,7 +78,7 @@ Stage1 的完成门槛不是“接口能返回文章”，而是：公开来源�
 ### 4.0 当前前端接入面
 
 - `HomeDashboard` 是精选、列表、详情、搜索、筛选、cursor 分页、浏览历史和移动端入口的统一消费方。
-- `BranchedTopicMenu` 的固定三组七主题菜单继续由 taxonomy 接口提供主题标签；父级菜单不改为可折叠交互。
+- 文章 taxonomy 保留用于检索筛选，不建设独立主题栏目或分类导航。
 - `src/app/_lib/home-data.ts` 负责前端数据映射和 mock/真实数据边界；生产路径不自动混入 mock，只有显式 `?mock=1` 才启用 mock。
 - `src/app/api/bluepulse/[...path]/route.ts` 继续作为同源代理，统一转发公开 API 和错误响应。
 - 精选槽位 `p0`–`p5` 与后端精选快照保持稳定对应；不足六篇时返回实际数量。

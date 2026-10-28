@@ -27,10 +27,10 @@
 | 浏览器 | 28 项通过；桌面 1360×760、移动 390×844、桌面 reduced-motion；使用隔离的生产 Next 服务与确定性 HTTP 测试服务 |
 | 视觉 | 已查看桌面、移动分类及 reduced-motion 截图；p0 与动画终点几何一致，内部容器无横向溢出，菜单可操作 |
 
-前端逻辑检查命令：
+当前保留的前端逻辑检查命令（旧分类树已于 2026-10-27 随独立主题模块移除，历史验收数字保留）：
 
 ```powershell
-node --experimental-strip-types --test scripts/intro-config.test.mjs scripts/white-paper-config.test.mjs scripts/topic-menu-config.test.mjs scripts/home-view-transition.test.mjs scripts/home-routes.test.mjs scripts/browser-state.test.mjs
+node --experimental-strip-types --test scripts/intro-config.test.mjs scripts/white-paper-config.test.mjs scripts/home-view-transition.test.mjs scripts/home-routes.test.mjs scripts/browser-state.test.mjs
 ```
 
 浏览器检查命令：

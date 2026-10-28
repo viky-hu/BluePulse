@@ -62,3 +62,14 @@ assert.equal(detailRequests, 3);
 assert.equal(finishExit(initial()).state.phase, "idle");
 assert.equal(finishEnter(initial()).state.phase, "idle");
 console.log("home navigation phase checks passed");
+
+const waiting = { phase: "entering", currentKey: "slow", pending: null };
+const redirected = requestNavigation(waiting, target("hot"), false, true);
+assert.equal(redirected.commit?.key, "hot", "a hidden page waiting for data must not block a new destination");
+assert.equal(redirected.state.currentKey, "hot");
+assert.equal(redirected.state.phase, "entering");
+assert.equal(redirected.state.pending, null);
+const latest = requestNavigation(redirected.state, target("daily"), false, true);
+assert.equal(latest.commit?.key, "daily");
+assert.equal(latest.state.currentKey, "daily");
+assert.equal(requestNavigation(waiting, target("slow"), false, true).commit, undefined);

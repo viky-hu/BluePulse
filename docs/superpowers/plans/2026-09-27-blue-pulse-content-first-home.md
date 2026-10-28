@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 Blue Pulse 主页面改为直接呈现资讯内容的桌面/移动界面，按 Branched Menu 示例实现稳定展开的分支主题菜单，全站统一使用钉钉进步体，并让 `/?mock=1` 仍从封面完整播放 GSAP 入场后进入固定 Mock 数据主页。
+**Goal:** 将 Blue Pulse 主页面改为直接呈现资讯内容的桌面/移动界面，全站统一使用钉钉进步体，并让 `/?mock=1` 仍从封面完整播放 GSAP 入场后进入固定 Mock 数据主页。
 
-**Architecture:** 让 `mock` 只决定数据源，不再决定是否跳过 `InitialIntro`。`InitialIntro` 继续负责唯一的封面与过场时间轴，完成过场后挂载 `HomeDashboard`。`HomeDashboard` 负责页面状态和数据编排，拆出一个只负责树形导航绘制与选择的 `BranchedTopicMenu`，把精选、资讯流、详情、历史和演示账号作为紧凑内容模块渲染到 p0 白纸内部。样式继续使用现有 CSS Modules 和全局基础样式，不引入新的 UI、图标或动画库。
+**Architecture:** 让 `mock` 只决定数据源，不再决定是否跳过 `InitialIntro`。`InitialIntro` 继续负责唯一的封面与过场时间轴，完成过场后挂载 `HomeDashboard`。`HomeDashboard` 负责页面状态和数据编排，把精选、资讯流、详情、历史和演示账号作为紧凑内容模块渲染到 p0 白纸内部。样式继续使用现有 CSS Modules 和全局基础样式，不引入新的 UI、图标或动画库。
 
 **Tech Stack:** Next.js 16.3.5 App Router、React 19.2.8、TypeScript、Tailwind CSS 4、GSAP 3.15.0、`@gsap/react`、`next/font/local`、CSS Modules。
 
@@ -17,7 +17,6 @@
 - 主页面精选固定对应六个位置：p0 = top1，p1 = top2，p2 = top3，p3 = top4，p4 = top5，p5 = top6；生产数据按后端顺序，Mock 数据固定六条。
 - 资讯卡片只有在 `media_preview.kind === "image"` 且存在可用 URL 时显示右侧缩略图；没有图片时不显示图片占位。
 - 默认资讯时间范围为近 7 天；保留 24 小时、7 天、30 天切换，以及后端已支持的关键词、主题、地区、来源、来源类型、排序和 cursor 分页。
-- 主题树始终全部展开，不能通过点击上级项折叠；菜单尺寸在选择主题后保持稳定。
 - 左侧菜单是有外边距的直角矩形浮层，不从屏幕边缘长出；移动端通过按钮打开浮动菜单。
 - 用户要求所有可见文字统一使用钉钉进步体。项目没有找到该字体文件，只有 `admin/csy` 中的字体栈写法；在字体文件实际提供前，不声称已经完成真实字体渲染。
 - `/?mock=1` 只切换到固定 Mock 数据，不请求后端，也不跳过封面动画；生产路径不能在请求失败时混入 Mock 内容。
@@ -92,12 +91,11 @@
 **Files:**
 - Modify: `src/app/_components/home/HomeDashboard.tsx`
 - Create: `src/app/_components/home/home-types.ts`
-- Create: `src/app/_components/home/BranchedTopicMenu.tsx`
 - Modify: `src/app/_components/home/home.module.css`
 
 **Interfaces:**
 - Consumes: `ArticleCard`、`Topic`、`Source`、`ArticleDetail` 及现有 fetch/mock helpers。
-- Produces: `BranchedTopicMenu` 接口 `({ topics, activeSlug, status, onSelect })`；HomeDashboard 继续暴露 `({ mock?: boolean })`，页面导航状态仍用 `PageView | article` 判别联合。
+- Produces: HomeDashboard 页面导航状态与文章内容渲染接口。
 
 - [ ] **Step 1: 把本地 UI 类型集中到 feature 文件**
 
@@ -115,33 +113,6 @@
 
   进入详情前把当前内容区 scrollTop 按 view key 保存；返回时恢复对应列表、筛选、主题和滚动位置；历史记录最多保留 30 条并继续使用本地浏览器存储。
 
-### Task 4: 按 Branched Menu 示例重建固定展开主题菜单
-
-**Files:**
-- Create: `src/app/_components/home/BranchedTopicMenu.tsx`
-- Modify: `src/app/_components/home/HomeDashboard.tsx`
-- Modify: `src/app/_components/home/home.module.css`
-
-**Interfaces:**
-- Consumes: `Topic.parent_id`、`Topic.slug`、`Topic.name_zh`、主题请求状态和 HomeDashboard 的 `setTopic`。
-- Produces: `nav` 元素中的主干、分支路径、活动标记和叶子按钮；所有上级节点常开且不可折叠，叶子选择调用 `onSelect(topic)`。
-
-- [ ] **Step 1: 按 parent_id 构造稳定树**
-
-  保留后端返回顺序，先建立 root topics，再把 `parent_id` 匹配到的子项放入对应 root；没有父项的条目作为 root，无效 parent_id 的条目放入最后一个稳定分组，不能静默丢弃。
-
-- [ ] **Step 2: 绘制 Branched Menu 几何**
-
-  参考 `D:/pulse/Branched Menu.txt` 的 `trunkPath`、`branch`、`reach` 和活动 marker 思路，在 React 中用一个相对定位的 SVG 绘制主干与每条分支；分支行高、缩进、线宽写成 CSS variables，菜单高度由完整树一次计算，禁止折叠动画改变布局。
-
-- [ ] **Step 3: 定义菜单交互和可访问性**
-
-  每个叶子使用 `button`、`aria-current="page"` 和可见 focus 样式；上级文字使用不可交互的 `div`/`span`，不能触发折叠。活动分支使用 accent color 和 marker，未选分支使用 muted color。主题选择同步 `filters.topic`、分页 cursor、右侧资讯列表和当前 view。
-
-- [ ] **Step 4: 组合完整菜单顺序**
-
-  按 README 的顺序渲染：顶部“图标｜资讯搜索”按钮 → 固定展开主题树 → 保留未规划的空白区 → “图标｜浏览记录”按钮 → 底部“图标｜访客阅读”账号按钮。桌面浮层不贴边，移动端由 menu button 打开，scrim 关闭。
-
 ### Task 5: 把 p0 白纸改成内容优先的信息模块
 
 **Files:**
@@ -152,7 +123,7 @@
 
 **Interfaces:**
 - Consumes: `featured`、`articles`、`ListStatus`、`openArticle`、`StoryMeta`、`ArticleCard.media_preview`。
-- Produces: 六条精选列表、近期资讯流、主题/搜索结果列表；每条均支持进入文章详情并共享同一返回状态机制。
+- Produces: 六条精选列表、近期资讯流、搜索结果列表；每条均支持进入文章详情并共享同一返回状态机制。
 
 - [ ] **Step 1: 用六条紧凑精选替换 lead story**
 
@@ -232,7 +203,6 @@
 - Verify: `src/app/page.tsx`
 - Verify: `src/app/_components/intro/InitialIntro.tsx`
 - Verify: `src/app/_components/home/HomeDashboard.tsx`
-- Verify: `src/app/_components/home/BranchedTopicMenu.tsx`
 - Verify: `src/app/_components/home/home.module.css`
 
 **Interfaces:**
@@ -253,7 +223,7 @@
 
 - [ ] **Step 4: 做代表性视觉检查**
 
-  在一个桌面尺寸和一个移动尺寸分别检查菜单悬浮位置、六条精选顺序、p0 内滚动、搜索/主题/历史/详情返回；启用减少动态效果后确认主页和交互仍可用。
+  在一个桌面尺寸和一个移动尺寸分别检查菜单悬浮位置、六条精选顺序、p0 内滚动、搜索/筛选/历史/详情返回；启用减少动态效果后确认主页和交互仍可用。
 
 - [ ] **Step 5: 检查不可变 SVG**
 
@@ -270,7 +240,6 @@
 - [ ] 菜单项采用“图标｜字样”的形式。
 - [ ] 菜单顶部放置资讯搜索入口，点击后右侧切换到搜索页。
 - [ ] 搜索后放置资讯分层分类区域，分类与右侧资讯内容联动。
-- [ ] 分类树稳定保持全部展开，不允许点击上级项折叠或展开，菜单尺寸不会频繁变化。
 - [ ] 分类模块按分类层级安排空间，并以仓库中的 Branched Menu 为结构参考完成 React 实现。
 - [ ] 已设置浏览历史入口，点击后右侧切换到历史记录页。
 - [ ] 已保留未规划的菜单空间，没有擅自增加额外栏目。
@@ -281,7 +250,6 @@
 
 - [ ] 页面没有顶部主视觉式大标题、装饰性副标题或多行营销文案，内容模块直接开始。
 - [ ] 精选不再使用一个巨大的 lead story；六条 top1–top6 以同一信息密度呈现。
-- [ ] `D:/pulse/Branched Menu.txt` 的主干、分支、活动路径和稳定展开逻辑已体现，菜单没有被替换成自定义的平面按钮列表。
 - [ ] 全站可见文字使用钉钉进步体文件；字体文件缺失时没有把回退字体误报为钉钉进步体。
 - [ ] `/?mock=1` 从头播放正常封面动画，Mock 只影响数据，不影响动画路径。
 - [ ] 生产数据失败、为空或超时时没有混入固定 Mock 样例。

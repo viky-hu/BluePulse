@@ -19,7 +19,6 @@
 .scroller { height: 100%; overflow: auto; overscroll-behavior: contain; padding: clamp(19px, 3.1vw, 43px) clamp(20px, 4vw, 60px) 38px; scrollbar-width: thin; scrollbar-color: #aab8ae transparent; }
 .stage { min-height: 100%; }
 .stage[data-phase="exiting"], .stage[data-phase="entering"] { pointer-events: none; }
-.navigationStatus { position: absolute; left: 24px; top: 18px; z-index: 2; color: #657167; font-size: 13px; }
 .entryCover { position: absolute; inset: 0; z-index: 10; background: #353330; display: none; }
 .introHost { position: absolute; inset: 0; z-index: 11; pointer-events: none; }
 .introHost > * { pointer-events: auto; }
@@ -46,7 +45,6 @@
   .menu { visibility: hidden; }
   .menu[data-open="true"] { visibility: visible; }
   .scrim[data-open="true"] { position: fixed; inset: 0; display: block; z-index: 3; border: 0; background: rgb(26 37 29 / 27%); }
-  .navigationStatus { top: 14px; left: 12px; }
 }
 @container pulse-content (max-width: 520px) { .scroller { padding-inline: 15px; } }
 @media (prefers-reduced-motion: reduce) { .shell * { scroll-behavior: auto !important; } }

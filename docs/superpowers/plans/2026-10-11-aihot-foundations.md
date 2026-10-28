@@ -16,7 +16,7 @@
 1. 研究文档：创建详细源码映射及后端差距报告，补入 AGENTS.md，修订旧登录规划，保留后续草稿和第三方许可。
 2. 收藏公开接口：GET `/api/v1/articles/availability?ids=...`，最多 100 个 UUID，公开条件一致，未知/删除都 false，代理仅增白名单。先写行为测试。
 3. 浏览器状态：统一校验和持久化收藏、已有历史、入场完成标志，同页与跨标签页通知，存储故障内存降级，独立 30 分钟会话缓存。先写行为测试。
-4. 共享主界面与路由：拆开原 HomeDashboard；稳定主态不启动首屏；真实路径 `/`、`/search`、`/topics/[slug]`、`/history`、`/starred`、`/articles/[id]`；筛选和游标进入 URL。
+4. 共享主界面与路由：拆开原 HomeDashboard；稳定主态不启动首屏；真实路径 `/`、`/search`、`/history`、`/starred`、`/articles/[id]`；筛选和游标进入 URL。
 5. 整合、审查与验收：lint、构建、相关行为测试，一个桌面、一个移动端、reduced-motion；检查首访、回访、直达、历史导航、快速切换、收藏与故障路径。
 
 ## 进度

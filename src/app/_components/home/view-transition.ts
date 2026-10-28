@@ -8,13 +8,18 @@ export type NavigationState<T> = {
 export type NavigationStep<T> = { state: NavigationState<T>; commit?: NavigationRequest<T> };
 
 export function requestNavigation<T>(
-  state: NavigationState<T>, request: NavigationRequest<T>, reducedMotion = false,
+  state: NavigationState<T>, request: NavigationRequest<T>, reducedMotion = false, waitingForData = false,
 ): NavigationStep<T> {
   if (reducedMotion) {
     return {
       state: { phase: "idle", currentKey: request.key, pending: null },
       ...(request.key !== state.currentKey ? { commit: request } : {}),
     };
+  }
+  // Nothing is being revealed yet: replace the hidden destination without waiting on its HTTP work.
+  if (state.phase === "entering" && waitingForData) {
+    if (request.key === state.currentKey) return { state };
+    return { state: { phase: "entering", currentKey: request.key, pending: null }, commit: request };
   }
   if (state.phase === "idle" && request.key === state.currentKey) return { state };
   return { state: {

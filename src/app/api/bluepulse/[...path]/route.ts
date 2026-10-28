@@ -11,6 +11,10 @@ type RouteContext = {
 };
 
 function isAllowedPath(path: string[]): boolean {
+  if (path.length === 2 && path[0] === "site" && path[1] === "stats") {
+    return true;
+  }
+
   if (path.length === 2 && path[0] === "home" &&
       (path[1] === "featured" || path[1] === "recently-collected")) {
     return true;
@@ -81,6 +85,9 @@ export async function GET(request: Request, context: RouteContext) {
     for (const name of [
       "content-type",
       "cache-control",
+      "x-accel-expires",
+      "age",
+      "date",
       "retry-after",
       "location",
       "x-request-id",

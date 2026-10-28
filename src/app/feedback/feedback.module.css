@@ -1,0 +1,65 @@
+.page { min-width: 0; overflow-wrap: anywhere; }
+.header h1 { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.3; }
+.header p { margin: 10px 0 0; color: var(--reading-muted); font-size: 14.5px; line-height: 1.8; }
+.notice { margin: 20px 0 0; border: 1px solid #d7e5dd; border-radius: 9px; background: #f2f7f3; padding: 13px 15px; font-size: 13px; line-height: 1.8; }
+.page a { color: var(--reading-accent); text-underline-offset: 3px; }
+.form { margin-top: 22px; border: 1px solid var(--reading-line); border-radius: 12px; background: #fdfdfd; overflow: hidden; transition: box-shadow 160ms ease; }
+.dragging { box-shadow: 0 0 0 3px #176b7528; border-color: var(--reading-accent); }
+.fields { display: grid; gap: 22px; min-width: 0; margin: 0; border: 0; padding: 24px; }
+.fields > div { min-width: 0; }
+.fields label, .label { display: block; margin-bottom: 9px; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.fields label span, .label > span { color: #657176; font-weight: 400; }
+.fields :is(input:not([type=file]), textarea) { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid #e0e6e2; border-radius: 8px; outline: none; background: #f6f7f4; color: var(--reading-ink); font: inherit; font-size: 14.5px; line-height: 1.7; transition: background-color 160ms ease, box-shadow 160ms ease; }
+.fields input:not([type=file]) { min-height: 44px; padding: 9px 13px; }
+.fields textarea { display: block; resize: vertical; padding: 13px 14px 34px; }
+.fields :is(input, textarea)::placeholder { color: #657176; }
+.fields :is(input, textarea):focus-visible { background: #fff; box-shadow: 0 0 0 3px #176b7515; }
+.fields:disabled { opacity: .7; }
+.contentWrap { position: relative; min-width: 0; }
+.counter { position: absolute; right: 14px; bottom: 10px; color: #7b8682; pointer-events: none; font-size: 11px; font-variant-numeric: tabular-nums; }
+.hint { margin: 8px 0 0; color: #657176; font-size: 12px; line-height: 1.7; }
+.upload { display: flex; align-items: center; gap: 14px; width: 100%; min-width: 0; min-height: 92px; border: 1px dashed #b5c2ba; border-radius: 9px; padding: 14px; background: transparent; color: var(--reading-ink); text-align: left; cursor: pointer; }
+.upload:hover { background: #f4f7f2; }
+.upload > span:last-child { min-width: 0; }
+.upload strong { display: block; font-size: 13.5px; font-weight: 600; }
+.upload small { display: block; margin-top: 4px; color: #77817f; font-size: 12px; line-height: 1.7; }
+.imageIcon { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 9px; background: #edf2ed; color: var(--reading-accent); font-size: 25px; font-weight: 400; }
+.fileInput { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; clip-path: inset(50%); overflow: hidden; }
+.attachment { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; padding: 12px; border-radius: 9px; background: #f4f6f2; }
+.attachment img { width: 96px; max-width: 100%; height: 64px; border: 1px solid var(--reading-line); border-radius: 6px; object-fit: cover; }
+.fileInfo { flex: 1 1 100px; min-width: 0; font-size: 13px; }
+.fileInfo small { display: block; margin-top: 5px; color: #77817f; font-size: 11.5px; }
+.fileActions { display: flex; gap: 6px; }
+.fileActions button { min-width: 44px; min-height: 44px; border: 0; border-radius: 6px; padding: 8px; background: transparent; color: var(--reading-accent); font-size: 12px; cursor: pointer; }
+.fileActions button:hover { background: #e6ede6; }
+.statusArea { padding: 0 24px 18px; }
+.error { margin: 0 0 12px; border-radius: 8px; padding: 11px 13px; background: #fff1ed; color: #943a2c; font-size: 13px; line-height: 1.7; }
+.draftStatus { margin: 0; color: #77817f; font-size: 12px; line-height: 1.75; }
+.footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--reading-line); padding: 17px 24px; background: #f8f9f6; }
+.footer p { flex: 1 1 210px; margin: 0; color: #77817f; font-size: 12px; line-height: 1.75; }
+.primary, .page a.primary { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 44px; max-width: 100%; border: 0; border-radius: 30px; padding: 11px 23px; background: #176b75; color: #fff; font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; }
+.primary:hover { background: #11545c; }
+.primary:disabled { background: #e0e6df; color: #89928d; cursor: default; }
+.treatment { margin-top: 20px; border-top: 1px solid var(--reading-line); padding-top: 14px; color: var(--reading-muted); font-size: 12px; line-height: 1.8; }
+.treatment summary { min-height: 44px; cursor: pointer; }
+.treatment p { margin: 0 0 10px; }
+.tips { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.tips li { display: flex; gap: 10px; color: var(--reading-muted); font-size: 13px; line-height: 1.6; }
+.tips li > span:first-child { flex: 0 0 18px; padding-top: 2px; color: var(--reading-accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.success { border: 1px solid var(--reading-line); border-radius: 12px; padding: 56px 24px; text-align: center; }
+.success h1 { margin: 24px 0 10px; font-size: 22px; font-weight: 600; line-height: 1.5; }
+.success p { color: var(--reading-muted); font-size: 14px; line-height: 1.8; }
+.success strong { color: var(--reading-ink); font-variant-numeric: tabular-nums; }
+.success .primary { margin-top: 18px; }
+.check { display: grid; place-items: center; width: 56px; height: 56px; margin-inline: auto; border-radius: 50%; background: var(--reading-accent); color: #fff; font-size: 27px; }
+@container reading (max-width: 359px) {
+  .fields { padding: 15px 12px; }
+  .statusArea { padding: 0 12px 15px; }
+  .footer { padding: 15px 12px; flex-direction: column; align-items: stretch; }
+  .footer p { flex: initial; }
+  .upload { gap: 8px; padding: 12px 10px; }
+  .imageIcon { display: none; }
+  .notice { padding: 11px 12px; }
+  .success { padding: 36px 13px; }
+}
+@media (prefers-reduced-motion: reduce) { .form, .fields :is(input, textarea) { transition: none; } }

@@ -1,0 +1,14 @@
+.page { --reading-ink: #202a30; --reading-muted: #59656b; --reading-accent: #176b75; --reading-line: #e0e6e2; color: var(--reading-ink); max-width: 1120px; margin-inline: auto; container: reading / inline-size; }
+.layout { display: grid; gap: 24px; padding-bottom: 18px; }
+.main, .aside { min-width: 0; }
+.aside { display: grid; gap: 16px; align-content: start; }
+.card { padding: 18px; border: 1px solid var(--reading-line); border-radius: 12px; background: #fdfdfd; box-shadow: 0 1px 2px rgb(32 42 48 / 2.5%); }
+.card h2 { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.6; }
+.cardBody { margin-top: 12px; }
+.cardBody p { margin: 0; color: var(--reading-muted); font-size: 13px; line-height: 1.75; }
+.cardBody a { color: var(--reading-accent); text-decoration: none; text-underline-offset: 3px; }
+.cardBody a:hover { text-decoration: underline; }
+.page :is(a, button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--reading-accent); outline-offset: 3px; }
+@container reading (min-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr) 200px; gap: 26px; } .aside { position: sticky; top: 0; align-self: start; } }
+@container reading (max-width: 359px) { .card { padding: 13px; } }
+@media (prefers-reduced-motion: reduce) { .page *, .page *::before, .page *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

@@ -64,3 +64,9 @@ export function readSessionSnapshot<T>(key: string, mock = false): T | null {
   remember(fullKey, value, scope);
   return value.value as T;
 }
+
+/** Invalidating data never deletes a separately saved position or damaged recoverable storage. */
+export function invalidateSessionSnapshot(key: string, mock = false): void {
+  const fullKey = prefix(mock) + key;
+  memory.delete(fullKey); fallback.delete(fullKey); removeRecoverable(fullKey);
+}

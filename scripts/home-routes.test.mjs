@@ -4,6 +4,8 @@ const routes = await import("../src/app/_components/home/home-routes.ts").catch(
 assert.ok(routes, "URL-driven home routing must exist");
 const { parseHomeRoute, buildHomeHref, canonicalHref, entryMode } = routes;
 const { MENU_SECTIONS, isMenuItemActive } = await import("../src/app/_components/home/navigation-config.ts");
+assert.equal(MENU_SECTIONS.flatMap(section => section.items).some(item => item.href.startsWith("/topics")), false,
+  "the removed topics module must not remain in the menu");
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const menuSelection = readme.split("具体菜单栏内容改成如下结构：")[1];
 assert.ok(menuSelection, "README must contain the explicit menu selection");
@@ -17,14 +19,12 @@ assert.deepEqual(MENU_SECTIONS.map(section => [section.title, ...section.items.m
   "only README's explicitly selected menus may be displayed; source-site groups are not permission to add items");
 assert.equal(isMenuItemActive("/all", "/articles"), true);
 assert.equal(isMenuItemActive("/all", "/articles/123"), false);
-assert.equal(isMenuItemActive("/topics", "/topics/policing"), true);
-assert.equal(isMenuItemActive("/topics", "/topics-other"), false);
 assert.equal(isMenuItemActive("/", "/search"), false);
-for (const path of ["/all", "/hot", "/daily", "/topics", "/agent", "/about", "/changelog", "/feedback"]) {
+for (const path of ["/all", "/hot", "/daily", "/agent", "/about", "/changelog", "/feedback"]) {
   assert.equal(parseHomeRoute(path, "").valid, true, `${path} must participate in shared-shell navigation`);
   assert.equal(entryMode(path, false), "stable", `${path} must open directly without the intro`);
 }
-for (const path of ["/leaderboard", "/codex-reset"]) {
+for (const path of ["/leaderboard", "/codex-reset", "/topics", "/topics/policing", "/topics/unknown/nested"]) {
   assert.equal(parseHomeRoute(path, "").valid, false, `${path} was not selected in README`);
 }
 assert.equal(parseHomeRoute("/all", "").filters.period, "30d", "all news keeps the library's default period");
@@ -39,7 +39,7 @@ assert.equal(search.filters.q, "警务");
 assert.equal(search.filters.period, "all");
 assert.equal(search.filters.region, "domestic");
 assert.equal(search.cursor, "next");
-assert.equal(parseHomeRoute("/topics/policing", "topic=research").filters.topic, "policing", "the path owns a topic page's category");
+assert.equal(parseHomeRoute("/all", "topic=policing").filters.topic, "policing", "article classification remains a query filter");
 assert.equal(parseHomeRoute("/articles", "").filters.period, "30d", "legacy library defaults remain compatible");
 assert.equal(parseHomeRoute("/search", "period=bad&sort=bad&region=bad").filters.period, "7d");
 assert.equal(parseHomeRoute("/topics/missing", "").valid, false);

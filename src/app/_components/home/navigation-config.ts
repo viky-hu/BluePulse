@@ -1,5 +1,5 @@
 /** AIHOT supplies UI patterns; only README's explicit selection supplies Pulse's menu items. */
-export type MenuIcon = "bolt" | "list" | "flame" | "doc" | "grid" | "plug" | "heart" | "history" | "message";
+export type MenuIcon = "bolt" | "list" | "flame" | "doc" | "plug" | "heart" | "history" | "message";
 export type MenuItem = { href: string; label: string; icon: MenuIcon };
 
 export const MENU_SECTIONS: readonly { title: string; items: readonly MenuItem[] }[] = [
@@ -8,7 +8,6 @@ export const MENU_SECTIONS: readonly { title: string; items: readonly MenuItem[]
     { href: "/all", label: "全部动态", icon: "list" },
     { href: "/hot", label: "热点榜", icon: "flame" },
     { href: "/daily", label: "AI日报", icon: "doc" },
-    { href: "/topics", label: "主题", icon: "grid" },
   ] },
   { title: "更多", items: [
     { href: "/agent", label: "Agent 接入", icon: "plug" },

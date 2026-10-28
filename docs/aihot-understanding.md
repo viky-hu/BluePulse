@@ -1,5 +1,7 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-10-28 补充：重新核对本地 `routes/changelog.tsx`、`features/changelog/text.tsx`、`routes/feedback.tsx`、`components/ui/Page.tsx`、`backend/site/meta.ts`、`operations/feedback.ts`、`admin/feedback.ts` 及 API／契约。更新日志是随代码部署的人工 JSON 数据，不含 push 自动总结；可选大版本绘图文件在快照中不存在。反馈是匿名 multipart → 校验／私有截图 → 数据库回执，飞书属于可选转发，本项目按用户要求排除。Pulse 的源码适配、缓存、精确接口、后端任务和反馈查看方式见根目录 `dock.md` DOCK-002／003；真实 FastAPI 反馈接收仍待组员实现。
+
 研究记录日期：2026-10-11。范围：对 `D:/AIHOT` 下载快照及 Pulse 既有源码作静态阅读；未启动 AIHOT 自身的服务、数据库、采集、模型或推送，没有逐行全审。本文是长期定位索引，不是生产验收报告。Pulse 本轮基础功能已于 2026-10-25 完成限定范围验收，详见 [验收记录](aihot-foundations-verification-2026-10-25.md)；这不扩大 AIHOT 本身的研究验证范围。
 
 ## 1. 证据、快照与采用策略
@@ -33,9 +35,9 @@ Pulse 基线依据：[宏观规划](system-construction-outline.md)、[Stage1](s
 | `/items/:id`、`/original`、收藏/已读/复制/分享/Markdown | `/api/site/items/:id`、`/:id/original`；`features/item/ReaderTools.tsx,ArticleBody.tsx,PosterSheet.tsx` | 既有 `/api/v1/articles/{uuid}` 返回原文、译文、正文/翻译状态、原站链接。许可、撤回、Markdown 和分享图后端需补；缺正文要明确说明 |
 | `/hot`、`/story/:publicId`、趋势、后续进展 | `/api/site/hot`、`/api/site/stories/:publicId`、`/followups`；`publication/stories.ts: loadHot,loadStoryDetail,resolveStory` | 文章重要性排序不是事件热点。无事件后端时不造热门事件/曲线；合并事件返回 308 新地址 |
 | `/daily`、归档、`/daily/:key`、周/月刊 | `/api/site/reports/:kind/latest-page`、`/:kind/:key`、`/:kind/navigation/:key`、日报月份接口 | Pulse 基线无报告模型/出刊流水。前端可先建立刊期阅读/空态，不能直接汇总当前文章假装已出刊日报 |
-| `/topics`、`/topics/:slug` | `/api/site/topics`、`/topics/:slug`；`publication/topics.ts: listTopicSummaries,loadTopicPage` | Pulse taxonomy 为分类，entities 为保守名称匹配；主题聚合需映射独立的警务主题规则，不能把厂商实体目录直接当主题 |
+| `/topics`、`/topics/:slug` | `/api/site/topics`、`/topics/:slug`；`publication/topics.ts: listTopicSummaries,loadTopicPage` | Pulse 不采用独立主题模块；taxonomy 仅用于文章分类和检索筛选，entities 为保守名称匹配。此行仅记录 AIHOT 原实现，不作为 Pulse 菜单建设要求 |
 | 搜索浮层、最近搜索、建议 | `features/search/SearchOverlay.tsx`；`/api/site/search/suggestions` | 可移植快捷交互与浏览器最近搜索；候选建议和搜索忙碌由后端提供，不伪造结果 |
-| `/starred`、`/more`、主题切换/导入导出 | `routes/starred.tsx,more.tsx`；`lib/local-state.ts`；availability 接口 | 匿名本地状态可以直接采用；已撤回详情必须重新核验，不因本地收藏快照绕开公开范围 |
+| `/starred`、`/more`、外观主题切换/导入导出 | `routes/starred.tsx,more.tsx`；`lib/local-state.ts`；availability 接口 | 匿名本地状态可以直接采用；已撤回详情必须重新核验，不因本地收藏快照绕开公开范围 |
 | 关于、反馈、条款、隐私、更新、Agent | `routes/{about,feedback,terms,privacy,changelog,agent}.tsx`；`site.ts`、反馈 API | 静态阅读框架可先做；真实反馈写入、反滥用/隐私与机器出口另需后端 |
 | `/admin` 和各后台页 | `routes/admin/layout.tsx`、`lib/admin.server.ts`、`/api/admin/*` | 后续同站受保护；当前账户表/本机脚本不等于完整后台。公众不提供普通账号登录 |
 
@@ -73,7 +75,7 @@ Article 是可追溯的一份材料；Fact 是同一次发生；Story 是该事�
 
 等待期间只进符合条件的全部动态，不获得精选席位、不产生同步记录、不推送。超过等待时长也不自动放行，10分钟后有告警/运行诊断，可人工重归组。重复新闻多份报道可入网页阅读组；没有新增信息的换皮报道或汇总保留全部动态。人工拆组、合并、覆盖由业务模块操作，同时更新公开结果与恢复记录。
 
-Pulse 基线没有 Fact/Story/关系图，仅 ArticleTopic 和 ArticleEntity，实体关联是名称匹配。本轮“热点/日报/主题”菜单壳不能代表关系后端完成。移植优先保留三层身份、证据角色、输入修订绑定与入选门禁，再实施向量召回；适配公安机构、项目、部署阶段和跨来源转载，后端阶段见交接稿。
+Pulse 基线没有 Fact/Story/关系图，仅 ArticleTopic 和 ArticleEntity，实体关联是名称匹配。本轮“热点/日报”菜单壳不能代表关系后端完成。移植优先保留三层身份、证据角色、输入修订绑定与入选门禁，再实施向量召回；适配公安机构、项目、部署阶段和跨来源转载，后端阶段见交接稿。
 
 ## 6. 热点是独立讨论证据
 

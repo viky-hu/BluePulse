@@ -4,12 +4,14 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
-import { fetchTaxonomy, type Topic } from "../../_lib/home-data";
-import { MOCK_TAXONOMY } from "../../_lib/home-mock";
 import { useBrowserState } from "../../_lib/use-browser-state";
+import { rememberPage } from "../../_lib/site-state";
 import { readSessionSnapshot, saveSessionSnapshot } from "../../_lib/session-restore";
 import { PulseSidebar } from "./menu/PulseSidebar";
 import { canonicalHref, entryMode, parseHomeRoute } from "./home-routes";
+import { hasCachedRouteData, invalidateRouteData, prefetchRouteData } from "./route-data-cache";
+import { NavigationProgress } from "./NavigationProgress";
+import { RouteRefresh } from "./RouteRefresh";
 import { finishEnter, finishExit, requestNavigation, type NavigationState } from "./view-transition";
 import { MainScene } from "./MainScene";
 import styles from "./main-shell.module.css";
@@ -17,10 +19,11 @@ import styles from "./main-shell.module.css";
 gsap.registerPlugin(useGSAP);
 type Entry = "pending" | "intro" | "revealing" | "stable";
 type ShellContext = {
+  activation: { key: string; restore: boolean };
   mock: boolean; routeKey: string; pathname: string; restore: boolean; entry: Entry;
   introHost: HTMLDivElement | null; introFinished: () => void;
   ready: (key: string, value: boolean) => void; navigate: (href: string) => void;
-  href: (href: string) => string; topics: Topic[]; topicStatus: "loading" | "ready" | "error"; refreshRevision: number;
+  href: (href: string) => string; refreshRevision: number; active: boolean;
 };
 const Context = createContext<ShellContext | null>(null);
 export function useMainShell() { const context = useContext(Context); if (!context) throw Error("Missing Pulse shared layout"); return context; }
@@ -37,7 +40,7 @@ function position(scroller: HTMLElement): Position {
   return { top: scroller.scrollTop, anchor: item?.dataset.cardKey ?? null, offset: item ? item.getBoundingClientRect().top - top : 0 };
 }
 
-export function MainShell({ children }: { children: ReactNode }) {
+export function MainShell({ children, changelogVersion }: { children: ReactNode; changelogVersion: string }) {
   const pathname = usePathname(), search = useSearchParams(), router = useRouter();
   const mock = search.get("mock") === "1";
   const key = canonicalHref(`${pathname}?${search}`);
@@ -57,11 +60,10 @@ export function MainShell({ children }: { children: ReactNode }) {
   const restore = pendingRoute === null && (activation.key !== key || activation.restore);
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => { setMenuOpen(false); menuToggle.current?.focus({ preventScroll: true }); }, []);
-  const [topics, setTopics] = useState<Topic[]>([]);
   const [refreshRevision, setRefreshRevision] = useState(0);
-  const [topicStatus, setTopicStatus] = useState<"loading" | "ready" | "error">("loading");
-  const visibleTopics = mock ? MOCK_TAXONOMY.items : topics;
-  const visibleTopicStatus = mock ? "ready" : topicStatus;
+  const [refreshRequest, setRefreshRequest] = useState<{ id: number; key: string } | null>(null);
+  const refreshTicket = useRef(0);
+  const completeRefresh = useCallback((id: number) => setRefreshRequest(previous => previous?.id === id ? null : previous), []);
   const initial = useRef(true), restored = useRef<string | null>(null), revealing = useRef(false);
   const { contextSafe } = useGSAP({ scope: root });
   const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -75,6 +77,11 @@ export function MainShell({ children }: { children: ReactNode }) {
     if (mock) url.searchParams.set("mock", "1");
     return `${url.pathname}${url.search}${url.hash}`;
   }, [mock]);
+  const prefetch = useCallback((target: string) => {
+    const destination = href(target);
+    router.prefetch(destination);
+    void prefetchRouteData(destination).catch(() => {});
+  }, [href, router]);
   const savePosition = useCallback(() => {
     // DOM replacement clamps scrollTop before content/anchors are ready. Never persist that transient value.
     if (scroller.current && restored.current === keyRef.current && navigationRef.current.phase === "idle") {
@@ -93,26 +100,23 @@ export function MainShell({ children }: { children: ReactNode }) {
     if (performance.getEntriesByType("navigation").some(item => (item as PerformanceNavigationTiming).type === "back_forward")) setActivation({ key, restore: true });
   }, [key, pathname, store]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    if (mock) return;
-    fetchTaxonomy(AbortSignal.any([controller.signal, AbortSignal.timeout(12000)])).then(data => { setTopics(data.items); setTopicStatus("ready"); }).catch(() => { if (!controller.signal.aborted) setTopicStatus("error"); });
-    return () => controller.abort();
-  }, [mock]);
-
   const navigate = useCallback((target: string) => {
     const destination = href(target), targetKey = canonicalHref(destination);
     if (targetKey === navigationRef.current.currentKey && navigationRef.current.phase === "idle") {
-      setRefreshRevision(value => value + 1); setActivation({ key: targetKey, restore: false }); router.refresh(); return;
+      invalidateRouteData(targetKey, mock);
+      setRefreshRevision(value => value + 1); setActivation({ key: targetKey, restore: false });
+      setRefreshRequest({ id: ++refreshTicket.current, key: targetKey }); return;
     }
+    setRefreshRequest(null);
     savePosition(); setMenuOpen(false); restored.current = null;
-    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced());
+    const waiting = navigationRef.current.phase === "entering" && motionKey.current !== `entering:${navigationRef.current.currentKey}`;
+    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced(), waiting);
     navigationRef.current = step.state; setNavigation(step.state);
     if (step.commit) {
       setActivation({ key: step.commit.key, restore: false }); setPendingRoute(step.commit.key);
-      setReadyKeys({}); router.push(step.commit.view, { scroll: false });
+      setReadyKeys(hasCachedRouteData(step.commit.key, mock) ? { [step.commit.key]: true } : {}); router.push(step.commit.view, { scroll: false });
     }
-  }, [href, router, savePosition]);
+  }, [href, router, savePosition, mock]);
 
   useEffect(() => {
     const onPop = () => {
@@ -120,8 +124,10 @@ export function MainShell({ children }: { children: ReactNode }) {
       // Next can commit a cached traversal before this callback. Only save the still-outgoing DOM.
       if (keyRef.current !== target) { savePosition(); restored.current = null; }
       motion.current?.kill(); motionKey.current = "";
+      setRefreshRequest(null);
       navigationRef.current = { phase: "idle", currentKey: target, pending: null };
-      setNavigation(navigationRef.current); setPendingRoute(null); setActivation({ key: target, restore: true }); setMenuOpen(false);
+      setNavigation(navigationRef.current); setPendingRoute(null);
+      setActivation(previous => previous.key === target && previous.restore ? previous : { key: target, restore: true }); setMenuOpen(false);
       contextSafe(() => { if (stage.current) gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
     };
     // Restoration is already classified by URL activation; this listener only cancels ongoing motion.
@@ -130,6 +136,8 @@ export function MainShell({ children }: { children: ReactNode }) {
   }, [savePosition, contextSafe]);
 
   useLayoutEffect(() => {
+    // popstate updates location before Next commits its hook values. Do not reclassify the outgoing URL.
+    if (canonicalHref(`${location.pathname}${location.search}`) !== key) return;
     if (pendingRoute === key) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- acknowledge the committed Next URL before paint
       setPendingRoute(null);
@@ -141,6 +149,7 @@ export function MainShell({ children }: { children: ReactNode }) {
   }, [key, pendingRoute, activation.key]);
 
   useLayoutEffect(() => {
+    if (canonicalHref(`${location.pathname}${location.search}`) !== key) return;
     if (pendingRoute === null && navigation.phase === "idle" && key !== navigation.currentKey) {
       motion.current?.kill(); motionKey.current = "";
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sync external Next navigation
@@ -160,7 +169,7 @@ export function MainShell({ children }: { children: ReactNode }) {
           const step = finishExit(navigationRef.current); navigationRef.current = step.state; setNavigation(step.state);
           if (step.commit) {
             setActivation({ key: step.commit.key, restore: false }); setPendingRoute(step.commit.key);
-            setReadyKeys({}); router.push(step.commit.view, { scroll: false });
+            setReadyKeys(hasCachedRouteData(step.commit.key, mock) ? { [step.commit.key]: true } : {}); router.push(step.commit.view, { scroll: false });
           }
         } });
       })();
@@ -172,7 +181,7 @@ export function MainShell({ children }: { children: ReactNode }) {
         } });
       })();
     } else if (navigation.phase === "idle") motionKey.current = token;
-  }, [entry, navigation.phase, navigation.currentKey, key, readyKeys, contextSafe, router]);
+  }, [entry, navigation.phase, navigation.currentKey, key, readyKeys, contextSafe, router, mock]);
 
   useLayoutEffect(() => {
     if (!readyKeys[key] || !scroller.current || restored.current === key || (pendingRoute !== null && pendingRoute !== key)) return;
@@ -182,6 +191,12 @@ export function MainShell({ children }: { children: ReactNode }) {
     if (saved?.anchor && Number.isFinite(saved.offset)) {
       const anchor = [...area.querySelectorAll<HTMLElement>("[data-card-key]")].find(item => item.dataset.cardKey === saved.anchor);
       if (anchor) area.scrollTop += anchor.getBoundingClientRect().top - area.getBoundingClientRect().top - saved.offset;
+    }
+    if (!saved && location.hash) {
+      let id = "";
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch {}
+      const anchor = id ? document.getElementById(id) : null;
+      if (anchor && area.contains(anchor)) area.scrollTop += anchor.getBoundingClientRect().top - area.getBoundingClientRect().top - 12;
     }
     restored.current = key;
   }, [key, readyKeys, restore, pendingRoute, mock]);
@@ -203,7 +218,12 @@ export function MainShell({ children }: { children: ReactNode }) {
 
   useEffect(() => () => { motion.current?.kill(); }, []);
   const introFinished = useCallback(() => { document.documentElement.dataset.pulseEntry = "stable"; setEntry("revealing"); }, []);
-  const context = useMemo<ShellContext>(() => ({ mock, routeKey: key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, topics: visibleTopics, topicStatus: visibleTopicStatus, refreshRevision }), [mock, key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, visibleTopics, visibleTopicStatus, refreshRevision]);
+  const active = entry === "stable" && navigation.phase === "idle" && pendingRoute === null;
+  useEffect(() => { if (active && readyKeys[key]) rememberPage(key, mock); }, [active, readyKeys, key, mock]);
+  const context = useMemo<ShellContext>(() => ({ activation, mock, routeKey: key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, refreshRevision, active }), [activation, mock, key, pathname, restore, entry, introHost, introFinished, ready, navigate, href, refreshRevision, active]);
+  const targetKey = pendingRoute ?? key;
+  const refreshing = refreshRequest?.key === key;
+  const loading = (entry === "stable" || entry === "revealing") && (refreshing || !readyKeys[targetKey]);
   const capture = (event: MouseEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
@@ -214,15 +234,16 @@ export function MainShell({ children }: { children: ReactNode }) {
   };
   return <Context.Provider value={context}>
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>
+      <NavigationProgress active={loading} />
+      {refreshing && <RouteRefresh key={refreshRequest.id} id={refreshRequest.id} onComplete={completeRefresh} />}
       <MainScene />
       <div className={styles.menuLayer}>
         <button ref={menuToggle} className={styles.mobileToggle} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} aria-label={menuOpen ? "关闭菜单" : "打开菜单"} aria-expanded={menuOpen} aria-controls="pulse-main-menu">☰ 菜单</button>
         <button className={styles.scrim} data-open={menuOpen} onClick={closeMenu} aria-label="关闭菜单" tabIndex={menuOpen ? 0 : -1} />
-        <PulseSidebar ref={menu} className={styles.menu} pathname={pathname} hrefFor={href} open={menuOpen} inactive={entry === "intro" || entry === "revealing"} onClose={closeMenu} />
+        <PulseSidebar ref={menu} className={styles.menu} pathname={pathname} hrefFor={href} onPrefetch={prefetch} open={menuOpen} inactive={entry === "intro" || entry === "revealing"} onClose={closeMenu} changelogVersion={changelogVersion} mock={mock} />
       </div>
       <div className={styles.frame} data-p0-content>
-        {navigation.phase === "entering" && !readyKeys[key] ? <div className={styles.navigationStatus} role="status">正在载入内容…</div> : null}
-        <main ref={scroller} className={styles.scroller} data-p0-scroller onScroll={savePosition}>
+        <main ref={scroller} className={styles.scroller} data-p0-scroller aria-busy={loading} onScroll={savePosition}>
           <div ref={stage} className={styles.stage} data-phase={navigation.phase} data-home-view={pathname} inert={entry === "intro" || entry === "revealing" || navigation.phase !== "idle"}>{children}</div>
         </main>
       </div>

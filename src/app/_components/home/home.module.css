@@ -16,7 +16,7 @@
 .pageHeader { margin-bottom: 28px; }
 .pageHeader h1 { margin: 0 0 12px; font-size: 26px; font-weight: 400; line-height: 1.4; }
 .pageHeader p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.8; }
-.menuItem, .topicButton, .articleRow, .historyRow, .inlineButton { text-decoration: none; }
+.menuItem, .articleRow, .historyRow, .inlineButton { text-decoration: none; }
 .articleEntry { position: relative; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
 .articleEntry .articleRow { border-bottom: 0; grid-template-columns: 44px minmax(0, 1fr) 17px; }
 .starButton { display: inline-flex; gap: 5px; min-height: 30px; padding: 4px 8px; color: #527963; font-size: 11px; background: transparent; border: 1px solid #dce3dc; cursor: pointer; }
@@ -130,14 +130,12 @@
 }
 
 .readingArea::-webkit-scrollbar,
-.sidebar::-webkit-scrollbar,
-.topicTree::-webkit-scrollbar {
+.sidebar::-webkit-scrollbar {
   width: 8px;
 }
 
 .readingArea::-webkit-scrollbar-thumb,
-.sidebar::-webkit-scrollbar-thumb,
-.topicTree::-webkit-scrollbar-thumb {
+.sidebar::-webkit-scrollbar-thumb {
   background: #bdc8c0;
   border: 2px solid transparent;
   background-clip: padding-box;
@@ -745,166 +743,12 @@
   font-weight: 400;
 }
 
-.topicTree {
-  position: relative;
-  display: flex;
-  min-height: 0;
-  flex: 0 1 auto;
-  flex-direction: column;
-  overflow: auto;
-  scrollbar-width: thin;
-}
-
-.treeHeading {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  min-height: 37px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 9px;
-  color: #758078;
-  font-size: 12px;
-  background: #FDFDFD;
-}
-
-.treeHeading > span:last-child {
-  color: #89968c;
-  font-size: 11px;
-}
-
-.treeGroups {
-  flex: none;
-}
-
-.treeGroup {
-  position: relative;
-}
-
-.treeGroupHeading {
-  position: relative;
-  display: flex;
-  min-height: 31px;
-  align-items: center;
-  padding: 0 9px;
-  color: #67736a;
-  font-size: 11px;
-  letter-spacing: 0.01em;
-}
-
-.treeGroupMarker {
-  position: absolute;
-  left: 0;
-  width: 3px;
-  height: 16px;
-  background: #527963;
-  opacity: 0;
-  transform: scaleY(0.6);
-  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
-.treeGroupMarkerActive {
-  opacity: 1;
-  transform: scaleY(1);
-}
-
-.treeGroupBody {
-  position: relative;
-  box-sizing: border-box;
-  flex: none;
-  padding-block: 6px;
-}
-
-.treeSvg {
-  position: absolute;
-  inset: 0 auto auto 0;
-  overflow: visible;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.treeTrunk,
-.treeBranch,
-.treeReach {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.treeTrunk,
-.treeBranch {
-  stroke: #cdd6cf;
-}
-
-.treeReach {
-  stroke: #527963;
-}
-
-.treeRow {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  height: 36px;
-  align-items: center;
-  padding-left: 32px;
-  padding-right: 5px;
-}
-
-.topicButton {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 29px;
-  align-items: center;
-  padding: 0 7px;
-  overflow: hidden;
-  color: #667168;
-  text-align: left;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: color 150ms ease, background-color 150ms ease;
-}
-
-.topicButton:hover,
-.topicButtonActive {
-  color: #315e48;
-  background: #edf2ed;
-}
-
-.topicButton > span:last-child {
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-}
-
-.topicButton:disabled {
-  color: #a4aca5;
-  cursor: default;
-  opacity: 0.82;
-}
-
-.topicButton:disabled:hover {
-  background: transparent;
-}
-
-.treeMessage {
-  margin: 3px 9px 12px;
-  color: #818a82;
-  font-size: 12px;
-}
-
 .mobileBar,
 .mobileScrim {
   display: none;
 }
 
 .menuItem:focus-visible,
-.topicButton:focus-visible,
 .articleRow:focus-visible,
 .periodSwitch button:focus-visible,
 .pagination button:focus-visible,

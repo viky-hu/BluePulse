@@ -1,3 +1,5 @@
+import { responseDeadline } from "./http-cache";
+
 export type FeaturedSlot = "p0" | "p1" | "p2" | "p3" | "p4" | "p5";
 export type ArticlePeriod = "24h" | "7d" | "30d" | "all";
 export type ArticleSort = "recent" | "importance";
@@ -106,24 +108,28 @@ export interface HomeDataBundle {
 /** Fetch helpers intentionally preserve backend failures; mock content is opt-in. */
 export async function fetchHomeFeatured(
   signal?: AbortSignal,
+  onDeadline?: (expiresAt: number) => void,
 ): Promise<FeaturedResponse> {
-  return fetchJson<FeaturedResponse>("/api/bluepulse/home/featured", signal);
+  return fetchJson<FeaturedResponse>("/api/bluepulse/home/featured", signal, onDeadline);
 }
 
 export async function fetchRecentlyCollected(
   signal?: AbortSignal,
+  onDeadline?: (expiresAt: number) => void,
 ): Promise<ItemsResponse<ArticleCard>> {
-  return fetchJson<ItemsResponse<ArticleCard>>("/api/bluepulse/home/recently-collected", signal);
+  return fetchJson<ItemsResponse<ArticleCard>>("/api/bluepulse/home/recently-collected", signal, onDeadline);
 }
 
 export async function fetchHomeArticles(
   searchParams: URLSearchParams,
   signal?: AbortSignal,
+  onDeadline?: (expiresAt: number) => void,
 ): Promise<ArticleListResponse> {
   const query = searchParams.toString();
   return fetchJson<ArticleListResponse>(
     `/api/bluepulse/articles${query ? `?${query}` : ""}`,
     signal,
+    onDeadline,
   );
 }
 
@@ -145,11 +151,12 @@ export async function fetchTaxonomy(
 
 export async function fetchSources(
   signal?: AbortSignal,
+  onDeadline?: (expiresAt: number) => void,
 ): Promise<ItemsResponse<Source>> {
-  return fetchJson<ItemsResponse<Source>>("/api/bluepulse/sources", signal);
+  return fetchJson<ItemsResponse<Source>>("/api/bluepulse/sources", signal, onDeadline);
 }
 
-async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function fetchJson<T>(url: string, signal?: AbortSignal, onDeadline?: (expiresAt: number) => void): Promise<T> {
   const response = await fetch(url, {
     cache: "no-store",
     ...(signal ? { signal } : {}),
@@ -162,5 +169,6 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
         : `数据请求失败（${response.status}）`,
     );
   }
+  onDeadline?.(responseDeadline(response.headers));
   return (await response.json()) as T;
 }

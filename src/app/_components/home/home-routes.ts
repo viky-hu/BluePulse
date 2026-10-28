@@ -1,4 +1,3 @@
-import { TOPIC_MENU_SLUGS } from "./topic-menu-config.ts";
 import { isSectionPath } from "./navigation-config.ts";
 import type { ArticlePeriod, ArticleRegion, ArticleSort } from "../../_lib/home-data";
 
@@ -13,7 +12,7 @@ export type HomeFilters = {
   sort: ArticleSort;
 };
 export type HomeRoute = {
-  kind: "home" | "search" | "all" | "topics" | "section" | "topic" | "history" | "starred" | "article" | "library" | "entities" | "unknown";
+  kind: "home" | "search" | "all" | "section" | "history" | "starred" | "article" | "library" | "entities" | "unknown";
   filters: HomeFilters;
   cursor: string | null;
   articleId: string | null;
@@ -33,30 +32,28 @@ export function canonicalHref(href: string): string {
 
 export function parseHomeRoute(pathname: string, search: string | { toString(): string }): HomeRoute {
   const params = new URLSearchParams(search.toString());
-  const slug = pathname.startsWith("/topics/") ? pathname.slice(8) : "";
   const id = pathname.startsWith("/articles/") ? pathname.slice(10) : null;
   const kind: HomeRoute["kind"] = pathname === "/" ? "home"
     : pathname === "/search" ? "search"
     : pathname === "/all" ? "all"
-    : pathname === "/topics" ? "topics"
     : isSectionPath(pathname) ? "section"
     : pathname === "/history" ? "history"
     : pathname === "/starred" ? "starred"
     : pathname === "/articles" ? "library"
     : pathname === "/entities" ? "entities"
-    : slug ? "topic" : id ? "article" : "unknown";
+    : id ? "article" : "unknown";
   const fallback = kind === "library" || kind === "all" ? "30d" : "7d";
   const period = params.get("period");
   const region = params.get("region");
   return {
     kind,
-    valid: kind !== "unknown" && (kind !== "topic" || TOPIC_MENU_SLUGS.has(slug)) && (kind !== "article" || ARTICLE_ID_PATTERN.test(id ?? "")),
+    valid: kind !== "unknown" && (kind !== "article" || ARTICLE_ID_PATTERN.test(id ?? "")),
     articleId: id,
     cursor: params.get("cursor") || null,
     filters: {
       period: period === "24h" || period === "7d" || period === "30d" || period === "all" ? period : fallback,
       q: (params.get("q") ?? "").trim().slice(0, 200),
-      topic: kind === "topic" ? slug : params.get("topic") ?? "",
+      topic: params.get("topic") ?? "",
       region: region === "domestic" || region === "foreign" ? region : "",
       source: params.get("source") ?? "",
       sourceType: params.get("source_type") ?? "",
@@ -71,7 +68,7 @@ export function buildHomeHref(pathname: string, filters?: HomeFilters, options: 
   if (filters) {
     if (filters.period !== (pathname === "/articles" || pathname === "/all" ? "30d" : "7d")) params.set("period", filters.period);
     if (filters.q) params.set("q", filters.q.trim().slice(0, 200));
-    if (filters.topic && !pathname.startsWith("/topics/")) params.set("topic", filters.topic);
+    if (filters.topic) params.set("topic", filters.topic);
     if (filters.region) params.set("region", filters.region);
     if (filters.source) params.set("source", filters.source);
     if (filters.sourceType) params.set("source_type", filters.sourceType);
