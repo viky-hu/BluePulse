@@ -22,7 +22,7 @@ type ShellContext = {
   activation: { key: string; restore: boolean };
   mock: boolean; routeKey: string; pathname: string; restore: boolean; entry: Entry;
   introHost: HTMLDivElement | null; introFinished: () => void;
-  ready: (key: string, value: boolean) => void; navigate: (href: string) => void;
+  ready: (key: string, value: boolean) => void; navigate: (href: string, options?: { preserveScroll?: boolean }) => void;
   href: (href: string) => string; refreshRevision: number; active: boolean;
 };
 const Context = createContext<ShellContext | null>(null);
@@ -100,7 +100,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (performance.getEntriesByType("navigation").some(item => (item as PerformanceNavigationTiming).type === "back_forward")) setActivation({ key, restore: true });
   }, [key, pathname, store]);
 
-  const navigate = useCallback((target: string) => {
+  const navigate = useCallback((target: string, options: { preserveScroll?: boolean } = {}) => {
     const destination = href(target), targetKey = canonicalHref(destination);
     if (targetKey === navigationRef.current.currentKey && navigationRef.current.phase === "idle") {
       invalidateRouteData(targetKey, mock);
@@ -109,14 +109,22 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     }
     setRefreshRequest(null);
     savePosition(); setMenuOpen(false); restored.current = null;
+    // AIHOT feed filters/search/paging are ordinary URL navigation, without a page scene transition.
+    const feedQuery = new URL(keyRef.current, "https://pulse.local").pathname === "/all" && new URL(destination, "https://pulse.local").pathname === "/all";
+    const preserveScroll = feedQuery && options.preserveScroll === true;
+    if (preserveScroll && scroller.current) saveSessionSnapshot(`position:${targetKey}`, position(scroller.current), mock);
+    if (feedQuery) {
+      motion.current?.kill(); motionKey.current = "";
+      contextSafe(() => { if (stage.current) gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
+    }
     const waiting = navigationRef.current.phase === "entering" && motionKey.current !== `entering:${navigationRef.current.currentKey}`;
-    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced(), waiting);
+    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced() || feedQuery, waiting);
     navigationRef.current = step.state; setNavigation(step.state);
     if (step.commit) {
-      setActivation({ key: step.commit.key, restore: false }); setPendingRoute(step.commit.key);
+      setActivation({ key: step.commit.key, restore: preserveScroll }); setPendingRoute(step.commit.key);
       setReadyKeys(hasCachedRouteData(step.commit.key, mock) ? { [step.commit.key]: true } : {}); router.push(step.commit.view, { scroll: false });
     }
-  }, [href, router, savePosition, mock]);
+  }, [href, router, savePosition, mock, contextSafe]);
 
   useEffect(() => {
     const onPop = () => {
@@ -232,7 +240,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     const sameView = canonicalHref(`${url.pathname}${url.search}`) === keyRef.current;
     if (url.origin !== location.origin || (url.hash && sameView) || !parseHomeRoute(url.pathname, url.searchParams).valid) return;
     // A cross-page anchor is a new owned navigation, not history restoration of the old page.
-    event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`);
+    event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`, { preserveScroll: anchor.dataset.pulseScroll === "preserve" });
   };
   return <Context.Provider value={context}>
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>

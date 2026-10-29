@@ -1,6 +1,6 @@
 # Pulse 前后端接口对接总册
 
-更新日期：2026-10-27。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
+更新日期：2026-10-29。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
 
 技术边界：Pulse 保留 Next.js 16 / React 19 / TypeScript / Tailwind 4 / GSAP，以及 Python / FastAPI 后端。复用 AIHOT 的组件、业务机制和契约思路，不移植 React Router loader、Fastify、PostgreSQL SQL 或 pg-boss。
 
@@ -24,6 +24,7 @@
 | DOCK-001 附项 | 团队头像和联系方式 | `/about` | 本轮静态资源，无新增后台接口 | 已实现静态展示 |
 | DOCK-002 | 更新日志与未读提示 | `/changelog` | Next.js `GET /api/bluepulse/site/{changelog,meta}` | 已实现真实文件数据并通过本轮前端验收；无 FastAPI 依赖 |
 | DOCK-003 | 匿名反馈、草稿与截图 | `/feedback` | `POST /api/bluepulse/site/feedback` → 建议 FastAPI `/api/v1/site/feedback` | 前端及代理已预留，真实接收与查看待后端实施 |
+| DOCK-004 | 全部动态、分类筛选与全文检索 | `/all` | `GET /api/bluepulse/{articles,taxonomy}` → FastAPI `/api/v1/{articles,taxonomy}` | 前端及受控接口验收通过；新分类数据、相关度、数字分页及统计待后端补齐，待真实联调 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -273,3 +274,75 @@ uv run python -m bluepulse_backend.cli feedback show 123
 - 后端：合法纯文字／带图真实入库；格式、空值、2/5000 字、8MiB/12MiB、像素及伪图片；重复附件独立删除；写库失败无孤立文件；可信 IP、5 次限流、封禁和多进程一致性；私有截图权限；版本冲突、删除和审计；CLI 查看／筛选／处理；无飞书外发。
 - 前端与代理：草稿初始化不被空值覆盖、离开／刷新恢复、存储拒绝、live/mock 隔离；pick/drop/paste/remove；发送防重；201 有效回执、400/403/413/429/404/503、错误 JSON、断网与未知结果；桌面／窄白纸／reduced-motion。
 - 本轮仅以本地受控测试服务证明契约与界面，**不代表真实 FastAPI 联调或真实反馈收集已完成**。实际验收见专项记录。
+
+## DOCK-004：全部动态、分类筛选与全文检索
+
+### 1. 功能与状态
+
+匿名入口 `/all` 本轮按已批准计划及后续源码复用纠正复用 AIHOT 全部动态页，放入 Pulse 共享 p0。交付范围包括分类、搜索、北京时间分日时间轴、卡片、当前浏览器收藏／已读及40条游标翻页；不新增独立主题模块。修订稿前端及受控接口检查已通过，详见 [专项验收](docs/pulse-all-verification-2026-10-29.md)，不代表真实后端已补齐或完成联调。
+
+- 既有后端已实现：文章列表、taxonomy、公开文章过滤、全文匹配、recent／importance 排序和绑定筛选的游标。
+- 本轮不修改后端。`product/practice/paper/law/embodied/public-opinion/low-altitude` 的 taxonomy 注册、历史文章归类及持续分析分类仍需后端组员确认、补齐；仅有 topic 查询参数不代表这七类已有真实数据。
+- 前端按真实 taxonomy 区分“分类暂不可用”和“已注册但没有内容”，不以关键词或旧宽分类近似替代。真实总量、页数、今日总量、相关度和繁忙保护不能从40条结果推导。
+
+### 2. AIHOT 源码证据
+
+本轮重新静态核对 `D:/AIHOT` 下载快照，未运行其服务；完整 MIT 与 `Copyright (c) 2026 数字生命卡兹克` 见 `THIRD_PARTY_NOTICES.md`。
+
+| 环节 | 原始源码及符号 |
+| --- | --- |
+| 页面、查询、筛选保留与排序 | `apps/web/app/routes/all.tsx`：`loader`、`AllPage`、`pageHref` |
+| 分类、搜索、活动条件 | `apps/web/app/features/feed/Filters.tsx`：`CategoryTabs`、`SearchField`、`ActiveFilters` |
+| 分日、数字页、卡片与时间槽 | `features/feed/DayList.tsx`：`DayList`、`Pagination`；`FeedItem.tsx`；`Timeline.tsx`：`DayHeader`、`TimelineSlot`；`components/ui/Tabs.tsx`：`PillTabs` |
+| 契约与 API | `packages/contracts/src/site.ts`：`PoolResponse`；`apps/api/src/routes/site.ts`：`/api/site/pool` |
+| 读取、检索、数量和繁忙保护 | `packages/backend/src/publication/pool.ts`：`loadPool`、`POOL_PAGE_SIZE`、`POOL_MAX_PAGES`、`withSearchCapacity`、`SearchBusyError`、`directMatchCondition`、`publicMatchCondition` |
+| 浏览器状态与有效期 | `apps/web/app/lib/{local-state,restore,session-cache,page-reuse,api.server}.ts` |
+
+上述相对路径均相对于 `D:/AIHOT`；Pulse 依据为 `backend/bluepulse_backend/api.py` 的 `list_articles`、`list_taxonomy` 及 `editorial.py` 的 `public_article_conditions()`。
+
+### 3. AIHOT 原始数据流与契约
+
+原 `all.loader` 读取 URL 的 q、tab、page 和筛选，经 Web HTTP 客户端访问 `/api/site/pool`，返回 `PoolResponse`。每页40条、最多50页；真实 total、pageCount、todayCount、freshness 支撑数字页、今日数量与更新时间，超出末页会保留条件跳转末页。默认最新检索为标题／摘要等直接匹配，全文相关是另一路排序，不能混写为 Pulse 的同一能力。
+
+`DayList` 按北京时间组织 `timelineAt`，复用 `TimelineSlot` 和 `FeedItem`，已读状态由本浏览器提供。搜索和分类修改保留彼此条件并清页码。原检索容量保护限制并发4、队列8，排队超过3秒或溢出返回503及 Retry-After；这是 AIHOT 原实现，Pulse 当前未因此获得限流能力。原公开列表使用 `listedCondition`；不能直接搬 SQL 或用有详情等同有公开列表／全文分发许可。
+
+### 4. Pulse 建议及差异
+
+Pulse 保留 Next.js／FastAPI 和 UUID，独立 `src/app/all/` 组件负责页面，`_data.ts` 承担纯数据／URL helper，`_cache.ts` 承担数据缓存；不移植 React Router loader、PostgreSQL SQL 或全站壳层。按 p0 实际宽度排布工具栏、吸顶日期与移动时间栏，保留品牌与导航动效。
+
+顶层分类为全部、国内、国外、产品、实战、论文、法制、具身、舆情、低空；地区和内容分类单选互斥，地区对应 `region=domestic/foreign`，后七类对应上述新 topic 键。旧宽分类深链完整保留在请求中，不静默映射到新分类，也不为它额外添加 legacy 筛选 chips 行。仅 `/all` 默认 `period=all`，不改变其他阅读入口的默认时间。搜索 q 与分类互相保留，改变条件重置游标；Enter、清空、斜杠聚焦及输入法需前端验收。
+
+当前 q 真实匹配原题／中文题／摘要／正文；SQLite 满足条件时走 FTS5，否则转义 LIKE。搜索统一 `sort=recent`；旧 importance 搜索链接归一并丢弃旧游标，非搜索的 importance 浏览仍保留。importance 不能冒充全文相关度。前端“全文相关”入口禁用，通过 title 属性说明待接入，不添加搜索模式说明行。未知发布时间的原 time 节点显示“待核”，title 明确真实发现时刻，不额外添加“发现于”行或伪装发布时间。
+
+2026-10-29 用户追加的源码复用约束覆盖初稿视觉处理：分类控件直接沿用 `Tabs.tsx:PillTabs` 结构，选中 thumb 位于 active link 内部；md 尺寸为36px高、16px横向 padding、14px字号，不压缩为9px padding／13px字号。`/all` 到 `/all` 的查询更新使用普通 push，不触发 Pulse 整页 GSAP 淡入淡出；AIHOT `all.tsx` 的 busy 反馈是保留旧列表、仅 opacity 0.5，不添加骨架卡片。
+
+日期按 `Timeline.tsx:DayHeader` 与 `lib/format.ts:monthDay` 的月日加星期排布，遵从用户要求不显示年份或“今天”。恢复 `TimelineSlot` 的64px／22px时轨、`parts.tsx:SourceLine` 与 time 同行；移动端标题17px两行、摘要14.5px两行，不显示 topics；`components/ui/Score.tsx:ScoreLabel` 按85／70阈值复用分层胶囊。移除另加的 region 标签、每页条数行、legacy chips 行；Mock 只在同一 h1 文本标注演示，不独立加说明行。异常内容沿用 `components/ui/Page.tsx:EmptyState` 布局，仅保留真实必要回退；后端缺口在本文交接，不再转化为新增页面组件或额外文字行。
+
+后端交接：注册七类稳定 slug 与中文名；给出多分类规则、历史回填方案、分类提示词版本与输入版本绑定，保留人工覆盖且避免重分析覆盖人工结果。若补数字页／统计，须定义同一筛选和公开范围下的 total、pageCount、北京时间 todayCount，以及时间未知／回灌文章口径、最大页深和越界策略；不可直接将游标当数字页。相关度需独立稳定排序和与条件绑定的游标／分页契约。繁忙保护需定义容量、取消、超时、503／Retry-After 与客户端重试行为，不能只靠按钮 loading 防止服务过载。
+
+### 5. 请求响应示例
+
+以下为当前契约示意，不是联调数据；本地页面入口为 `http://localhost:3000/all`，分类例为 `/all?topic=product`，搜索例为 `/all?q=警务`。
+
+```http
+GET /api/bluepulse/taxonomy
+GET /api/bluepulse/articles?period=all&limit=40&sort=recent
+GET /api/bluepulse/articles?period=all&limit=40&sort=recent&topic=product&q=警务
+GET /api/bluepulse/articles?period=all&limit=40&sort=recent&region=domestic
+```
+
+代理映射到同后缀 `/api/v1/`。taxonomy 返回 `items`，元素为 `id/slug/name_zh/name_en/parent_id`（`parent_id` 可空）。articles 返回 `items/next_cursor/limit`；items 内含真实卡片、`topics` slug 数组及可空 `summary`。列表最多返回请求的40条，`next_cursor=null` 表示无下一页；其他请求的 limit 当前允许1–100。后续页原样携带 next_cursor 和完全相同的筛选／排序；筛选不匹配时后端400 `invalid_cursor`。返回上一页依赖本会话游标历史，直达而无历史时回第一页，不构造 pageCount。当前响应没有 total、pageCount、todayCount、freshness，不能补造。
+
+### 6. 缓存和异常
+
+保留共享的服务端绝对截止策略：同标签页本地最多60秒，合并 articles／taxonomy 取最早截止，尊重 Cache-Control、X-Accel-Expires、Date、Age；no-store／no-cache 不进入可复用列表快照。30分钟历史／锚点恢复独立于数据寿命，过期重新请求再恢复位置。刷新／重试强制新取，旧请求取消或晚到不能覆盖新的搜索／分类结果。
+
+taxonomy 未注册与 taxonomy 请求失败不能变成“零篇”；已注册且 articles 成功空数组才是真实无结果。列表故障保留查询并可重试；游标失效明确处理，不无限重试。Mock 如用于前端检查应显式标识、与真实缓存隔离，不能作为分类、统计或后端完成证据。
+
+后端仍需使发布、撤回、证据和全文许可在列表、详情、收藏可用性及未来出口一致生效，并返回与真实读取缓存一致的截止头；不得用客户端缓存延长已撤回／无权内容的公开寿命。当前复用 existing public_article_conditions 不代表完整 AIHOT 发布层已经移植。
+
+### 7. 验收条件与变更记录
+
+2026-10-29：追加本节并按用户纠正对齐原组件结构／尺寸、简单查询导航和无额外 UI。最终修订稿 lint、生产构建、26项相关逻辑、18组全部动态浏览器场景和13组共享导航场景通过；桌面1360×760、移动390×844及 reduced-motion 截图已复核。最终源码审查无阻断项。完整来源映射、检查范围及复现方法见 [专项验收](docs/pulse-all-verification-2026-10-29.md)。使用受控 HTTP 测试服务，没有将 Mock／静态研究视作真实 FastAPI 联调完成。
+
+验收须覆盖搜索／分类互相保留与重置游标、地区和内容互斥、旧深链请求保留且不添加 chips 行、缺分类与真空结果、40条游标上下页与无历史回首、发现时间标识、收藏／已读、真实全文最新与禁用相关入口、统计不伪造、缓存截止／竞态／历史恢复。新分类注册和历史归类、真实统计／数字页、相关度、繁忙保护及统一发布许可缓存需后端契约测试和真实联调另行签收。

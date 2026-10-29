@@ -129,7 +129,7 @@ try {
   check("about prefetch stays quiet and survives consumers leaving an in-flight shared request");
   await page.goto(`${origin}/all?q=policy`); await settled(page, "/all");
   policyNoStore = true;
-  await page.getByRole("button", { name: "搜索资讯", exact: true }).click(); await settled(page, "/all");
+  await page.locator("#all-search").press("Enter"); await settled(page, "/all");
   const policyCount = counts.get("policy");
   await menu(page, "/hot"); await settled(page, "/hot");
   await page.goBack(); await settled(page, "/all");

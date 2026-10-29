@@ -4,6 +4,8 @@
 
 Pulse 的浏览器状态、会话恢复和菜单实现移植参考了 AIHOT 开源框架的以下文件：
 
+- `D:/AIHOT/apps/web/app/routes/all.tsx`、`features/feed/{Filters,DayList,FeedItem,Timeline,parts}.tsx`、`components/ui/{Tabs,IntentLink,Score,Page}.tsx`、`components/icons.tsx`：全部动态工具栏、分类单选、搜索快捷键、北京时间分日、吸顶日期、时间轴与阅读卡片、评分、收藏图标／反馈、空态及分页。Pulse 对应 `src/app/all/`，以 p0 内容宽度响应，使用 Next.js 路由、既有游标 API，原生滑块由 scoped useGSAP 管理；缺失分类、排序及统计明确交接，不复制原站品牌、React Router 或 PostgreSQL 读取。
+
 - `D:/AIHOT/apps/web/app/components/shell/Chrome.tsx: NavigationProgress`：窗口顶部2px细线、150ms延迟与完成收尾；对应 Pulse `NavigationProgress.tsx`，补充静态减少动效及共享加载状态。
 - `D:/AIHOT/apps/web/app/lib/page-reuse.ts`、`api.server.ts: cachedPage`：当前document复用与绝对截止思路；对应 `page-cache.ts`、`http-cache.ts`、资讯及关于页数据缓存。保留Pulse的60秒本地上限，遵守上游禁止缓存和已消耗时间，历史位置期限独立。
 

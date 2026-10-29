@@ -1,5 +1,9 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-10-29 追加约束：`Tabs.tsx:PillTabs` 保持 active link 内 thumb、md 36px／横 padding 16px／14px字；`all.tsx` 页内查询只保留旧列表 opacity 0.5，不触发 Pulse 整页转场。日期采用 monthDay 加星期且去掉年份／今天；TimelineSlot、SourceLine、FeedItem、ScoreLabel 恢复原尺寸和移动呈现，不增加原站没有的组件或提示行。修订稿前端检查已通过，来源映射与边界见 [专项验收](pulse-all-verification-2026-10-29.md)；后端缺口仍见 DOCK-004。
+
+2026-10-29 补充：全部动态页重新核对 `routes/all.tsx`、`features/feed/{Filters,DayList,FeedItem,Timeline}.tsx`、`components/ui/Tabs.tsx`、`publication/pool.ts` 及契约／API。原40条数字页、真实统计和两种检索不能直接等同 Pulse 游标接口；Pulse 仅 `/all` 默认全部时间，复用真实全文最新检索，新七类缺失明确提示。原始数据流、分类迁移、缓存／权限边界及待验收状态见 [dock.md DOCK-004](../dock.md#dock-004全部动态分类筛选与全文检索)。
+
 2026-10-28 补充：重新核对本地 `routes/changelog.tsx`、`features/changelog/text.tsx`、`routes/feedback.tsx`、`components/ui/Page.tsx`、`backend/site/meta.ts`、`operations/feedback.ts`、`admin/feedback.ts` 及 API／契约。更新日志是随代码部署的人工 JSON 数据，不含 push 自动总结；可选大版本绘图文件在快照中不存在。反馈是匿名 multipart → 校验／私有截图 → 数据库回执，飞书属于可选转发，本项目按用户要求排除。Pulse 的源码适配、缓存、精确接口、后端任务和反馈查看方式见根目录 `dock.md` DOCK-002／003；真实 FastAPI 反馈接收仍待组员实现。
 
 研究记录日期：2026-10-11。范围：对 `D:/AIHOT` 下载快照及 Pulse 既有源码作静态阅读；未启动 AIHOT 自身的服务、数据库、采集、模型或推送，没有逐行全审。本文是长期定位索引，不是生产验收报告。Pulse 本轮基础功能已于 2026-10-25 完成限定范围验收，详见 [验收记录](aihot-foundations-verification-2026-10-25.md)；这不扩大 AIHOT 本身的研究验证范围。

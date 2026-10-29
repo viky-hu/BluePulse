@@ -222,3 +222,11 @@ Agent 接入
 后端组员需按 [dock.md 的 DOCK-003](dock.md#dock-003匿名反馈草稿与截图) 实现接收、私有截图、限流、处置与本机查看命令。完成联调后设置 Next 服务端 `BLUEPULSE_FEEDBACK_ENABLED=1`；TLS 反向代理部署另设置 `BLUEPULSE_SITE_ORIGIN=https://实际站点域名`。只有可信边缘已覆盖外来 IP 转发头时，才设置 `BLUEPULSE_TRUST_PROXY=1`。
 
 本机查看反馈的 CLI 是后端待办，**当前还不能运行**：在 `backend` 目录使用 `uv run python -m bluepulse_backend.cli feedback list --status new` 和 `feedback show <编号>`。受保护网页后台随后建设。专项验证记录见 [更新日志与反馈验收](docs/pulse-changelog-feedback-verification-2026-10-28.md)。
+
+## 全部动态页复用（2026-10-29）
+
+`/all` 复用 AIHOT 的分类与搜索、北京时间分日时间轴、资讯卡片和本浏览器收藏／已读，适配 Pulse p0 内部滚动及容器宽度。仅本页默认全部时间，使用现有同源 articles／taxonomy，每页40条游标；地区和内容分类单选互斥，完整保留旧分类深链请求，不额外添加筛选 chips 行。
+
+分类为全部、国内、国外、产品、实战、论文、法制、具身、舆情、低空。新 topic 键为 `product/practice/paper/law/embodied/public-opinion/low-altitude`；taxonomy 缺类显示暂不可用，不能用旧大类或关键词近似结果。已有真实全文检索按最新排列，“全文相关”排序待后端提供；真实总量、数字页和今日总量不由前端推算。七类注册、历史归类及分类提示词／人工覆盖等后端任务见 [dock.md DOCK-004](dock.md#dock-004全部动态分类筛选与全文检索)。本轮不修改后端，静态研究或 Mock 不代表真实联调完成。
+
+本轮按用户追加要求对齐 AIHOT 原组件：PillTabs 保持原选中 thumb 层级及 md 尺寸；页内分类／搜索更新不触发 Pulse 整页淡入淡出，等待时保留旧列表仅降低透明度。日期只用月日加星期，不显示年份或“今天”；卡片、时轨、移动端文字与评分胶囊依原源码恢复，不新增 region 标签、骨架卡片、每页条数或独立提示文字行。演示仅在同一标题标识，禁用相关度通过 title 解释。修订稿 lint、生产构建、26项相关逻辑及31组聚焦浏览器场景通过；源码映射、验证边界和后端依赖见 [全部动态验收](docs/pulse-all-verification-2026-10-29.md)。

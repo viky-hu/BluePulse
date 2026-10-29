@@ -27,8 +27,8 @@ for (const path of ["/all", "/hot", "/daily", "/agent", "/about", "/changelog", 
 for (const path of ["/leaderboard", "/codex-reset", "/topics", "/topics/policing", "/topics/unknown/nested"]) {
   assert.equal(parseHomeRoute(path, "").valid, false, `${path} was not selected in README`);
 }
-assert.equal(parseHomeRoute("/all", "").filters.period, "30d", "all news keeps the library's default period");
-assert.equal(parseHomeRoute("/all", "q=test&region=domestic&sort=importance&cursor=next").cursor, "next");
+assert.equal(parseHomeRoute("/all", "").filters.period, "all", "all news browses the whole public archive");
+assert.equal(parseHomeRoute("/all", "q=test&region=domestic&sort=importance&cursor=next").cursor, null, "obsolete search order must not reuse its cursor");
 assert.equal(parseHomeRoute("/leaderboard/missing", "").valid, false, "unimplemented descendants must remain unknown");
 assert.equal(entryMode("/", false), "intro");
 assert.equal(entryMode("/", true), "stable");
@@ -45,7 +45,7 @@ assert.equal(parseHomeRoute("/search", "period=bad&sort=bad&region=bad").filters
 assert.equal(parseHomeRoute("/topics/missing", "").valid, false);
 assert.equal(parseHomeRoute("/articles/not-an-id", "").valid, false);
 const filters = { period: "7d", q: "警务", topic: "", region: "", source: "", sourceType: "", entity: "", sort: "recent" };
-assert.equal(buildHomeHref("/all", { ...filters, period: "30d" }), "/all?q=%E8%AD%A6%E5%8A%A1");
+assert.equal(buildHomeHref("/all", { ...filters, period: "30d" }), "/all?period=30d&q=%E8%AD%A6%E5%8A%A1");
 assert.equal(buildHomeHref("/all", filters), "/all?period=7d&q=%E8%AD%A6%E5%8A%A1");
 assert.equal(buildHomeHref("/search", filters), "/search?q=%E8%AD%A6%E5%8A%A1", "changing filters drops the old page cursor");
 assert.equal(buildHomeHref("/search", filters, { cursor: "next", mock: true }), "/search?q=%E8%AD%A6%E5%8A%A1&cursor=next&mock=1");

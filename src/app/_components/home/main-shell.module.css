@@ -16,7 +16,7 @@
 .green { left: var(--green-left); top: var(--green-top); width: calc(100vw - var(--green-left) - var(--green-right)); height: calc(100dvh - var(--green-top)); fill: #a4d7c7; }
 .paper { left: var(--paper-left); top: var(--paper-top); width: calc(100vw - var(--paper-left) - var(--paper-right)); height: calc(100dvh - var(--paper-top) - var(--paper-bottom)); fill: #fdfdfd; filter: drop-shadow(0 22px 26px rgb(0 0 0 / 32%)); }
 .frame { position: absolute; left: var(--paper-left); right: var(--paper-right); top: var(--paper-top); bottom: var(--paper-bottom); z-index: 1; overflow: hidden; container: pulse-content / inline-size; }
-.scroller { height: 100%; overflow: auto; overscroll-behavior: contain; padding: clamp(19px, 3.1vw, 43px) clamp(20px, 4vw, 60px) 38px; scrollbar-width: thin; scrollbar-color: #aab8ae transparent; }
+.scroller { --p0-padding-top: clamp(19px, 3.1vw, 43px); --p0-padding-inline: clamp(20px, 4vw, 60px); height: 100%; overflow: auto; overscroll-behavior: contain; padding: var(--p0-padding-top) var(--p0-padding-inline) 38px; scrollbar-width: thin; scrollbar-color: #aab8ae transparent; }
 .stage { min-height: 100%; }
 .stage[data-phase="exiting"], .stage[data-phase="entering"] { pointer-events: none; }
 .entryCover { position: absolute; inset: 0; z-index: 10; background: #353330; display: none; }
@@ -40,11 +40,11 @@
     --paper-top: max(0px, calc(max(44px, min(18dvh, 28vmin)) - 6.8dvh));
     --paper-bottom: 5.5dvh;
   }
-  .scroller { padding: 49px 12px 26px; }
+  .scroller { --p0-padding-top: 49px; --p0-padding-inline: 12px; padding: var(--p0-padding-top) var(--p0-padding-inline) 26px; }
   .mobileToggle { position: absolute; z-index: 5; left: 3vw; top: 3dvh; display: flex; gap: 6px; padding: 9px; color: #386451; background: #fdfdfd; border: 0; cursor: pointer; }
   .menu { visibility: hidden; }
   .menu[data-open="true"] { visibility: visible; }
   .scrim[data-open="true"] { position: fixed; inset: 0; display: block; z-index: 3; border: 0; background: rgb(26 37 29 / 27%); }
 }
-@container pulse-content (max-width: 520px) { .scroller { padding-inline: 15px; } }
+@container pulse-content (max-width: 520px) { .scroller { --p0-padding-inline: 15px; padding-inline: var(--p0-padding-inline); } }
 @media (prefers-reduced-motion: reduce) { .shell * { scroll-behavior: auto !important; } }

@@ -1,2 +1,2 @@
-import { HomeDashboard } from "../_components/home/HomeDashboard";
-export default function AllPage() { return <HomeDashboard />; }
+import { AllFeed } from "./AllFeed";
+export default function AllPage() { return <AllFeed />; }

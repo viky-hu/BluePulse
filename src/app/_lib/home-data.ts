@@ -145,8 +145,9 @@ export async function fetchArticleDetail(
 
 export async function fetchTaxonomy(
   signal?: AbortSignal,
+  onDeadline?: (expiresAt: number) => void,
 ): Promise<ItemsResponse<Topic>> {
-  return fetchJson<ItemsResponse<Topic>>("/api/bluepulse/taxonomy", signal);
+  return fetchJson<ItemsResponse<Topic>>("/api/bluepulse/taxonomy", signal, onDeadline);
 }
 
 export async function fetchSources(

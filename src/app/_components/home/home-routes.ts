@@ -42,23 +42,24 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
     : pathname === "/articles" ? "library"
     : pathname === "/entities" ? "entities"
     : id ? "article" : "unknown";
-  const fallback = kind === "library" || kind === "all" ? "30d" : "7d";
+  const fallback = kind === "all" ? "all" : kind === "library" ? "30d" : "7d";
   const period = params.get("period");
   const region = params.get("region");
+  const query = (params.get("q") ?? "").trim().slice(0, 200);
   return {
     kind,
     valid: kind !== "unknown" && (kind !== "article" || ARTICLE_ID_PATTERN.test(id ?? "")),
     articleId: id,
-    cursor: params.get("cursor") || null,
+    cursor: kind === "all" && query && params.get("sort") === "importance" ? null : params.get("cursor") || null,
     filters: {
       period: period === "24h" || period === "7d" || period === "30d" || period === "all" ? period : fallback,
-      q: (params.get("q") ?? "").trim().slice(0, 200),
+      q: query,
       topic: params.get("topic") ?? "",
       region: region === "domestic" || region === "foreign" ? region : "",
       source: params.get("source") ?? "",
       sourceType: params.get("source_type") ?? "",
       entity: params.get("entity") ?? "",
-      sort: params.get("sort") === "importance" ? "importance" : "recent",
+      sort: kind === "all" && query ? "recent" : params.get("sort") === "importance" ? "importance" : "recent",
     },
   };
 }
@@ -66,7 +67,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
 export function buildHomeHref(pathname: string, filters?: HomeFilters, options: { cursor?: string | null; mock?: boolean } = {}): string {
   const params = new URLSearchParams();
   if (filters) {
-    if (filters.period !== (pathname === "/articles" || pathname === "/all" ? "30d" : "7d")) params.set("period", filters.period);
+    if (filters.period !== (pathname === "/all" ? "all" : pathname === "/articles" ? "30d" : "7d")) params.set("period", filters.period);
     if (filters.q) params.set("q", filters.q.trim().slice(0, 200));
     if (filters.topic) params.set("topic", filters.topic);
     if (filters.region) params.set("region", filters.region);
