@@ -4,6 +4,8 @@
 
 Pulse 的浏览器状态、会话恢复和菜单实现移植参考了 AIHOT 开源框架的以下文件：
 
+- `D:/AIHOT/apps/web/app/routes/starred.tsx`、`components/ui/Presence.tsx`、`lib/local-state.ts`、`packages/backend/src/publication/availability.ts`：收藏页标题工具、提示及通知、空态、卡片、撤回／仅摘要信息、500条收藏与5000条已读、version 1 JSON 备份合并和独立批次核验。Pulse 对应 `src/app/starred/` 及 `browser-state.ts`，以 Next.js 和 p0 内部内容宽度适配，保留已有 UUID 与历史存储；外观偏好不应用，不移植 React Router、SQL 或第三方模块导入。`nav.ts`／`icons.tsx` 的收藏菜单和书签图形沿用现有菜单适配。
+
 - `D:/AIHOT/apps/web/app/routes/all.tsx`、`features/feed/{Filters,DayList,FeedItem,Timeline,parts}.tsx`、`components/ui/{Tabs,IntentLink,Score,Page}.tsx`、`components/icons.tsx`：全部动态工具栏、分类单选、搜索快捷键、北京时间分日、吸顶日期、时间轴与阅读卡片、评分、收藏图标／反馈、空态及分页。Pulse 对应 `src/app/all/`，以 p0 内容宽度响应，使用 Next.js 路由、既有游标 API，原生滑块由 scoped useGSAP 管理；缺失分类、排序及统计明确交接，不复制原站品牌、React Router 或 PostgreSQL 读取。
 
 - `D:/AIHOT/apps/web/app/components/shell/Chrome.tsx: NavigationProgress`：窗口顶部2px细线、150ms延迟与完成收尾；对应 Pulse `NavigationProgress.tsx`，补充静态减少动效及共享加载状态。

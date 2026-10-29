@@ -25,6 +25,7 @@
 | DOCK-002 | 更新日志与未读提示 | `/changelog` | Next.js `GET /api/bluepulse/site/{changelog,meta}` | 已实现真实文件数据并通过本轮前端验收；无 FastAPI 依赖 |
 | DOCK-003 | 匿名反馈、草稿与截图 | `/feedback` | `POST /api/bluepulse/site/feedback` → 建议 FastAPI `/api/v1/site/feedback` | 前端及代理已预留，真实接收与查看待后端实施 |
 | DOCK-004 | 全部动态、分类筛选与全文检索 | `/all` | `GET /api/bluepulse/{articles,taxonomy}` → FastAPI `/api/v1/{articles,taxonomy}` | 前端及受控接口验收通过；新分类数据、相关度、数字分页及统计待后端补齐，待真实联调 |
+| DOCK-005 | 收藏可用性与本地阅读备份 | `/starred` | `GET /api/bluepulse/articles/availability` → FastAPI `/api/v1/articles/availability`；备份只读写浏览器 | 现有布尔接口可沿用；前端扩展适配已实现，明确权限状态／当前来源名待后端扩展和真实联调 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -275,6 +276,7 @@ uv run python -m bluepulse_backend.cli feedback show 123
 - 前端与代理：草稿初始化不被空值覆盖、离开／刷新恢复、存储拒绝、live/mock 隔离；pick/drop/paste/remove；发送防重；201 有效回执、400/403/413/429/404/503、错误 JSON、断网与未知结果；桌面／窄白纸／reduced-motion。
 - 本轮仅以本地受控测试服务证明契约与界面，**不代表真实 FastAPI 联调或真实反馈收集已完成**。实际验收见专项记录。
 
+
 ## DOCK-004：全部动态、分类筛选与全文检索
 
 ### 1. 功能与状态
@@ -346,3 +348,66 @@ taxonomy 未注册与 taxonomy 请求失败不能变成“零篇”；已注册�
 2026-10-29：追加本节并按用户纠正对齐原组件结构／尺寸、简单查询导航和无额外 UI。最终修订稿 lint、生产构建、26项相关逻辑、18组全部动态浏览器场景和13组共享导航场景通过；桌面1360×760、移动390×844及 reduced-motion 截图已复核。最终源码审查无阻断项。完整来源映射、检查范围及复现方法见 [专项验收](docs/pulse-all-verification-2026-10-29.md)。使用受控 HTTP 测试服务，没有将 Mock／静态研究视作真实 FastAPI 联调完成。
 
 验收须覆盖搜索／分类互相保留与重置游标、地区和内容互斥、旧深链请求保留且不添加 chips 行、缺分类与真空结果、40条游标上下页与无历史回首、发现时间标识、收藏／已读、真实全文最新与禁用相关入口、统计不伪造、缓存截止／竞态／历史恢复。新分类注册和历史归类、真实统计／数字页、相关度、繁忙保护及统一发布许可缓存需后端契约测试和真实联调另行签收。
+
+## DOCK-005：收藏可用性与本地阅读备份
+
+### 1. 功能与状态
+
+匿名收藏页 `/starred`，使用现有 p0 白纸和内部滚动。前端复用 AIHOT 的标题／工具、本机提示、导入回执、空态、收藏卡片和取消操作。收藏500条、已读5000条、浏览历史30篇分别管理；导入导出无需登录或服务端写接口。清除浏览器数据或换设备不会自动同步。
+
+状态：前端已实现并经受控接口检查；现有 FastAPI 布尔可用性接口静态核对已实现。本轮不改后端，真实部署联调尚未进行；原站的仅摘要权限和当前来源名待组员扩展。
+
+### 2. AIHOT 源码证据
+
+- `apps/web/app/routes/starred.tsx:StarredPage,reportText`：工具、文件操作、批次核验、卡片、权限提示和返回锚点。
+- `apps/web/app/lib/local-state.ts:exportBundle,importBundle,mergeLocalData,markRead`：version 1 备份、2,000,000字符上限、已有收藏优先、已读合并、部分写入失败。
+- `apps/web/app/components/ui/Presence.tsx`、`components/shell/nav.ts`、`components/icons.tsx`：提示出入场、收藏入口及图标。
+- `packages/contracts/src/site.ts:ItemAvailability`、`apps/api/src/routes/site.ts`、`packages/backend/src/publication/availability.ts:itemAvailability`：`public|summary-only|unavailable`、当前来源名及详情公开资格。路径均相对 `D:/AIHOT`。
+
+### 3. AIHOT 原始数据流与契约
+
+收藏是浏览器快照，不是服务器收藏表。页面 hydration 后读取本地列表，对 ID 分批请求 `/api/site/items/availability`（每批100，避免过长请求行）。返回按 ID 映射的 `{status,sourceName?}`；读取层遵循 `hasItemPage`，并不要求必须在公开列表中。不可用收藏保留快照及移除入口，不能通过旧收藏读回撤回正文。
+
+原版导出 `{version:1,starred,read,theme}`。导入不覆盖已有同 ID 收藏，归一化字段，按 savedAt 新到旧排序，上限外／无效记录计入跳过；先保存收藏，再保存已读，已读失败单独报告。模块导入扩展在该下载快照中为空，本轮不制造额外按钮。
+
+### 4. Pulse 建议及差异
+
+Pulse 保留现有 UUID、收藏键 `blue-pulse-starred-items-v1` 和历史键。新增 `blue-pulse-read-items-v1`，首次缺失时从既有历史迁移已读 ID；后续阅读同时写已读和历史，导入已读不生成历史、清空历史不清已读。`?mock=1` 的全部浏览器键追加 `:mock`，与真实数据隔离。外观系统未建设，导出 theme=auto、导入忽略 theme。
+
+现有 FastAPI `backend/bluepulse_backend/api.py:article_availability` 接受每批最多100个 UUID，返回 `items:[{id,available}]`，中间件设 `no-store`。前端严格校验每批 ID 唯一且完整、available 为布尔；映射 true→public、false→unavailable。旧响应无需升级即可使用。
+
+建议组员按同一详情公开政策，在每行保留 available，并可选增加 `status:public|summary-only|unavailable`、`source_name:string`。summary-only 仍可打开受限详情，因此 available=true；unavailable 对应 false，不返回私有来源名。状态与布尔不一致时前端视该批次为未知。**不能依据 body_status、翻译失败或采集不到正文推断来源许可。**统一全文许可和发布层仍按阶段B实施。
+
+### 5. 请求响应示例
+
+```http
+GET /api/bluepulse/articles/availability?ids=00000000-0000-4000-8000-000000000001
+```
+
+现有真实契约：
+
+```json
+{"items":[{"id":"00000000-0000-4000-8000-000000000001","available":true}]}
+```
+
+可选扩展（前端已兼容，**后端待实施**）：
+
+```json
+{"items":[{"id":"00000000-0000-4000-8000-000000000001","available":true,"status":"summary-only","source_name":"当前公开来源"}]}
+```
+
+空 ID 返回 `{items:[]}`；非法 UUID 或超过100条返回422。默认只读取当前浏览器已有收藏，不能空页自动填入测试新闻。显式 `/starred?mock=1` 只核对已有 Mock 文章，不请求真实接口、不自动创建收藏。可在 `/all?mock=1` 或演示详情收藏后查看。
+
+### 6. 缓存和异常
+
+每批100个 ID 并行核验，前端 `cache:no-store`、12秒超时；任一批失败仍保留其他批成功。失败／缺项／重复项／错误字段属于未知，保留原收藏与可尝试的详情链接，不显示撤回结论。退出页面、ID集合变化、mock切换或当前菜单刷新时取消旧核验；结果与请求键绑定，旧结果不能覆盖新列表。
+
+本地列表读取完成即可显示并报告 RouteReady，网络核验不阻挡阅读或返回锚点恢复。现有30分钟位置快照只恢复滚动，不缓存可用性结果，也不延长公开权限有效期。
+
+导入允许重复选择同一文件并防重复执行；损坏的已有收藏不被覆盖。收藏持久化失败整次导入失败，已读写失败报告部分成功。普通收藏／阅读沿用现有内存降级提示。备份仅包含显式收藏元数据及已读 ID，不含文章正文、账号、管理员凭据或浏览历史。
+
+### 7. 验收条件与变更记录
+
+2026-10-29：完成前端源码适配与接口交接。专项逻辑、浏览器检查及截图见 [收藏页验收记录](docs/pulse-starred-verification-2026-10-29.md)。检查覆盖500／5000上限、迁移、备份往返、重复／非法导入、持久化失败、部分成功、跨标签同步、批次部分故障、撤回／仅摘要、刷新重核验、窄白纸和返回位置。
+
+受控 HTTP 返回扩展字段只证明前端消费能力；不能视为真实 FastAPI 已实现来源许可、来源更名或 AIHOT 完整统一发布层。真实联调需组员补齐字段与权限一致性测试后单独签收。

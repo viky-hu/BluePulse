@@ -1,5 +1,7 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-10-29 收藏页补充：再次核对 `routes/starred.tsx`、`lib/local-state.ts`、`Presence.tsx`、`publication/availability.ts` 与契约。Pulse 在既有 `/starred` 上复用标题工具栏、导入导出、通知、空态、单列卡片和权限提示，改为 p0 内容宽度响应，沿用共享滚动恢复。独立5000条已读和500条收藏备份与30篇历史分开；现有 UUID/命名空间保持，AIHOT ID 不转换。当前 availability 只有布尔公开状态；可选 `status/source_name` 的适配不代表真实后端已实现。源码映射和七节交接见根目录 DOCK-005，前端实际验证另见收藏页专项记录。
+
 2026-10-29 追加约束：`Tabs.tsx:PillTabs` 保持 active link 内 thumb、md 36px／横 padding 16px／14px字；`all.tsx` 页内查询只保留旧列表 opacity 0.5，不触发 Pulse 整页转场。日期采用 monthDay 加星期且去掉年份／今天；TimelineSlot、SourceLine、FeedItem、ScoreLabel 恢复原尺寸和移动呈现，不增加原站没有的组件或提示行。修订稿前端检查已通过，来源映射与边界见 [专项验收](pulse-all-verification-2026-10-29.md)；后端缺口仍见 DOCK-004。
 
 2026-10-29 补充：全部动态页重新核对 `routes/all.tsx`、`features/feed/{Filters,DayList,FeedItem,Timeline}.tsx`、`components/ui/Tabs.tsx`、`publication/pool.ts` 及契约／API。原40条数字页、真实统计和两种检索不能直接等同 Pulse 游标接口；Pulse 仅 `/all` 默认全部时间，复用真实全文最新检索，新七类缺失明确提示。原始数据流、分类迁移、缓存／权限边界及待验收状态见 [dock.md DOCK-004](../dock.md#dock-004全部动态分类筛选与全文检索)。

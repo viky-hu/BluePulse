@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { MenuIcon as IconName } from "../navigation-config";
 
 const shapes: Record<IconName | "search", ReactNode> = {
+  bookmark: <path d="M6 3.5h12v17l-6-4-6 4z" />,
   bolt: <path d="M13 2.5L4.5 13.5H11l-1 8L19.5 10.5H13z" />,
   list: <><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1" /><circle cx="3.5" cy="12" r="1" /><circle cx="3.5" cy="18" r="1" /></>,
   flame: <path d="M12 22c4 0 7-2.7 7-7 0-3.6-2.4-6.2-4-8-.5 2-1.6 3.4-3 4 .3-3-1-6-4-8 0 4-4 6.5-4 11 0 4.3 3 8 8 8z" />,

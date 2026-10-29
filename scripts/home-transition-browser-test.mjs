@@ -14,7 +14,7 @@ const origin = `http://127.0.0.1:${port}`;
 const artifactDir = "test-results/pulse-sidebar";
 const starredKey = "blue-pulse-starred-items-v1", enteredKey = "blue-pulse-entry-complete-v1";
 const first = MOCK_HOME_DATA.articles[0];
-const menuPages = [["/all", "全部动态"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/agent", "Agent 接入"], ["/about", /国内外警务科技每天都有新动静/], ["/changelog", "更新日志"], ["/feedback", "说说你的想法"]];
+const menuPages = [["/all", "全部动态（演示）"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/starred", "收藏"], ["/agent", "Agent 接入"], ["/about", /国内外警务科技每天都有新动静/], ["/changelog", "更新日志"], ["/feedback", "说说你的想法"]];
 const feedQueries = [];
 let articleOnline = true, availabilityOnline = true, feedRequests = 0, detailRequests = 0;
 const withdrawn = new Set();
@@ -106,8 +106,9 @@ try {
     await geometry(page, width, height);
     const sidebar = page.locator('[data-home-sidebar]');
     assert.deepEqual(await sidebar.locator('nav h2').allTextContents(), ["内容", "更多"]);
-    assert.deepEqual(await sidebar.locator('nav a').allTextContents(), ["精选", "全部动态", "热点榜", "AI日报", "Agent 接入", "关于", "更新日志", "反馈"]);
-    assert.equal(await sidebar.locator('a[href^="/history"], a[href^="/starred"]').count(), 0);
+    assert.deepEqual(await sidebar.locator('nav a').allTextContents(), ["精选", "全部动态", "热点榜", "AI日报", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]);
+    assert.equal(await sidebar.locator('a[href^="/history"]').count(), 0);
+    assert.equal(await sidebar.locator('a[href^="/starred"]').count(), 1);
     if (mode === "mobile") {
       assert.equal(await page.locator('aside[aria-label="主菜单"]').isVisible(), false);
       await page.getByRole("button", { name: "打开菜单", exact: true }).click();
@@ -339,7 +340,7 @@ try {
   await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify([value])), { key: starredKey, value: snapshot });
   withdrawn.add(first.id);
   await page.goto(`${origin}/starred`); await settled(page, "/starred");
-  await page.getByText("文章已不可公开访问，保留本机收藏快照。", { exact: true }).waitFor(); assert.equal(await page.locator(`[data-card-key="${first.id}"] a`).count(), 0); check("withdrawn favorites retain snapshot without accessible link");
+  await page.getByText("这条内容已不再公开，收藏会保留直到你手动移除。", { exact: true }).waitFor(); assert.equal(await page.locator(`[data-card-key="${first.id}"] a`).count(), 0); check("withdrawn favorites retain snapshot without accessible link");
   availabilityOnline = false;
   await page.reload(); await settled(page, "/starred"); await page.getByText("暂时无法核对文章状态，已保留收藏；可稍后重新打开此页。", { exact: true }).waitFor();
   assert.equal(await page.locator(`[data-card-key="${first.id}"] a`).count(), 1); check("availability failure remains unknown instead of withdrawn");
