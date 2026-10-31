@@ -1,6 +1,6 @@
 # Pulse 前后端接口对接总册
 
-更新日期：2026-10-29。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
+更新日期：2026-10-31。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
 
 技术边界：Pulse 保留 Next.js 16 / React 19 / TypeScript / Tailwind 4 / GSAP，以及 Python / FastAPI 后端。复用 AIHOT 的组件、业务机制和契约思路，不移植 React Router loader、Fastify、PostgreSQL SQL 或 pg-boss。
 
@@ -26,6 +26,7 @@
 | DOCK-003 | 匿名反馈、草稿与截图 | `/feedback` | `POST /api/bluepulse/site/feedback` → 建议 FastAPI `/api/v1/site/feedback` | 前端及代理已预留，真实接收与查看待后端实施 |
 | DOCK-004 | 全部动态、分类筛选与全文检索 | `/all` | `GET /api/bluepulse/{articles,taxonomy}` → FastAPI `/api/v1/{articles,taxonomy}` | 前端及受控接口验收通过；新分类数据、相关度、数字分页及统计待后端补齐，待真实联调 |
 | DOCK-005 | 收藏可用性与本地阅读备份 | `/starred` | `GET /api/bluepulse/articles/availability` → FastAPI `/api/v1/articles/availability`；备份只读写浏览器 | 现有布尔接口可沿用；前端扩展适配已实现，明确权限状态／当前来源名待后端扩展和真实联调 |
+| DOCK-006 | 精选时间线、同新闻阅读组与内嵌热点 | `/` | `GET /api/bluepulse/site/timeline`、`site/groups/:factId/reports` → FastAPI `/api/v1/site/…` | 前端和精确代理已实现；归组、发布读取、热点与真实联调待后端实施；本轮最终验收另记 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -411,3 +412,135 @@ GET /api/bluepulse/articles/availability?ids=00000000-0000-4000-8000-00000000000
 2026-10-29：完成前端源码适配与接口交接。专项逻辑、浏览器检查及截图见 [收藏页验收记录](docs/pulse-starred-verification-2026-10-29.md)。检查覆盖500／5000上限、迁移、备份往返、重复／非法导入、持久化失败、部分成功、跨标签同步、批次部分故障、撤回／仅摘要、刷新重核验、窄白纸和返回位置。
 
 受控 HTTP 返回扩展字段只证明前端消费能力；不能视为真实 FastAPI 已实现来源许可、来源更名或 AIHOT 完整统一发布层。真实联调需组员补齐字段与权限一致性测试后单独签收。
+
+## DOCK-006：精选时间线、同新闻阅读组与内嵌热点
+
+### 1. 功能与状态
+
+匿名读者在 `/` 按北京时间阅读已确认精选，使用分类、日期折叠、连续加载、本浏览器收藏／已读和同新闻其他报道；未筛选首屏可显示当前热点。完整复用所选 AIHOT 前端机制并适配 Pulse，后端仍由队友实施，本轮不修改 FastAPI。
+
+- 前端已实现：`src/app/_components/featured/` 的编排、读取、校验、缓存、显式 Mock 和时间线；`_components/feed/` 的共享工具栏、FeedItem、DayHeader、TimelineSlot、阅读组、Faces、SourceAvatar、Sheet、Lightbox、Presence、Badge。`/all` 同时使用共享组件，分类状态各自由 URL 控制。
+- 精确同源代理已预留：`GET /api/bluepulse/site/timeline` 和 `GET /api/bluepulse/site/groups/:factId/reports`；不开放任意 `site/*`，不新增写接口。
+- 后端待实现：Fact／Story、入选归组门禁、固定时间锚点、同范围代表／计数、公开阅读组、独立参与方热点及发布／撤回／全文许可统一政策。新接口尚待真实联调；最终前端验证由专项记录另记。
+- 既有 `home/featured` 六槽只服务 Pulse 封面，不能代替 timeline。原首页最近采集／全部动态回退不再充当精选内容。`/story/:publicId` 目前仅为诚实的待接入目标；完整事件页、热点榜后端、日报均未由本轮完成。
+
+### 2. AIHOT 源码证据
+
+2026-10-30 直接复查 `D:/AIHOT` 静态下载快照与 Pulse 本轮实现；未启动或验证 AIHOT 服务、数据库、worker 或线上站点。
+
+| 环节 | 原始源码及关键符号 |
+| --- | --- |
+| 首页、筛选和搜索归属 | `apps/web/app/routes/home.tsx: loader, Home`；`features/feed/Filters.tsx: CategoryTabs, FeedBar, SearchField` |
+| 分日、折叠、分页、位置 | `features/feed/Timeline.tsx: Timeline, DayHeader, TimelineSlot, AUTO_BATCHES` |
+| 卡片与条件内容 | `features/feed/FeedItem.tsx: FeedItem`；`parts.tsx: SourceLine, MediaThumbs, StarButton`；`ReadingGroup.tsx: useReports, GroupSources, GroupButton` |
+| 热点与头像 | `features/feed/HotTopics.tsx: HotTopics, TrendMark`；`features/hot/Faces.tsx: Faces`；`components/ui/SourceAvatar.tsx` |
+| 交互基础 | `components/ui/{Sheet,Lightbox,Presence,Badge,Tabs}.tsx`：抽屉、图片浏览、折叠、入选／同新闻标记和选中滑块 |
+| 跨进程契约和 API | `packages/contracts/src/site.ts: TimelineResponse, TimelineCard, GroupInfo, GroupReportsResponse, HotStripEntry`；`apps/api/src/routes/site.ts: /api/site/timeline, /api/site/groups/:factId/reports` |
+| 公开读取与代表 | `packages/backend/src/publication/timeline.ts: loadTimeline, countTimelineDays`；`groups.ts: loadGroupReports`；`hot.ts: loadHotStrip, rankingExtras`；`representative.ts: pickRepresentative` |
+| 资格、归组和热度 | `publication/{scope,publish}.ts: selectedCondition, listedCondition, evidenceCondition, publishArticleTx`；`events/{group,relate,hot}.ts: groupArticle, recordSignal, RELATIONS, computeHotRanking` |
+
+Pulse 请求／共享类型真值为 `src/app/_lib/feed-types.ts`；原有 ArticleCard／Source 字段真值为 `_lib/home-data.ts`。本轮不复制 React Router loader、PostgreSQL SQL 或 pg-boss；来源许可见 `THIRD_PARTY_NOTICES.md`，保留完整 MIT 与 `Copyright (c) 2026 数字生命卡兹克`。
+
+### 3. AIHOT 原始数据流与契约
+
+`home.loader` 把非空 `?q` 转到 `/all`，经站内 HTTP 请求 timeline。API 并行读取 `loadTimeline` 和未筛选首屏 `loadHotStrip`；原筛选为 channel/category/tag。timeline 先在相同筛选及 `selectedCondition(now)` 下按 Fact／独立 Article 形成卡片，再在同范围精选证据中选择代表，最后装载展示字段并再次检查公开范围，避免读期间撤回仍泄露。
+
+同次发生的重复报道折叠为一个 Fact；同一 Story 的新发展另有 Fact，不把旧新闻顶回列表头。归组卡片使用第一次出现的稳定时间锚点；`anchorAt` 决定分日和时轨，不是代表文章的抓取时间。原查询按 anchor 倒序及稳定组键排序，游标绑定筛选。`dayCounts` 对返回日期统计完整筛选后归组集合，不是本批条数。
+
+代表优先级在调用者限定候选范围内为 T1、经核实的当事机构／个人、许可全文、分数、较早时间及稳定 ID。不能跨筛选借用代表。阅读组来自同 Fact 的公开、eligible、已释放 primary/report 证据，包含未入选报道；mention 不算证据。`additionalSourceCount` 为排除代表来源后的不同来源数，`reportCount` 为不同文章数；不等于热度独立参与方数。原组接口最多100篇，无可见成员返回404。
+
+分数只产生候选。原门禁为 `selectionCandidate && grouping_status === "complete" && (override.selected === true || selection_adds_value !== false)`；null 不等于 false，人工决定保留，但不跳过候选和归组完成。归组等待只允许符合条件的全部动态，不因等待超时自动入选。资格、公开时间、撤回、证据角色、站内全文与再分发权限必须统一落实在后端读取政策。
+
+热点来自独立参与方归一后的48小时证据，24小时半衰、可信源时间和采集时钟；至少两个参与方且一个 editorial 才进入计算候选。与六小时前的比较只使用两窗覆盖可比的参与方，资料不足返回 `unknown`。`publication/hot.ts` 读取榜单后重查当前公开证据，少于三条可见事件不展示内嵌条。热度不是文章 importance_score、报道数量或浏览器点击量。
+
+### 4. Pulse 建议及差异
+
+Pulse 保留品牌、本地 Google Sans／微软雅黑、p0 白纸、封面六槽、菜单和导航转场；移除 AIHOT 的重复整页背景与框架，以 Next.js 路由及 p0 内部滚动适配组件。筛选替换为现有国内／国外和七类稳定 slug：`product/practice/paper/law/embodied/public-opinion/low-altitude`；`all` 只表示无筛选，不是新主题模块。taxonomy 未注册的类明确不可用，不用近似旧类补齐。
+
+- 新后端 `GET /api/v1/site/timeline`：`region` 为 `domestic/foreign` 或省略；`topic` 为七类 slug 或省略；`cursor` 不透明或省略；`limit` 默认20、最大40。响应 camelCase 外层保留 AIHOT 结构，item 复用 Pulse ArticleCard 的 snake_case 字段和 UUID，不转换为 AIHOT 短 ID。timeline item 必须明确 `selected:boolean`；可选 sameEvent/channel/x 沿用共享 FeedArticle。普通 `/articles` 可增同样的可选元数据，旧响应缺字段不推断入选或同新闻关系。
+- `key`、`factId`、`storyPublicId` 为稳定公开字符串，满足 `^[a-zA-Z0-9_-]{1,80}$`，不暴露数据库行号作为临时身份。`anchorAt` 是服务端时间线事实，不以 `first_seen_at`、前端当前时间或新代表时间替代。分组代表、计数、成员读取共用当前筛选；`dayCounts` 每个返回日期都给完整分组总数。
+- `GET /api/v1/site/groups/:factId/reports` 使用同一 region/topic；最多100篇，字段见下节；匿名 no-store，不读取管理员权限或触发采集／模型。文章详情和外链继续使用当前 UUID 与允许公开的 originalUrl。
+- 内嵌热点只随无筛选 timeline 第一页返回；其他页／筛选为 null，不要求为此另建独立 `/hot` 接口。最多五条，窄内容宽度三条；Faces 最多六个 editorial 头像，`+N=participantCount-已显示头像数`，包含 signal。participants 名称供悬停名单；iconUrl 可缺并退回名称首字，iconSrcSet 可选，由后端提供经过安全图片代理的 URL。前端不临时抓来源图标或自算热度／趋势。
+- 热点链接优先 `/story/:publicId`，其次 `/articles/:uuid`，最后 `/hot`；当前 story 只显示待接入状态，不把静态目标写成完整事件模块。未知趋势不显示箭头。
+- 精选和 `/all` 共用 FeedToolbar、FeedItem、DayHeader 和时轨；菜单进入重置当前栏目，历史返回恢复原筛选／位置。搜索去 `/all` 并保留筛选，旧 `/?q=…` 重定向。页内筛选不触发整页淡入淡出，不增加可见辅助说明行、虚构统计或新指标。
+- IntersectionObserver 以 p0 scroller 为根，预距900px；首批计入三批自动加载，之后显示手动加载。按 card.key 去重，cursor400重读头部；筛选／刷新／离开中止更多请求并丢弃过期响应。760px工具栏、600px卡片、640px热点均按内容宽度响应；日期依用户既定要求仅月日和星期，无年份／今天。日期折叠、桌面阅读组展开、移动抽屉、原帖媒体／引用条件分支保留。
+
+### 5. 请求响应示例
+
+浏览器 `GET /api/bluepulse/site/timeline?region=domestic&limit=20` → `{BLUEPULSE_API_URL}/api/v1/site/timeline?region=domestic&limit=20`。下例仅说明形状，不代表真实警务新闻或业务统计；字段定义以共享类型为准。
+
+```json
+{
+  "filters": { "region": "domestic", "topic": "" },
+  "cards": [{
+    "key": "fact_demo_01",
+    "anchorAt": "2026-10-30T01:00:00Z",
+    "item": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "title": "警务科技资讯示例",
+      "source_title": "示例原题",
+      "published_at": "2026-10-30T01:00:00Z",
+      "first_seen_at": "2026-10-30T01:10:00Z",
+      "language": "zh", "region": "domestic", "country_code": "CN",
+      "url": "https://example.com/report",
+      "source": {
+        "id": "00000000-0000-4000-8000-000000000101",
+        "name": "示例公开来源", "slug": "example", "region": "domestic",
+        "country_code": "CN", "language": "zh", "source_type": "government", "topics": ["practice"]
+      },
+      "importance_score": 80, "processing_status": "processed", "parse_status": "parsed",
+      "topics": ["practice"], "summary": "示例摘要。", "featured_reason": "示例理由。",
+      "selected": true, "sameEvent": null, "channel": "news", "x": null
+    },
+    "group": { "factId": "fact_demo_01", "additionalSourceCount": 1, "reportCount": 2 }
+  }],
+  "nextCursor": null,
+  "hot": null,
+  "dayCounts": { "2026-10-30": 1 }
+}
+```
+
+所有外层字段必须存在；无筛选响应 filters 的 region/topic 为 `""`。真空结果为 `cards:[]`、`nextCursor:null`、`dayCounts:{}`；`group:null` 为无阅读组，不能省略。hot 为 null 或 HotStripEntry 数组；条目字段为 `rank/title/heat/trend/storyPublicId/itemId/participants/participantCount`，trend 枚举 `up/down/flat/new/unknown`，participants 为 `{name,kind:"editorial"|"signal",iconUrl?,iconSrcSet?}`，无事件／文章目标用 null。少于三条可见热点返回 null。
+
+浏览器 `GET /api/bluepulse/site/groups/fact_demo_01/reports?region=domestic` → FastAPI `/api/v1/site/groups/fact_demo_01/reports?region=domestic`：
+
+```json
+{
+  "factId": "fact_demo_01",
+  "reports": [{
+    "id": "00000000-0000-4000-8000-000000000001",
+    "title": "同一新闻的报道示例",
+    "source": { "name": "示例公开来源" },
+    "timelineAt": "2026-10-30T01:00:00Z",
+    "originalUrl": "https://example.com/report"
+  }]
+}
+```
+
+reports 可包含代表本身，前端展示时去掉 parentId；不以删除代表后的行数回写业务统计。正式实现应校验参数、UUID、日期、稳定排序／游标绑定与安全 URL。原帖／图片／引用字段完整结构见共享 `MediaView/XPostView`，不从缺正文或来源名称猜测。
+
+### 6. 缓存和异常
+
+当前 document 最多16个精选页面数据项，本地寿命最多60秒；timeline、taxonomy 与所有已加载批次取最早上游截止。沿用 `Cache-Control/X-Accel-Expires/Age/Date`，`no-store/no-cache` 不进入可复用数据快照，SSR／代理不能重新延长旧结果寿命。后端仍需提供真实截止与撤回失效政策，前端上限不是统一发布链已完成的证明。
+
+30分钟仅用于历史位置、加载批数、日期折叠与阅读组打开标记。过期返回先重读头部及恢复锚点所需批次，再恢复位置；主动刷新回到新头，重试强制取新。阅读组始终 no-store，仅保存打开标记，不把报道正文／列表当作可复用会话快照；返回重新核验，重新核验404清空旧行，首次失败显示可重试状态。前端读取等待上限12秒；共享同源代理上游仍为6秒，超时返回504，离开取消请求不显示故障。
+
+| 情况 | 前端真实状态 |
+| --- | --- |
+| timeline 404 | 精选服务尚未接入，可重试 |
+| timeline 200、合法空 cards | 当前筛选确实没有精选，不能补最近采集或演示新闻 |
+| 503／504、网络、无效包 | 精选暂时无法载入，保留重试；不冒充空结果 |
+| 不可用 taxonomy 分类 | 分类暂不可用，不自动近似或替换为其他类 |
+| 更多请求 cursor400 | 读取新头、重置批次及折叠，丢弃旧游标列表 |
+| 旧筛选／已离开请求返回 | 忽略，不覆盖当前结果 |
+| 阅读组重新核验404 | 显示零行，不继续展示撤回前的快照 |
+
+演示仅显式 `/?mock=1`；h1 标识“演示”，演示 timeline／taxonomy／阅读组及浏览器状态、缓存键均与普通模式隔离。不会因为真实接口错误自动切到 Mock，不自动给普通浏览器填入测试新闻；Mock 文章跳转保留 mock 参数。
+
+### 7. 验收条件与变更记录
+
+2026-10-30：建立 DOCK-006；完成所选前端源码的共享组件适配、精选编排、请求契约和后端交接。2026-10-31：最终 lint／生产构建、42项逻辑、28组精选浏览器场景、18组全部动态及13组导航回归通过；桌面／移动／reduced-motion 视觉复核和独立源码审查完成。复现、修正与验证边界见 [精选专项验收](docs/pulse-featured-verification-2026-10-31.md)。这些结果不代表真实 FastAPI 业务联调完成。
+
+前端验收须覆盖桌面／移动／reduced-motion、共用 `/all` 回归、URL筛选独立、搜索／菜单／历史、三批自动再手动、key去重、cursor400、日期折叠／锚点、阅读组重核验及失败、媒体／引用／头像降级、超时／取消、跨批截止与 mock隔离。受控 HTTP 契约检查须核验精确白名单、转发路径、状态与缓存头，不代表 FastAPI 真实业务完成。
+
+后端签收须另行验证：候选与确认入选门禁及人工覆盖；同发生归组／新发展分Fact；固定anchor／稳定游标及完整分日统计；同范围代表、不同来源／报道计数、primary/report与mention隔离；最多100篇成员；独立参与方归一、48h／24h／6h覆盖与unknown趋势；撤回、延迟发布、全文权限及所有公开出口一致；截止后旧缓存不可续命。真实后端接口、数据迁移、权限与联调完成前不得把本模块标为业务完成。

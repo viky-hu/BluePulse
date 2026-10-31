@@ -1,10 +1,12 @@
 import { MOCK_ARTICLE_DETAILS, MOCK_HOME_ARTICLES, MOCK_SOURCES, MOCK_TAXONOMY } from "../_lib/home-mock";
 import type { ArticleCard, ArticleDetail, ArticleListResponse } from "./_data";
 import { mockAllDetail } from "../all/_mock";
+import { FEATURED_MOCK_CARDS } from "../_components/featured/_mock";
 
 /** Explicit demo fixtures only; this never participates in live-service recovery. */
 export function mockArticle(id: string): ArticleDetail | null {
-  const fixture = MOCK_ARTICLE_DETAILS[id] ?? mockAllDetail(id);
+  const featured = FEATURED_MOCK_CARDS.find(card => card.item.id === id)?.item;
+  const fixture = MOCK_ARTICLE_DETAILS[id] ?? mockAllDetail(id) ?? (featured ? { ...featured, source_body: null, zh_body: null, author: null, fetched_at: null, quality_status: "demo", media: [], comments: { available: false, count: 0, items: [] } } : null);
   return fixture ? {
     ...fixture,
     body_status: fixture.body_status ?? "metadata_only",

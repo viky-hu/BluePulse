@@ -17,11 +17,12 @@ const api = createServer(async (req, res) => {
   counts.set(key, (counts.get(key) ?? 0) + 1);
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", q === "nostore" || (q === "policy" && policyNoStore) ? "no-store" : "public, max-age=60");
-  if (homeHeld && url.pathname === "/api/v1/articles" && !q) await new Promise(done => held.set("home", done));
+  if (homeHeld && url.pathname === "/api/v1/site/timeline") await new Promise(done => held.set("home", done));
   if (legacyHeld && q === "rsc-refresh") await new Promise(done => held.set("legacy", done));
   if (q.startsWith("held") || (key === "stats" && statsHeld)) await new Promise(done => held.set(key, done));
   if (q === "fail" || (key === "stats" && statsMode === "error")) { res.statusCode = 503; res.end("{}"); return; }
   if (url.pathname === "/api/v1/site/stats") { res.end(JSON.stringify(stats)); return; }
+  if (url.pathname === "/api/v1/site/timeline") { res.end(JSON.stringify({ filters: { region: "", topic: "" }, cards: [], nextCursor: null, hot: null, dayCounts: {} })); return; }
   if (url.pathname === "/api/v1/articles") { res.end(JSON.stringify({ items: MOCK_HOME_DATA.articles, next_cursor: null, limit: 20 })); return; }
   res.end(JSON.stringify({ items: [] }));
 });

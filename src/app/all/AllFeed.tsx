@@ -9,7 +9,7 @@ import { selectAllFilter } from "./_data";
 import { AllToolbar } from "./AllToolbar";
 import { DayList } from "./DayList";
 import { FeedIcon } from "./FeedIcons";
-import styles from "./all.module.css";
+import styles from "../_components/feed/feed.module.css";
 
 // AIHOT components/ui/Page.tsx: EmptyState, with the original optional action slot.
 function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {

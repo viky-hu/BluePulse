@@ -12,7 +12,7 @@ export type HomeFilters = {
   sort: ArticleSort;
 };
 export type HomeRoute = {
-  kind: "home" | "search" | "all" | "section" | "history" | "starred" | "article" | "library" | "entities" | "unknown";
+  kind: "home" | "search" | "all" | "section" | "history" | "starred" | "article" | "library" | "entities" | "story" | "unknown";
   filters: HomeFilters;
   cursor: string | null;
   articleId: string | null;
@@ -41,8 +41,9 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
     : pathname === "/starred" ? "starred"
     : pathname === "/articles" ? "library"
     : pathname === "/entities" ? "entities"
+    : /^\/story\/[a-zA-Z0-9_-]{1,80}$/.test(pathname) ? "story"
     : id ? "article" : "unknown";
-  const fallback = kind === "all" ? "all" : kind === "library" ? "30d" : "7d";
+  const fallback = kind === "all" || kind === "home" ? "all" : kind === "library" ? "30d" : "7d";
   const period = params.get("period");
   const region = params.get("region");
   const query = (params.get("q") ?? "").trim().slice(0, 200);
@@ -67,7 +68,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
 export function buildHomeHref(pathname: string, filters?: HomeFilters, options: { cursor?: string | null; mock?: boolean } = {}): string {
   const params = new URLSearchParams();
   if (filters) {
-    if (filters.period !== (pathname === "/all" ? "all" : pathname === "/articles" ? "30d" : "7d")) params.set("period", filters.period);
+    if (filters.period !== (pathname === "/all" || pathname === "/" ? "all" : pathname === "/articles" ? "30d" : "7d")) params.set("period", filters.period);
     if (filters.q) params.set("q", filters.q.trim().slice(0, 200));
     if (filters.topic) params.set("topic", filters.topic);
     if (filters.region) params.set("region", filters.region);

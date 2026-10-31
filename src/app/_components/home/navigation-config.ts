@@ -33,6 +33,7 @@ export function isSectionPath(pathname: string): pathname is SectionPath {
 }
 
 export function isMenuItemActive(href: string, pathname: string): boolean {
+  if (href === "/hot" && pathname.startsWith("/story/")) return true;
   if (href === "/") return pathname === "/";
   if (href === "/all" && pathname === "/articles") return true;
   return pathname === href || pathname.startsWith(`${href}/`);

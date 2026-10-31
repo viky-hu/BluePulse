@@ -1,5 +1,11 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-10-31 精选前端验收补充：lint／生产构建、42项逻辑、28组精选、18组全部动态及13组共享导航浏览器检查通过，桌面／移动／reduced-motion 与独立源码审查已完成。证据和边界见 [精选专项验收](pulse-featured-verification-2026-10-31.md)；这不扩大下述静态快照的研究范围，也不代表真实 FastAPI 业务联调完成。
+
+2026-10-30 精选页补充：直接复查 `routes/home.tsx`、`features/feed/{Timeline,HotTopics,FeedItem,ReadingGroup,Filters,parts}.tsx`、`features/hot/Faces.tsx`、`components/ui/{SourceAvatar,Sheet,Lightbox,Presence,Badge,Tabs}.tsx`，以及契约／API、`publication/{timeline,groups,hot,representative,scope,publish}.ts` 和 `events/{group,relate,hot}.ts`。Pulse 已把所选真实前端移入 `_components/{featured,feed}`，`/all` 共用工具栏／卡片／日期时轨；按 p0 内部滚动和760／600／640px内容宽度断点适配，保留日期折叠、三批自动再手动、阅读组、原帖媒体／引用和热点头像／趋势。日期依既定用户要求无年份／今天，不新增辅助说明行。原首页六槽只留封面，不能代表 timeline；新 `/story/:publicId` 是待接入目标，完整事件／热点模块未完成。
+
+新增精确 `site/timeline` 和 `site/groups/:factId/reports` 同源读取，FastAPI 待队友按 [DOCK-006](../dock.md#dock-006精选时间线同新闻阅读组与内嵌热点) 实施。特别保留：候选不等于确认精选，Fact 首次时间锚点不被新代表或 `first_seen_at` 替换，同筛选范围选代表／阅读组／计数，dayCounts 为完整分组总数；48h证据／24h半衰／6h可比覆盖的独立参与方热度不能从重要性分数或点击量推算。内嵌热点随无筛选第一页返回，少于三条可见事件隐藏，不要求为此另造完整热点 API。当前document最多16项、最多60秒且取所有批次／taxonomy最早截止；30分钟视图恢复与数据寿命独立，阅读组只保存打开标记并重新核验。显式 Mock 与普通数据／浏览器状态隔离。以上是静态源码与前端实现记录，最终前端验收另记，尚不证明真实后端联调、归组或发布政策完成。
+
 2026-10-29 收藏页补充：再次核对 `routes/starred.tsx`、`lib/local-state.ts`、`Presence.tsx`、`publication/availability.ts` 与契约。Pulse 在既有 `/starred` 上复用标题工具栏、导入导出、通知、空态、单列卡片和权限提示，改为 p0 内容宽度响应，沿用共享滚动恢复。独立5000条已读和500条收藏备份与30篇历史分开；现有 UUID/命名空间保持，AIHOT ID 不转换。当前 availability 只有布尔公开状态；可选 `status/source_name` 的适配不代表真实后端已实现。源码映射和七节交接见根目录 DOCK-005，前端实际验证另见收藏页专项记录。
 
 2026-10-29 追加约束：`Tabs.tsx:PillTabs` 保持 active link 内 thumb、md 36px／横 padding 16px／14px字；`all.tsx` 页内查询只保留旧列表 opacity 0.5，不触发 Pulse 整页转场。日期采用 monthDay 加星期且去掉年份／今天；TimelineSlot、SourceLine、FeedItem、ScoreLabel 恢复原尺寸和移动呈现，不增加原站没有的组件或提示行。修订稿前端检查已通过，来源映射与边界见 [专项验收](pulse-all-verification-2026-10-29.md)；后端缺口仍见 DOCK-004。
@@ -36,7 +42,7 @@ Pulse 基线依据：[宏观规划](system-construction-outline.md)、[Stage1](s
 
 | 页面及交互 | AIHOT 接口/源码 | Pulse 对照、移植与缺口 |
 | --- | --- | --- |
-| `/` 精选、分类/频道/标签、阅读组展开、加载更多 | `/api/site/timeline` → `publication/timeline.ts: loadTimeline`；组内 `/api/site/groups/:factId/reports` → `loadGroupReports` | 既有 `/api/v1/home/featured` 是最多六席快照；主页面可保留封面六席与另设精选阅读流。归组/游标/阅读组需新后端，不能把六席等同 AIHOT 完整 timeline |
+| `/` 精选、分类/频道/标签、阅读组展开、加载更多 | `/api/site/timeline` → `publication/timeline.ts: loadTimeline`；组内 `/api/site/groups/:factId/reports` → `loadGroupReports` | 2026-10-30已适配独立精选前端和精确同源代理；既有 `/api/v1/home/featured` 仅作封面最多六席。新 timeline／阅读组及归组后端待按DOCK-006实施，不能把六席或Mock等同完整业务 |
 | `/all` 全部动态、时间/相关度搜索、筛选、翻页 | `/api/site/pool` → `publication/pool.ts: loadPool`；`routes/all.tsx` | 既有 `/api/v1/articles` 支持主题、地区、来源、实体、搜索、recent/importance、cursor；数字页与游标不可混用，先适配现有契约 |
 | `/items/:id`、`/original`、收藏/已读/复制/分享/Markdown | `/api/site/items/:id`、`/:id/original`；`features/item/ReaderTools.tsx,ArticleBody.tsx,PosterSheet.tsx` | 既有 `/api/v1/articles/{uuid}` 返回原文、译文、正文/翻译状态、原站链接。许可、撤回、Markdown 和分享图后端需补；缺正文要明确说明 |
 | `/hot`、`/story/:publicId`、趋势、后续进展 | `/api/site/hot`、`/api/site/stories/:publicId`、`/followups`；`publication/stories.ts: loadHot,loadStoryDetail,resolveStory` | 文章重要性排序不是事件热点。无事件后端时不造热门事件/曲线；合并事件返回 308 新地址 |

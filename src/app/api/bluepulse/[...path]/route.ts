@@ -11,6 +11,8 @@ type RouteContext = {
 };
 
 function isAllowedPath(path: string[]): boolean {
+  if (path.length === 2 && path[0] === "site" && path[1] === "timeline") return true;
+  if (path.length === 4 && path[0] === "site" && path[1] === "groups" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "reports") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "stats") {
     return true;
   }
@@ -96,6 +98,7 @@ export async function GET(request: Request, context: RouteContext) {
       if (value !== null) headers.set(name, value);
     }
     if (!headers.has("x-request-id")) headers.set("x-request-id", requestId);
+    if (path[1] === "groups") headers.set("cache-control", "no-store");
 
     return new Response(upstream.body, {
       status: upstream.status,

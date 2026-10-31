@@ -1,5 +1,11 @@
 # AIHOT 机制移植：Pulse 后端差距与阶段交接
 
+2026-10-31 精选验收补充：前端及受控 HTTP 检查已通过，详见 [专项验收](pulse-featured-verification-2026-10-31.md)。DOCK-006 中时间线、归组、热点及统一发布权限的后端任务仍待实施与真实联调，不随前端验收改变阶段结论。
+
+2026-10-30 精选前端交接：本轮已适配 AIHOT 精选时间线、同新闻阅读组、内嵌热点与共享阅读组件，新增两个精确同源代理；没有修改 FastAPI，也未完成真实业务联调。队友按 [DOCK-006](../dock.md#dock-006精选时间线同新闻阅读组与内嵌热点) 实施 `GET /api/v1/site/timeline` 和 `GET /api/v1/site/groups/:factId/reports`。地区沿用 domestic/foreign，topic 沿用七类稳定slug；timeline外层camelCase，item沿用Pulse UUID／ArticleCard，明确selected及可选sameEvent/channel/x。旧六槽仅用于封面，recently-collected不能补成精选。
+
+依赖阶段B/D/E/H：统一公开／释放／撤回／许可、候选加归组完成门禁、Fact／Story与证据角色、同筛选代表／计数、稳定首次anchor及绑定筛选的游标、完整筛选后分组dayCounts。阅读组包含符合当前政策的selected及nonselected primary/report，排除mention，最多100篇、no-store；不同来源数排除代表来源，报道数去重。内嵌hot只随未筛选第一页返回，少于三条可见事件返回null，暂不要求完整热点榜接口；热度须独立参与方归一、48h窗口／24h半衰／6h覆盖比较，unknown不伪造箭头，头像由安全代理提供或缺省。人工覆盖必须保留，旧Article迁移不能用first_seen_at替代事实锚点。缓存须给可信截止，前端16项／60秒上限取taxonomy及所有批次最早截止；30分钟位置／打开标记不延长内容寿命，阅读组不复用报道快照。`/story/:publicId` 当前仅为待接入目标。最终前端测试另记，不能据此宣布阶段E/H或后端完成。
+
 2026-10-29 收藏页补充：本轮仅前端复用 `/starred`、浏览器备份和独立已读标记，没有修改 FastAPI。现有 `/api/v1/articles/availability` 的每批100 UUID、`items:[{id,available}]` 与 `no-store` 可直接沿用；原版仅摘要状态、当前公开来源名仍需组员在同一匿名读取政策下扩展 `status/source_name`（详见根目录 DOCK-005）。正文采集状态不能代替全文许可，收藏快照不授予撤回内容读取权；统一发布政策仍属于后续阶段B。
 
 2026-10-29 前端复用修订：严格保持 AIHOT 分类／卡片／日期结构，页内查询不套整页转场，不增独立说明行、骨架或统计行。日期无年份／今天；Mock 同标题标识、相关度禁用原因用 title。修订稿受控检查通过，见 [专项验收](pulse-all-verification-2026-10-29.md)；DOCK-004 后端待办及真实联调仍未完成。
