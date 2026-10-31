@@ -1,5 +1,9 @@
 # AIHOT 机制移植：Pulse 后端差距与阶段交接
 
+2026-10-31 热点榜交接：新增 [DOCK-007](../dock.md#dock-007热点榜参与者与24小时曲线)，本站前端按原榜单组件适配，精确预留 `GET /api/v1/site/hot`（浏览器经 `/api/bluepulse/site/hot`）。没有新增FastAPI实现，前端及受控接口验收通过，见 [热点榜验收](pulse-hot-verification-2026-10-31.md)；完整事件页仍未完成。此接口是本站camelCase读取，不是原AIHOT机器出口hot-topics（后者只给排名／计数，不给热度值）。
+
+阶段B/E/H待办包括：Article—Fact—Story／primary-report证据与当前listed资格，可信源时间、当前参与方式及独立主体归一、source clock与覆盖、48h／24h半衰／6h可比趋势、原surge／new／rising门槛和规则版本；发布排名／小时complete快照及补采修复；读取时重核代表、撤回／归组／释放／媒体许可，不按数组重编号。主榜与内嵌条共用排名，保留sourceCount／participantCount／有限名单不同口径、头像排序／srcSet与受控代理、25小时边界槽／null缺测。缓存提供真实截止，前端30秒／16项不延长上游寿命；不能把前端或受控服务验证视为阶段E/H完成。后续事件读取与合并308／alias另行交付，不能用当前待接入路由替代。
+
 2026-10-31 精选验收补充：前端及受控 HTTP 检查已通过，详见 [专项验收](pulse-featured-verification-2026-10-31.md)。DOCK-006 中时间线、归组、热点及统一发布权限的后端任务仍待实施与真实联调，不随前端验收改变阶段结论。
 
 2026-10-30 精选前端交接：本轮已适配 AIHOT 精选时间线、同新闻阅读组、内嵌热点与共享阅读组件，新增两个精确同源代理；没有修改 FastAPI，也未完成真实业务联调。队友按 [DOCK-006](../dock.md#dock-006精选时间线同新闻阅读组与内嵌热点) 实施 `GET /api/v1/site/timeline` 和 `GET /api/v1/site/groups/:factId/reports`。地区沿用 domestic/foreign，topic 沿用七类稳定slug；timeline外层camelCase，item沿用Pulse UUID／ArticleCard，明确selected及可选sameEvent/channel/x。旧六槽仅用于封面，recently-collected不能补成精选。

@@ -27,6 +27,7 @@
 | DOCK-004 | 全部动态、分类筛选与全文检索 | `/all` | `GET /api/bluepulse/{articles,taxonomy}` → FastAPI `/api/v1/{articles,taxonomy}` | 前端及受控接口验收通过；新分类数据、相关度、数字分页及统计待后端补齐，待真实联调 |
 | DOCK-005 | 收藏可用性与本地阅读备份 | `/starred` | `GET /api/bluepulse/articles/availability` → FastAPI `/api/v1/articles/availability`；备份只读写浏览器 | 现有布尔接口可沿用；前端扩展适配已实现，明确权限状态／当前来源名待后端扩展和真实联调 |
 | DOCK-006 | 精选时间线、同新闻阅读组与内嵌热点 | `/` | `GET /api/bluepulse/site/timeline`、`site/groups/:factId/reports` → FastAPI `/api/v1/site/…` | 前端和精确代理已实现；归组、发布读取、热点与真实联调待后端实施；本轮最终验收另记 |
+| DOCK-007 | 热点榜、参与者与24小时曲线 | `/hot` | `GET /api/bluepulse/site/hot` → 建议 FastAPI `/api/v1/site/hot` | 前端及精确代理受控验收通过；真实排名、证据、媒体及事件详情待后端实施 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -544,3 +545,138 @@ reports 可包含代表本身，前端展示时去掉 parentId；不以删除代
 前端验收须覆盖桌面／移动／reduced-motion、共用 `/all` 回归、URL筛选独立、搜索／菜单／历史、三批自动再手动、key去重、cursor400、日期折叠／锚点、阅读组重核验及失败、媒体／引用／头像降级、超时／取消、跨批截止与 mock隔离。受控 HTTP 契约检查须核验精确白名单、转发路径、状态与缓存头，不代表 FastAPI 真实业务完成。
 
 后端签收须另行验证：候选与确认入选门禁及人工覆盖；同发生归组／新发展分Fact；固定anchor／稳定游标及完整分日统计；同范围代表、不同来源／报道计数、primary/report与mention隔离；最多100篇成员；独立参与方归一、48h／24h／6h覆盖与unknown趋势；撤回、延迟发布、全文权限及所有公开出口一致；截止后旧缓存不可续命。真实后端接口、数据迁移、权限与联调完成前不得把本模块标为业务完成。
+
+## DOCK-007：热点榜、参与者与24小时曲线
+
+### 1. 功能与状态
+
+匿名入口 `/hot` 复用 AIHOT 热点榜的桌面标题／实时热度、窄屏标题栏与“怎么算”、主卡、两张副卡、其余榜单行及底部热度说明。来源头像堆叠、参与者名单、计数、摘要、最新进展、封面／热度面板、徽标与走势均保留；只修改警务文案、Next.js 集成和 p0 内部排布。本轮前端适配及精确代理受控验收通过，详见 [专项验收](docs/pulse-hot-verification-2026-10-31.md)，不能据此认定真实热点业务已完成。
+
+- 前端落点：`src/app/hot/` 的页面编排、卡片、标题栏、说明、Sparkline、Delta、原曲线算法、类型／校验／缓存及显式演示；复用 `_components/feed/{Faces,SourceAvatar,Badge}.tsx`。
+- 精确同源读取：浏览器 `GET /api/bluepulse/site/hot` → `{BLUEPULSE_API_URL}/api/v1/site/hot`。新增路径以精确白名单接入既有 Next 代理，不开放任意 `site/*`，不新增写操作，不在读页时触发采集或模型。
+- FastAPI 待实现：热度信号及归一、排名／覆盖快照、小时数据、公开读取／媒体许可及撤回一致性。既有 articles 重要性排序、精选六槽和浏览器点击数都不是此榜单。
+- 卡片保持 `/story/:publicId` 原事件去向；当前 Pulse 只有待接入目标。完整事件详情、证据时间线和合并重定向另行实施，本轮不会把占位目标写成可用事件后端。
+
+### 2. AIHOT 源码证据
+
+2026-10-31 直接重新阅读 `D:/AIHOT` 无 Git 下载快照，证据仍为静态源码；没有启动或核验其数据库、worker、外部来源或线上站点。
+
+| 原实现 | 符号／复用内容 | Pulse 落点 |
+| --- | --- | --- |
+| `apps/web/app/routes/hot.tsx` | `HotPage, Lead, Runner, Row, HeatPanel, Voices, Badges, StoryLink, showMethod`；原卡片组成、字段、标题和说明条件分支 | `hot/{HotPage,HotCards,HotHeader,HotMethod}.tsx` |
+| `apps/web/app/features/hot/{Sparkline,Delta}.tsx`、`curve.ts` | 缺测断线、少于三点不画、单调曲线／渐变面积／端点、六小时前变化呈现 | `hot/{Sparkline,Delta}.tsx`、`curve.ts` |
+| `features/hot/Faces.tsx`、`components/ui/{SourceAvatar,Badge}.tsx` | 六头像上限、余量、原名单和降级、徽标样式 | 复用现有 `_components/feed/` |
+| `components/shell/PhoneBar.tsx`、`apps/web/app/app.css` | 窄屏吸顶标题／操作、字号／圆角／颜色／阴影 | 热点局部样式及 p0 滚动适配，不复制全站壳 |
+| `packages/contracts/src/site.ts` | `HotResponse, HotEntryView, HotParticipant, StoryRef, HOT_FACE_LIMIT` | `hot/_types.ts`，参与者复用共享类型 |
+| `apps/api/src/routes/site.ts` | `GET /api/site/hot` → `loadHot`；`stories/:publicId` 合并／404处理 | 精确 Next 代理及后端任务 |
+| `packages/backend/src/publication/{hot,stories}.ts` | `latestHotRanking, rankingExtras, loadHotStrip, loadHot, sparklines, queryHotCovers, resolveStory, loadStoryDetail` | 排名、公开读取、头像／封面及事件接口语义 |
+| `packages/backend/src/events/{hot,group}.ts` | `currentSignals, heatRows, heatIndex, computeHotRanking, sourceClocks, behindSources, snapshotHeat, recordSignal` | 后端信号、主体、趋势与历史数据任务 |
+| `publication/{scope,representative}.ts` | `listedCondition, evidenceCondition, pickRepresentative` | 公开证据及代表资格；不能仅复制排序字段 |
+
+实质代码继续保留 MIT 和 `Copyright (c) 2026 数字生命卡兹克`；不移植 React Router loader、Fastify、PostgreSQL SQL 或 pg-boss。
+
+### 3. AIHOT 原始数据流与契约
+
+`hot.loader` 经 HTTP 请求 `/api/site/hot`；API 读取最新已发布排名，并通过当前公开层重新核对保存的代表是否仍是该 Story 的 listed primary/report 证据，排除 mention／综合稿证据。已撤回、未释放、归组后不再属于该事件或失去证据资格的条目会被移除，保留原 rank，不在读页时补齐或重新编号。页面把返回数组第一条作主卡、随后两条作副卡、其余作列表，不能假定数组下标加一就是业务排名。
+
+`loadHot` 并行读取小时曲线、封面和 `rankingExtras`。摘要来自事件 digest，否则事件事实摘要，卡片摘录超过480个字符时截取并加省略号；最新进展来自当前可公开证据。封面从当前 listed 且 body_mode 非 summary 的事件报道图片中选取，代表优先，其后 first_party／selected／score及稳定ID；候选图宽至少480px，未知宽度按原读取逻辑处理。图片必须经过受控媒体代理和许可判断，不能从普通链接或任意外站图片临时拼装。
+
+原小曲线对齐 `computedAt` 所在整点，从24小时前到该整点含两端共25个槽位，只读 `complete` 的小时快照，缺时段为 `null`。Sparkline 以零作纵轴基线，按最大有效值缩放；`null` 分成独立曲线，少于三个有效值不绘制，单个连续点不填造面积。主卡无 cover 且有效值至少三个时用大 HeatPanel（峰值／峰值时段／左右时间标）；否则沿用紧凑曲线。事件详情的7日 `heatSeries` 有独立同群体可比重算规则，不能直接当成榜单25槽接口。
+
+热度以 Article—Fact—Story 与 `story_signals` 为基础，按可信来源时间入48小时窗口。同一独立主体在每窗只按最后一条证据计一次，权重为 `0.5 ** (距该最后证据的小时数 / 24)`；`heatIndex` 将权重和按10倍标尺保留一位小数，网页原组件再 `Math.round` 展示。至少2位参与者且至少1位 editorial 才入计算候选，并须有公开、eligible、已释放的事件证据代表；最多10条，热度降序，同热度按最新事件时间排序。候选资格不能由 importance_score 或前端计数替代。
+
+主体在读取时按当前来源配置归一：特定社区按作者；否则媒体矩阵 `signal_group_id`、机构／所有者 `owner_entity_id`、来源本身依次取键。当前 isolated／已撤回证据／人工 standalone 关系不再贡献；editorial 还需有效事件证据。`recordSignal` 在事务中确认事件未被合并再写入，以 `(story_id,article_id)` 防重复，不能因重复采集多加热度。公安多官号、转载链、厂商矩阵和采购镜像需在 Python 后端按同一独立主体原则配置，不在前端按名称猜测。
+
+六小时前比较各自48小时窗口，仅使用在前窗开始前已采集且相关来源未落后的同组参与者；来源最近成功时间、采集间隔与启动时间必须保存。原当前落后容限为三倍采集间隔、至少90分钟；历史时段需有该时段后的成功采集。若旧全量热度为零则 `new`，否则无可比旧基数为 `unknown`；可比变化率大于10%为 `up`、小于−10%为 `down`，其余 `flat`。`trendPct` 为百分数，保留一位小数，不是0–1小数。前端 Delta 对 unknown 显示“暂不比较”，new／pct=null显示“新上榜”，flat显示“持平”，其余显示箭头及取整绝对百分比；不要套用内嵌条隐藏未知箭头的另一组件。
+
+徽标由后端按原规则给出：`surge` 为最近6小时新参与者至少3位且占当前参与者至少50%；`new` 为事件首报距计算时间小于6小时；非 surge 且可比增幅大于15%时 `rising`。对应“爆／新／发酵中”，允许同时出现 surge 与 new。规则版本原为 `heat-v1-48h-halflife24h`，后端保存计算时间、规则版本及覆盖证据，前端不根据日期或曲线反算徽标。
+
+### 4. Pulse 建议及差异
+
+保留品牌、本地 Google Sans／微软雅黑、p0 白纸及导航动效；页面以600／760／1040px内容宽度断点复现原窄／宽／超宽层级，保留原色值、头像尺寸、圆角、徽标及字号。窄屏标题吸顶和“怎么算”定位以 p0 scroller 为根；名单 portal 到 body，避免白纸裁切，p0滚动／resize／Escape／外点关闭。减少动态效果保留静态状态与全部操作，不新增成功态说明行、统计、筛选或骨架。
+
+后端组员实施顺序：
+
+1. 沿用现有 Python／FastAPI／SQLAlchemy，完成阶段B/E的材料与 Article—Fact—Story／证据角色／可信时间／当前公开资格；保持现有 UUID，另给事件稳定公开ID，不把文章ID和事件ID互换。
+2. 实现信号幂等、当前主体归一、来源时钟及采集覆盖、48h／24h衰减／6h可比趋势；加入原徽标规则及规则版本，定时产生可审计排名和 complete 小时快照，补采后修复未完成小时。数据库迁移与任务调度采用现有栈，不直接执行 AIHOT SQL。
+3. 提供本站读取 `GET /api/v1/site/hot`，完整返回下节 camelCase；先在公开层重核代表、撤回／归组／释放，再装载当前可公开文本与受许可媒体。主榜和 DOCK-006 内嵌条共用排名及资格；主榜允许0–10条，内嵌条仍须至少3条才展示。
+4. 参与者按 editorial 优先、T1／T1_5／T2、同层有头像优先及原稳定顺序返回；榜单写入原最多40名，读取按公开名称去重。只给可见的前六 editorial 携带安全代理头像URL／srcSet，其他名字仍供名单。缺头像可用首字，不应删除该参与方或头像堆叠组件。
+5. 后续独立交付 `GET /api/v1/site/stories/:publicId` 和 followups／事件阅读能力；合并旧事件保留 alias，返回308及 `mergedInto`／新地址，Next 页面采用新的事件URL。该依赖只交接，本轮不开放尚未消费的任意 stories 代理。
+
+计数不能互推：原 `sourceCount` 写入的是窗口内 editorial 独立参与方数量，`participantCount` 包含 editorial 与 signal，`sourceNames` 为最近活动 editorial 名称去重后最多8个，`participants` 为保存名单经公开名称去重后的部分名单，不保证列全。参与者显示层聚合与报道来源层不是同一身份；不要建立 `participantCount >= sourceCount`、`participantCount === participants.length` 等前端假定。Faces 只画最多六个 editorial，`+N = participantCount - 已显示头像数`；弹层另有 `participantCount - participants.length` 的“未列出”余量，不因都显示数字而合并。sourceCount也不等于不同文章数。
+
+### 5. 请求响应示例
+
+浏览器 `GET /api/bluepulse/site/hot` → `{BLUEPULSE_API_URL}/api/v1/site/hot`，无登录要求，无分类／分页参数。下例为字段形状，不代表真实警务新闻或统计；正式值由真实证据计算。
+
+```json
+{
+  "computedAt": "2026-10-31T03:00:00Z",
+  "windowHours": 48,
+  "entries": [{
+    "rank": 2,
+    "story": { "publicId": "00000000-0000-4000-8000-000000000201", "title": "警务科技公开测试进展示例" },
+    "heat": 24.8,
+    "trend": "up",
+    "trendPct": 18.2,
+    "badges": ["rising"],
+    "participantCount": 5,
+    "sourceCount": 3,
+    "sourceNames": ["示例公开来源甲", "示例公开来源乙", "示例公开来源丙"],
+    "participants": [
+      { "name": "示例公开来源甲", "kind": "editorial", "iconUrl": "/media/approved-source-icon" },
+      { "name": "示例公开来源乙", "kind": "editorial", "iconUrl": null },
+      { "name": "示例公开来源丙", "kind": "editorial" },
+      { "name": "示例技术社区", "kind": "signal" }
+    ],
+    "spark": [null, null, null, null, null, null, null, null, null, null, null, null, 8.1, 8.4, 9.2, null, 12.8, 13.1, 15.2, 18.4, 20.1, 21.8, 23.2, 24.1, 24.8],
+    "summary": "事件摘要示例，完整内容由后续事件页提供。",
+    "latest": "最新公开进展示例。",
+    "cover": null
+  }]
+}
+```
+
+| 字段 | 类型、空值及消费位置 |
+| --- | --- |
+| `computedAt` | ISO日期字符串或 null；真实排名计算时间，标题更新时间以北京时间呈现，不用请求时间伪装更新 |
+| `windowHours` | 正数，原48；标题统计窗口 |
+| `entries` | 原最多10条，按服务端顺序；可空、可有排名缺口，不补齐、不前端重排 |
+| `rank` | 正整数，保存排名；主／副／行的编号和“继续看”范围 |
+| `story.publicId/title` | 稳定事件公开ID及标题；标题和整卡链接。Pulse沿用公开字符串规则 `^[a-zA-Z0-9_-]{1,80}$`，原AIHOT事件实现为UUID；不暴露临时行号 |
+| `heat` | 有限非负数字；卡片／行按原组件取整展示，不能由报道数、重要性或点击量补算 |
+| `trend`、`trendPct` | `up/down/flat/new/unknown`；百分数或 null；使用原Delta分支，不以null填0 |
+| `badges` | `surge/new/rising`数组，可空；完整保留原顺序、文案及title提示 |
+| `participantCount/sourceCount` | 非负整数；分别供参与者和来源计数，语义见上节，不按前端名单长度生成 |
+| `sourceNames` | 字符串数组，可空；主卡显示前两个及来源总量的原拼接分支 |
+| `participants` | `{name,kind,iconUrl?,iconSrcSet?}`数组；kind仅editorial／signal；图标可省略或null，srcSet可省略，后端排序后前端不按名称重排 |
+| `spark` | 数字或null数组；预期25个小时边界点，原读取降级也可能空数组。缺测不能置零或插值，不足三点不画 |
+| `summary/latest` | 字符串或null；摘要和主卡“最新进展”的原条件分支，不能省略必需的可空字段来隐藏接口缺口 |
+| `cover` | null 或 `{url,srcSet?,width,height}`；width／height为数字或null，srcSet可省略；原封面槽和图片响应式元数据 |
+
+合法无排名为 `{"computedAt":null,"windowHours":48,"entries":[]}`。已有排名但当前全部被公开过滤时仍可保留其真实 computedAt 并返回空 entries。不要为了使“热度前三”固定有三张而返回假新闻。显式演示地址 `/hot?mock=1` 在原标题标识，演示新闻／图标／数字及缓存与普通入口隔离；不承诺真实事件详情可读。
+
+### 6. 缓存和异常
+
+原 AIHOT hot API 返回 ETag 和 `Cache-Control: public, max-age=30, s-maxage=30`；页面loader另写 `cachedPage(120, …)`，不能照抄成允许本站旧结果重获120秒。Pulse 榜单当前document最多16个数据项，本地上限30秒，取上游 `Cache-Control/X-Accel-Expires/Age/Date` 换算的实际截止和本地上限的较早者；代理／预取／进入不得续命，no-store／no-cache不缓存，失败不缓存。ETag是原接口机制，是否完成本站条件请求／304复用应以实际代理实现为准，不能仅有后端ETag就宣称端到端验证完成。
+
+菜单意图预取和正常读取共享有效结果，刷新／重试强制重拉。共享加载条表达等待，不增加页面骨架或说明行；取消和晚到结果不得覆盖新页面。30分钟只恢复位置／锚点，过期先读最新排名再恢复；不得将旧热度或撤回条目以会话快照延长30分钟。前端读取等待上限12秒，现有同源代理上游6秒；实际故障与未接入分开。
+
+| 情况 | 必须呈现的真实状态 |
+| --- | --- |
+| 200且合法空entries | 原“暂时没有热点”空态和原热度说明，不代表接口缺失 |
+| 404 | 热点服务尚未接入，可重试；不当作合法空榜缓存 |
+| 503／504、断网或无效JSON／字段 | 热点暂时无法载入，可重试；不回填全部动态或Mock |
+| 页面离开／新请求先完成 | 忽略旧结果，不显示由主动取消产生的故障 |
+| 参与者无头像／图标加载失败 | 保留头像槽、名字和计数，用原首字降级，不临时抓取外站图标 |
+| 曲线缺少可比数据 | 保留null断点／不足三点不画；unknown不伪造涨跌 |
+
+`computedAt` 是业务计算时间，不是缓存截止。服务端还需落实统一撤回失效和媒体授权期限；30秒本地上限只是前端复用约束，不证明后端当前公开读取、边缘缓存或撤回策略已完成。
+
+### 7. 验收条件与变更记录
+
+2026-10-31：建立 DOCK-007，直接复核原页、曲线／趋势、共享头像、契约及热度／公开读取源码，记录 Pulse 接口和后端任务。前端实现及受控检查已完成：lint／生产构建、72项逻辑及83组聚焦浏览器检查通过，原源码独立复核通过，详见 [热点榜专项验收](docs/pulse-hot-verification-2026-10-31.md)。此结果不代表真实后端已实现或联调完成。
+
+前端签收覆盖：原组件清单逐项对照；0／1／2／3／10条及rank缺口；主卡封面／大曲线／少点三分支；全部趋势／徽标／空字段；六头像／余量／名单／首字降级；手机“怎么算”定位、吸顶、p0滚动、桌面／移动／reduced-motion；404／空榜／故障／无效数据／重试、截止／no-store／刷新／历史恢复／预取／晚到隔离。精选页、全部动态和共享导航做聚焦回归，受控服务结果不冒充真实后端联调。
+
+后端签收另测：可信源时间、独立主体及转载矩阵归一，重复采集不增热、48h边界／24h半衰、6h可比覆盖／unknown及所有徽标边界、公开代表／Fact选择、小时complete与补采修复；读取时撤回／合并／归组／释放／许可改变不泄漏旧文本或封面；主榜与内嵌条一致，sourceCount／participantCount／名单和图标排序语义一致；真实路径／字段／错误／缓存头、事件308链与alias。未完成这些迁移、规则和真实联调前，状态仍为“前端已预留，后端待实现”。

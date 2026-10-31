@@ -115,10 +115,22 @@ try {
       assert.equal(new Set(await news(page).evaluateAll(nodes => nodes.map(el => el.dataset.itemId))).size, 76);
       check("desktop: three automatic batches, manual continuation and stable deduplication");
       await news(page).first().getByRole("button", { name: /另有 3 家/ }).click(); await page.locator('a[class*="groupTitle"]').first().waitFor(); await page.waitForTimeout(280);
-      const item = news(page).nth(45); await item.locator("h3 a").scrollIntoViewIfNeeded(); const before = await paper(page).evaluate(el => el.scrollTop);
+      const item = news(page).nth(45); await item.locator("h3 a").scrollIntoViewIfNeeded();
+      // Playwright click can scroll again after scrollIntoViewIfNeeded. Compare with the actual
+      // departure position, captured before MainShell handles this specific article navigation.
+      await page.evaluate(id => {
+        window.__featuredDepartureTop = null;
+        const capture = event => {
+          if (event.target.closest('a')?.getAttribute('href') !== `/articles/${id}`) return;
+          window.__featuredDepartureTop = document.querySelector('[data-p0-scroller]').scrollTop;
+          document.removeEventListener('click', capture, true);
+        };
+        document.addEventListener('click', capture, true);
+      }, rows[45].id);
       groupDelay = 500;
       await item.locator("h3 a").click(); await ready(page, `/articles/${rows[45].id}`); await page.goBack(); await ready(page);
       await page.waitForTimeout(850); groupDelay = 0;
+      const before = await page.evaluate(() => window.__featuredDepartureTop); assert.equal(typeof before, "number");
       assert.equal(await news(page).count(), 76); assert.ok(Math.abs((await paper(page).evaluate(el => el.scrollTop)) - before) < 40, `anchor drift: ${await paper(page).evaluate(el => el.scrollTop)} versus ${before}`);
       assert.equal(await news(page).nth(45).getAttribute("data-read"), "true"); check("desktop: detail return restores cumulative list, read state and deep anchor");
       await page.clock.setSystemTime(new Date(Date.now() + 70000));

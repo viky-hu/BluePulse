@@ -1,5 +1,9 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-10-31 热点榜补充：直接复核 `routes/hot.tsx`、`features/hot/{Sparkline,Delta,curve}`、共享 `Faces/SourceAvatar/Badge`、`PhoneBar` 与原样式，并核对契约／API、`publication/{hot,stories,scope,representative}.ts` 和 `events/{hot,group}.ts`。Pulse 本轮将原主卡／两副卡／列表、全部条件字段、头像名单、趋势、曲线及说明移入 `src/app/hot/`，以 p0 内部滚动、Next.js及600／760／1040px内容断点适配；不自行增删成功态组件。精确 `site/hot` 读取和完整后端交接见 [DOCK-007](../dock.md#dock-007热点榜参与者与24小时曲线)，最终前端检查通过，见 [热点榜验收](pulse-hot-verification-2026-10-31.md)；真实热榜与事件详情仍待后端。
+
+热榜读取会因撤回／归组移除原代表失效条目，但不重排rank；主卡是当前返回第一条。`sourceCount`、`participantCount`、最多8个sourceNames及最多40人再按公开名去重的participants不能互推。Sparkline原小时快照为25个含两端槽位、null缺测分段、不足三点不画；事件7日heatSeries另有可比群体重算。unknown的完整榜Delta显示“暂不比较”，与内嵌条不画未知箭头的TrendMark不同。原API30秒、页面cachedPage(120)的差异不照搬续命：Pulse采用30秒与更早上游截止、16项document内复用及显式mock隔离；30分钟只恢复位置。以上均为静态源码和前端适配依据，不证明源站或Pulse真实后端已运行通过。
+
 2026-10-31 精选前端验收补充：lint／生产构建、42项逻辑、28组精选、18组全部动态及13组共享导航浏览器检查通过，桌面／移动／reduced-motion 与独立源码审查已完成。证据和边界见 [精选专项验收](pulse-featured-verification-2026-10-31.md)；这不扩大下述静态快照的研究范围，也不代表真实 FastAPI 业务联调完成。
 
 2026-10-30 精选页补充：直接复查 `routes/home.tsx`、`features/feed/{Timeline,HotTopics,FeedItem,ReadingGroup,Filters,parts}.tsx`、`features/hot/Faces.tsx`、`components/ui/{SourceAvatar,Sheet,Lightbox,Presence,Badge,Tabs}.tsx`，以及契约／API、`publication/{timeline,groups,hot,representative,scope,publish}.ts` 和 `events/{group,relate,hot}.ts`。Pulse 已把所选真实前端移入 `_components/{featured,feed}`，`/all` 共用工具栏／卡片／日期时轨；按 p0 内部滚动和760／600／640px内容宽度断点适配，保留日期折叠、三批自动再手动、阅读组、原帖媒体／引用和热点头像／趋势。日期依既定用户要求无年份／今天，不新增辅助说明行。原首页六槽只留封面，不能代表 timeline；新 `/story/:publicId` 是待接入目标，完整事件／热点模块未完成。

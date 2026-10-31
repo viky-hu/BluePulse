@@ -11,6 +11,7 @@ type RouteContext = {
 };
 
 function isAllowedPath(path: string[]): boolean {
+  if (path.length === 2 && path[0] === "site" && path[1] === "hot") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "timeline") return true;
   if (path.length === 4 && path[0] === "site" && path[1] === "groups" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "reports") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "stats") {
