@@ -37,11 +37,11 @@ export interface TabItem {
   key: string; label: ReactNode; to?: string; prefetch?: "intent";
   resetScroll?: boolean; disabled?: boolean; title?: string;
 }
-export function PillTabs({ items, active, onSelect, size = "md", label }: { items: TabItem[]; active: string; onSelect?: (key: string) => void; size?: "md" | "xs"; label: string }) {
+export function PillTabs({ items, active, onSelect, size = "md", label, fill = false }: { items: TabItem[]; active: string; onSelect?: (key: string) => void; size?: "md" | "sm" | "xs"; label: string; fill?: boolean }) {
   const previous = useRef<Place | null>(null);
   const links = items.some(item => item.to);
   const Track = links ? "nav" : "div";
-  return <div className={styles.tabsViewport}><Track data-pill-track="" className={styles.tabs} data-size={size} aria-label={label} role={links ? undefined : "tablist"}>
+  return <div className={styles.tabsViewport} data-fill={fill || undefined}><Track data-pill-track="" className={styles.tabs} data-size={size} data-fill={fill || undefined} style={fill ? { gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` } : undefined} aria-label={label} role={links ? undefined : "tablist"}>
     {items.map(item => {
       const on = item.key === active;
       const inner = <>{on && <Thumb previous={previous} />}<span className={styles.tabLabel}>{item.label}</span></>;

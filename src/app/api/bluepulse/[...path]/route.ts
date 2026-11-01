@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDailyDate, isDailyMonth } from "../../../daily/_route";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ type RouteContext = {
 };
 
 function isAllowedPath(path: string[]): boolean {
+  if (path[0] === "site" && path[1] === "reports" && path[2] === "daily") {
+    return path.length === 3 || (path.length === 4 && (path[3] === "latest-page" || isDailyDate(path[3]))) || (path.length === 5 && ((path[3] === "navigation" && isDailyDate(path[4])) || (path[3] === "months" && isDailyMonth(path[4]))));
+  }
   if (path.length === 2 && path[0] === "site" && path[1] === "hot") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "timeline") return true;
   if (path.length === 4 && path[0] === "site" && path[1] === "groups" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "reports") return true;

@@ -9,7 +9,7 @@
 - CSS稳定场景是终点真值，通过局部refs把真实绿色/纸矩形传给InitialIntro；初始化/resize时读取、转换、缓存，逐帧只插值。保留归一化进度、SSR稳定态、reduced motion、一次性守卫，以及原封面、p1–p5退场、时序、缓动、上下边界与阴影。
 - 关于、共享阅读壳、搜索和历史的页面级外壳上限定向放宽1320px；正文、表单、媒体、弹窗自己的行长不全局替换。精选/全部/热点/收藏按现有内容容器断点适配，不增加列或组件。
 - 验证1440桌面、390移动、1920宽布局、reduced motion，另做768/769/1000几何边界。核对动画交接、过渡resize、菜单间距、已有页面溢出、浮层/Canvas/吸顶/历史恢复。运行相关聚焦检查、lint、production build。
-- [x] 实现并自检；[x] 独立源码审查；[x] 验收文档；[ ] main提交并push。证据见docs/pulse-paper-width-verification-2026-11-01.md。
+- [x] 实现并自检；[x] 独立源码审查；[x] 验收文档；[x] main提交并push（bd18350）。证据见docs/pulse-paper-width-verification-2026-11-01.md。
 
 ## Task 2：日报源码复用与集成
 
@@ -22,7 +22,7 @@
 - 保留ReportDetail、ReportCitation、ReportIndexEntry/Response、ReportLatestPage、ReportNavigationEntry/Response全部字段，包括可空/可选字段、封面srcSet/尺寸/caption、otherSources、related、followUp、firstParty、available。文章链接适配/articles/UUID。
 - 普通模式区分未接入、未发布、合法空结果与故障；只有显式?mock=1演示，演示与live缓存/浏览器状态隔离，不增加演示标题或说明组件。缓存最多16项，索引/最新刊本地上限60s、详情120s，复合请求取最早上游截止，no-store/no-cache不复用；30min仅恢复位置。刷新/重试强制重取，旧请求不可覆盖新路由。
 - 验证实际组件对照、仅头条/空栏/重复/快讯/跟进/撤回/图片失败/月加载/前后期/目录定位/缺刊/重试/缓存截止，以及桌面移动reduced motion；运行聚焦检查、lint和build。
-- [ ] 实现并自检；[ ] 原源码与代码质量独立审查；[ ] 文档与验收；[ ] main提交并push，消息为“完成’AI日报‘页搭建”。
+- [x] 实现并自检；[x] 原源码与代码质量独立审查；[x] 文档与验收。证据见docs/pulse-daily-verification-2026-11-01.md。交付方式为main提交并push，消息“完成’AI日报‘页搭建”；Git交付结果以提交历史和远端回执为准。
 
 ## 后端参考文档与真实状态
 

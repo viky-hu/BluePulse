@@ -7,6 +7,10 @@
 .tabs { display: inline-flex; gap: 2px; width: max-content; padding: 3px; border-radius: 999px; background: #f3f3ef; box-shadow: inset 0 0 0 1px var(--soft); }
 .tabs a, .tabs button { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: #59656b; text-decoration: none; white-space: nowrap; user-select: none; font: inherit; font-size: 14px; font-weight: 500; outline-offset: 1px; cursor: pointer; transition: color 150ms, transform 150ms; }
 .tabs a[aria-current="page"], .tabs button[aria-selected="true"] { color: var(--ink); }.tabs a:hover, .tabs button:hover { color: var(--ink); }.tabs a:active, .tabs button:active { transform: scale(.98); }.tabs button:disabled { color: var(--muted); cursor: not-allowed; transform: none; }
+.tabs[data-fill="true"] { display: grid; width: 100%; }
+.tabsViewport[data-fill="true"] { width: 100%; }
+.tabs[data-size="sm"] a, .tabs[data-size="sm"] button { height: 32px; padding-inline: 14px; font-size: 13px; }
+@container daily (max-width: 1239px) { .tabs[data-size="sm"] { padding: 2px; } .tabs[data-size="sm"] a, .tabs[data-size="sm"] button { height: 44px; } }
 .tabs[data-size="xs"] a, .tabs[data-size="xs"] button { height: 28px; padding-inline: 12px; font-size: 12.5px; }
 .tabLabel { position: relative; display: inline-flex; align-items: center; gap: 4px; }
 .thumb { position: absolute; inset: 0; border-radius: 999px; background: #fff; box-shadow: 0 1px 2px rgb(28 39 51 / 10%), 0 1px 1px rgb(28 39 51 / 4%), 0 0 0 1px var(--line); pointer-events: none; }

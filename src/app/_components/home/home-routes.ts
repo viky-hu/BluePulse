@@ -1,4 +1,5 @@
 import { isSectionPath } from "./navigation-config.ts";
+import { dailyRoute } from "../../daily/_route.ts";
 import type { ArticlePeriod, ArticleRegion, ArticleSort } from "../../_lib/home-data";
 
 export type HomeFilters = {
@@ -36,7 +37,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
   const kind: HomeRoute["kind"] = pathname === "/" ? "home"
     : pathname === "/search" ? "search"
     : pathname === "/all" ? "all"
-    : isSectionPath(pathname) ? "section"
+    : isSectionPath(pathname) || dailyRoute(pathname) ? "section"
     : pathname === "/history" ? "history"
     : pathname === "/starred" ? "starred"
     : pathname === "/articles" ? "library"

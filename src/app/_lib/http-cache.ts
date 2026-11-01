@@ -1,10 +1,10 @@
 /** AIHOT api.server.ts/page-reuse.ts adaptation: revisiting never renews upstream freshness. */
 export const PAGE_REUSE_MS = 60_000;
 
-export function responseDeadline(headers: Headers, now = Date.now()): number {
+export function responseDeadline(headers: Headers, now = Date.now(), localCapMs = PAGE_REUSE_MS): number {
   const policy = headers.get("cache-control") ?? "";
   if (/(?:^|,)\s*(?:no-store|no-cache)(?:\s*(?:=|,|$))/i.test(policy)) return 0;
-  let deadline = now + PAGE_REUSE_MS;
+  let deadline = now + localCapMs;
   const absolute = headers.get("x-accel-expires");
   if (absolute !== null) {
     if (!/^@\d+(?:\.\d+)?$/.test(absolute)) return 0;

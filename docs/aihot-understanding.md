@@ -1,5 +1,9 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
+2026-11-01 日报补充：再次直接阅读D:/AIHOT的report-latest／report-detail／daily-archive、features/report全部组件、OutlineSheet／PhoneBar／Kicker／Tabs及原样式，核对contracts、API、edition／compose／correct／publication reports和currentSignals。Pulse新增日报三路由、完整纸面／刊历／归档／目录及五组精确读取，按p0净容器1240px适配往期栏，保留原字段及条件分支；后端和正式刊期尚未实现。详见[dock.md DOCK-008](../dock.md#dock-008ai日报刊期阅读与合订本)。
+
+本次明确的源码细节：日报在出刊时不调用模型、不按热榜rank排版；importance使用日内独立参与方，空栏目不是独立热度门槛。dailyMemory是前7个自然日而非最后7期，包含快讯／related并追溯当前归组；全是跟进时仍保留正文。后端先滤空组，前端再移出头条／跨栏去重／滤空并连续编号；只剩头条不是quiet。导航title缺省与null、全系列issueNumber与最多400条索引、撤回后公开头条替补／封面许可均分别保留。静态核查和前端受控验证不代表后端出刊或真实业务联调完成。
+
 2026-10-31 热点榜补充：直接复核 `routes/hot.tsx`、`features/hot/{Sparkline,Delta,curve}`、共享 `Faces/SourceAvatar/Badge`、`PhoneBar` 与原样式，并核对契约／API、`publication/{hot,stories,scope,representative}.ts` 和 `events/{hot,group}.ts`。Pulse 本轮将原主卡／两副卡／列表、全部条件字段、头像名单、趋势、曲线及说明移入 `src/app/hot/`，以 p0 内部滚动、Next.js及600／760／1040px内容断点适配；不自行增删成功态组件。精确 `site/hot` 读取和完整后端交接见 [DOCK-007](../dock.md#dock-007热点榜参与者与24小时曲线)，最终前端检查通过，见 [热点榜验收](pulse-hot-verification-2026-10-31.md)；真实热榜与事件详情仍待后端。
 
 热榜读取会因撤回／归组移除原代表失效条目，但不重排rank；主卡是当前返回第一条。`sourceCount`、`participantCount`、最多8个sourceNames及最多40人再按公开名去重的participants不能互推。Sparkline原小时快照为25个含两端槽位、null缺测分段、不足三点不画；事件7日heatSeries另有可比群体重算。unknown的完整榜Delta显示“暂不比较”，与内嵌条不画未知箭头的TrendMark不同。原API30秒、页面cachedPage(120)的差异不照搬续命：Pulse采用30秒与更早上游截止、16项document内复用及显式mock隔离；30分钟只恢复位置。以上均为静态源码和前端适配依据，不证明源站或Pulse真实后端已运行通过。

@@ -28,6 +28,7 @@
 | DOCK-005 | 收藏可用性与本地阅读备份 | `/starred` | `GET /api/bluepulse/articles/availability` → FastAPI `/api/v1/articles/availability`；备份只读写浏览器 | 现有布尔接口可沿用；前端扩展适配已实现，明确权限状态／当前来源名待后端扩展和真实联调 |
 | DOCK-006 | 精选时间线、同新闻阅读组与内嵌热点 | `/` | `GET /api/bluepulse/site/timeline`、`site/groups/:factId/reports` → FastAPI `/api/v1/site/…` | 前端和精确代理已实现；归组、发布读取、热点与真实联调待后端实施；本轮最终验收另记 |
 | DOCK-007 | 热点榜、参与者与24小时曲线 | `/hot` | `GET /api/bluepulse/site/hot` → 建议 FastAPI `/api/v1/site/hot` | 前端及精确代理受控验收通过；真实排名、证据、媒体及事件详情待后端实施 |
+| DOCK-008 | AI日报、刊期阅读与合订本 | `/daily`、`/daily/:key`、`/daily/archive` | 精确 `GET /api/bluepulse/site/reports/daily…` → FastAPI `/api/v1/site/reports/daily…` | 前端及精确代理受控验收通过；真实出刊／报告读取待后端实施 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -680,3 +681,141 @@ reports 可包含代表本身，前端展示时去掉 parentId；不以删除代
 前端签收覆盖：原组件清单逐项对照；0／1／2／3／10条及rank缺口；主卡封面／大曲线／少点三分支；全部趋势／徽标／空字段；六头像／余量／名单／首字降级；手机“怎么算”定位、吸顶、p0滚动、桌面／移动／reduced-motion；404／空榜／故障／无效数据／重试、截止／no-store／刷新／历史恢复／预取／晚到隔离。精选页、全部动态和共享导航做聚焦回归，受控服务结果不冒充真实后端联调。
 
 后端签收另测：可信源时间、独立主体及转载矩阵归一，重复采集不增热、48h边界／24h半衰、6h可比覆盖／unknown及所有徽标边界、公开代表／Fact选择、小时complete与补采修复；读取时撤回／合并／归组／释放／许可改变不泄漏旧文本或封面；主榜与内嵌条一致，sourceCount／participantCount／名单和图标排序语义一致；真实路径／字段／错误／缓存头、事件308链与alias。未完成这些迁移、规则和真实联调前，状态仍为“前端已预留，后端待实现”。
+
+## DOCK-008：AI日报、刊期阅读与合订本
+
+### 1. 功能与状态
+
+本条是后端制作时的**参考机制说明、提示词素材和查漏清单**，不是要求组员照单建表、复制SQL或采用固定调度框架。下文区分AIHOT源码事实、Pulse当前前端消费契约和警务领域建议；后端可以结合现有Python/FastAPI/SQLAlchemy自行设计内部实现。
+
+匿名阅读 `/daily` 最新刊、`/daily/:key` 指定日期和 `/daily/archive` 合订本。前端复用真实报纸组件、报眼Canvas、归档与目录，精确同源代理已预留；最终前端验收记录另列。没有改FastAPI、运行模型或采集，也没有真实出刊任务／报告模型／正式日报数据。首页FeaturedEdition六槽、普通日期筛选和热点榜都不能代替日报。
+
+周报／月报原切换保留，暂禁用并以原生title说明；不新增周月路由或对应后端任务。演示仅由 `?mock=1` 显式启用，沿用普通标题，不以假刊期替代缺失服务。
+
+### 2. AIHOT 源码证据
+
+2026-11-01直接重读D:/AIHOT下载快照，证据是静态源码，不是线上、数据库、worker或外部模型运行验收。
+
+| 原实现 | 复用内容／证据 | Pulse落点 |
+| --- | --- | --- |
+| `apps/web/app/routes/{report-latest,report-detail,daily-archive}.tsx` | 最新刊、日期详情、合订本及HTTP依赖 | `daily/DailyPage.tsx`与三个薄路由 |
+| `features/report/{ReportPaper,ReportLayout,ReportNav}.tsx` | Masthead、FrontPage、QuietFront、Story、Coverage、Related、Rows、SectionPage、Neighbours、归档月份／近期日期条 | `daily/`真实组件与`_paper.ts`纯版面投影 |
+| `features/report/{Halftone,IssueDots,Nameplate}.tsx`、`format.ts`及`site/brand/nameplates/` | 点阵日期、月份刊历、原SVG字形／viewBox、日期／编号／统计格式 | 同名组件、本地字形资源、局部样式；字体和出版者使用Pulse |
+| `components/ui/{OutlineSheet,Kicker,Tabs,Page}.tsx`、`shell/PhoneBar.tsx`、`app.css` | 目录／当前项、标签切换、空态、原字号／颜色／线条／圆角 | p0滚动根和既有Sheet／PillTabs／Badge／SourceAvatar适配 |
+| `packages/contracts/src/site.ts`、`apps/api/src/routes/site.ts` | ReportDetail／Citation／Index／LatestPage／Navigation及五组读取 | `daily/_types.ts`、校验／缓存和精确代理 |
+| `packages/backend/src/reports/edition.ts` | periodReports、dailyMemory、missedFacts、importance、dailyEdition、arrangeDaily、SECTION_ORDER | 下节选刊规则参考 |
+| `reports/{compose,correct}.ts`、`site/site.ts`、`apps/worker/src/schedules.ts` | composeDaily／dailyMetrics／saveReport／composeDueReports、分类订正、出刊时间及补刊 | 后端参考，未在Next读取时运行 |
+| `publication/{reports,scope,representative,coverage}.ts`、`events/hot.ts:currentSignals` | 当前公开引用、替补头条、封面、计数、独立参与方／权威与证据资格 | 统一发布与报告读取依赖 |
+
+实质复制保留MIT及 `Copyright (c) 2026 数字生命卡兹克`。原通用日报字形几何保持；不使用原站名称／Logo，也不因软件许可取得第三方新闻全文或图片权利。
+
+### 3. AIHOT 原始数据流与契约
+
+**日报不是在出刊时调用大模型拼一份总结。** `composeDaily` 从 `dailyEdition → arrangeDaily` 按规则编辑；模型承担上游预筛、双评分、结构化、理解、写作与事件归组。只有周／月汇总导读使用受限模型写作，本轮不实施。
+
+默认北京时间D日08:00出刊，窗口为前日08:00到当日08:00，左闭右开。`periodReports`以实际到达／确认释放的较晚者归刊，排除backfill；原timeline早于窗口开始24小时以上、直到窗口才释放的旧闻不纳入。跨截止释放归下一刊，不回填并重写已经出刊的日报。原PostgreSQL事务锁用于等待在途释放，不是要求Pulse照搬advisory lock。
+
+候选及编排流程：
+
+1. 已确认selected的公开报道按Fact聚合。`dailyMemory`读取D之前7个**自然日**内的已出刊记录，包含正文、快讯及related引用，保存文章／Fact键，并按当前归组追溯Story；不是“最后7期”，也不是只看旧头条。同一旧Fact／旧文章不因换标题或后续合并而重新当作新事实。
+2. 可补充被精选漏掉、但有官方报道且截止前至少3个独立参与方的Fact：窗口内存在公开editorial活动，非backfill，事件最早观察时间不早于窗口开始前24小时；无已选公开证据。只计有效证据，不把综合稿mention当作独立发生。补入日报不会自动使文章入精选或触发推送。
+3. 同Story只留一个正文候选；先取报道来源最多的Fact，再按最早时间／稳定键；该Fact内部用 `pickRepresentative` 选代表：T1、已核实可代表本事件主体的机构／个人、许可全文、分数、早时间和稳定ID。其他Fact的代表列为related。T1的firstParty与权威优先级<3不是同一口径，不能用来源名含“官方”猜测。
+4. 重要性为 `score + 5 * log2(1 + participants) + (official ? 5 : 0) - (followUp ? 6 : 0)`。score由代表与已精选报道得分合并取最高；该调用处会把空分数按0处理，不应把importance函数自身的空值默认50误认为所有未评分事件自动得50。participants是本刊窗口内 `currentSignals` 归一后的独立参与方，未归Story时回退该条来源集合大小。**不是热点榜48小时／24小时半衰热度值，也不按热点rank直接排日报。**
+5. 同主体官号／媒体矩阵／同厂商渠道按currentSignals现有owner／signal_group等身份归一；撤回、isolated、人工standalone及不再构成事件证据的信号不计。日内参与方计数、Fact来源集合和原始文章数不能互相代换，转载链和采购镜像应领域配置。
+6. 综合稿折叠到其提到的本期最高重要性事件下，合并来源集合和related。报道过的Story有新Fact时标followUp：当事方的新动作（权威优先级<3且非commentary）或至少4个来源报道才争取正文，其他为快讯；**整天只有不满足该门槛的跟进时，仍放行正文**，随后仍受容量和每源限制。
+7. 主体按重要性降序、稳定文章ID打破同分，最多12条正文、同一代表来源最多2条；剩余最多10条快讯。第一条正文为头条，随后最多3条为今日看点。正文按行业分类的section顺序分组，组内保留入选顺序；没有各栏目单独过“热度阈值”的规则。
+
+后端先删除没有正文条目的栏目。前端 `pagesOf` 再把仍公开的头条移出正文，按itemId（无ID按title）跨栏去重，去掉变空的版面；正文、头版目录、目录抽屉和快讯使用过滤后的连续01／02…编号。锚点保留原section位置的s-N，即使首个可见版面锚点为s-2，显示编号仍从01开始。只剩头条不等于平静日报；撤回引用保留划线题名及原下架说明。
+
+没有候选且窗口内没有完成评分的公开报道时，原composeDaily抛错等待补刊，不能假称“今日平静”。已经完成判断但无新大事才写平静日报，使用窗口导语、无统计带／看点／版面。原调度每半小时补到期缺刊，每轮最多8期，某期失败不阻止其他期；已有刊默认不重写，显式重生须理由与旧版本快照。人工分类订正移动冻结条目、重排空栏并审计，不重新付费写整刊。
+
+已出刊引用在读取时重新核对listed／释放／撤回。不可公开时不发送摘要、来源链接及头像；头条失效由公开读取层选下一合法候选及其自己的文案，不让前端自行从热门榜挑替代。旧导读和封面不得成为撤回绕行。原导入旧刊中数据库不存在的历史引用有保留规则，Pulse应结合数据保留／删除语义明确处理，不把“找不到”随意解释为当前可公开。
+
+### 4. Pulse 建议及差异
+
+前端保持菜单“AI日报”和原报纸结构，出版者PULSE、内容改警务科技。净容器1240px才开启280px往期栏及正文80px横向内边距；更窄使用原近期日期条／目录。桌面与移动原条件字段都保留，不新增热度分值胶囊、生成状态说明行或补选徽标。
+
+建议七类映射顺序为 `product`产品发布与更新、`practice`警务实战应用、`paper`论文研究进展、`law`法制政策动态、`embodied`具身智能装备、`public-opinion`舆情治理观察、`low-altitude`低空警务应用。前端直接消费sections，不按关键词猜类或补空栏。AIHOT的DEFAULT_SECTION会回退industry或最后一栏；**不可机械回退到Pulse最后的低空栏目**，未分类处置和commentary语义应由组员明确。采购公告／研究方法／部署成效、官方新动作／评论文章需要警务语料校准。
+
+建议后端依赖阶段B/D/E后实现独立Report／刊期／冻结引用／修订流水，保留现有UUID和Python栈。Article—Fact—Story、证据角色、确认精选、可信时间和发布许可未具备前，不用articles按日截取、六槽快照或模型临时回答伪造出刊。模型付费结果及人工覆盖仍遵循已有版本／回执机制，不在匿名读取接口发起任务。
+
+指标由后端给出：totalEvents为正文事件数（含头条，不含快讯），sourcesCount为正文及其related实际引用的来源去重，不是otherSources之和或参与方热度；firstPartyEvents原按T1 firstParty统计，公开读取会按当前引用重算部分指标。原modelsReleased依行业RELEASE分类／tag定义且只统计新官方发布；Pulse七类未定义对应RELEASE，当前不显示“新模型数”，不能凭标题或正文数量补出。若后续需要领域发布数，由组员定义分类／tag和统计口径再扩展配置，metrics仍保留原Record形状。
+
+封面由仍公开、非summary-only的头条报道或同Story其他报道供图，原优先首张宽至少480px图、代表优先／一手／分数／稳定ID；通过安全媒体代理提供srcSet和尺寸。前端保留横图／较方图排法和坏图移除，不用任意外链抓图填槽。readingMinutes按后端原冻结文本估计，不在前端按可见卡片数计算。
+
+### 5. 请求响应示例
+
+以下浏览器同源路径均精确代理到FastAPI `/api/v1/site/reports/daily` 同后缀，只读且无需账号：
+
+| 方法／后缀 | 响应及消费 |
+| --- | --- |
+| GET `/latest-page` | `{index: ReportNavigationEntry[], report: ReportDetail\|null}`；一请求获取最新刊和导航。无正式刊为report=null，不造当日刊 |
+| GET 空后缀 | `{kind:"daily", items:ReportIndexEntry[]}`；完整合订本元数据，原最多400期，不含全文摘要 |
+| GET `/:key` | 指定YYYY-MM-DD的ReportDetail；日期无刊404，不换成最新刊 |
+| GET `/navigation/:key` | `{items:ReportNavigationEntry[]}`；所有日期／全系列issueNumber，部分标题按需省略 |
+| GET `/months/:month` | `{items:ReportNavigationEntry[]}`；YYYY-MM月份的已知标题列表 |
+
+导航例：`{"items":[{"key":"2026-11-01","issueNumber":401,"title":null},{"key":"2026-09-30","issueNumber":370}]}`。null是已知无标题；缺少title属性才表示尚未加载标题。闭合旧月省略全文标题，展开时请求months；不可把undefined全补null而失去该交互。issueNumber由服务端按整个系列排序计算，不是当前最多400项索引长度；前后期跳过无刊日期，不能简单加减一天。订正／删除／补刊可能影响后续编号。
+
+ReportDetail必需完整返回：
+
+```json
+{
+  "kind":"daily", "key":"2026-11-01", "issueNumber":401,
+  "title":"AI日报 · 2026-11-01", "generatedAt":"2026-11-01T00:00:00Z",
+  "lead":{"title":"警务科技公开进展示例","leadParagraph":"仅示意字段形状，不是正式新闻。"},
+  "leadItemId":"00000000-0000-4000-8000-000000000001", "overview":null,
+  "highlights":[],
+  "sections":[{"label":"警务实战应用","summary":null,"items":[{
+    "itemId":"00000000-0000-4000-8000-000000000001",
+    "title":"警务科技公开进展示例", "summary":"原已编辑摘要。",
+    "sourceName":"示例公开来源", "sourceUrl":"https://example.com/report",
+    "sourceIconUrl":null, "firstParty":true, "publishedAt":"2026-10-31T04:00:00Z",
+    "available":true, "otherSources":3, "followUp":"2026-10-29", "related":[]
+  }]}],
+  "flashes":[], "cover":null,
+  "metrics":{"totalEvents":1,"sourcesCount":1,"firstPartyEvents":1},
+  "readingMinutes":1, "prev":"2026-10-31", "next":null
+}
+```
+
+| 字段 | 语义与呈现 |
+| --- | --- |
+| lead／leadItemId | lead可null；leadParagraph字符串；公开头条ID可null，指向sections中的原引用，不能拿Story ID替代文章UUID |
+| highlights／sections／flashes | 完整数组，可空；sections每项label、可空summary、items数组。原日报summary固定null，仍保留导读条件分支兼容契约 |
+| ReportCitation基础 | itemId／summary／sourceIconUrl／publishedAt可null；title、sourceName、sourceUrl字符串；firstParty／available明确布尔，不能靠缺正文猜许可 |
+| otherSources | 可省略的非负数量，原存储sources大于1时减去代表来源；与热度participants不同，前端不按related长度推算 |
+| related／followUp | 可省略；related是同形引用数组，前端最多显示4条标题，不要求后端截断完整记录；followUp为先前日报日期，驱动原“跟进”及title提示 |
+| sourceIconSrcSet | 可省略字符串，来源图标经安全媒体代理；无头像保留原首字降级 |
+| cover | null或`{url,srcSet?,width:number\|null,height:number\|null,caption:string\|null}`；caption原日报通常null，保留条件支路 |
+| metrics／readingMinutes | 真实指标记录与正整数阅读分钟；无值不伪造0，平静刊统计带依原条件隐藏 |
+| prev／next | 可空已存在刊期日期；导航标题可缺省时使用原日期回退，不据此改刊号 |
+
+ReportIndexEntry为 `{key,issueNumber,title:string|null,count:number}`；ReportNavigationEntry仅key／issueNumber必需，title和count可省略。正常文章链接为 `/articles/:UUID`。本地演示入口 `/daily?mock=1`、`/daily/archive?mock=1` 和已列出日期详情；复用已有演示文章阅读，不授予真实全文许可。
+
+### 6. 缓存和异常
+
+原API索引／latest／navigation／month为60秒，详情120秒并有ETag；原Web cachedPage最新600秒、详情3600秒、合订本600秒，不能照搬成新的内容寿命。Pulse单document页面／月份共用最多16项缓存，最新／索引／月份上限60秒、详情读取120秒，详情与navigation整页组合取两者最早截止（通常因此不超过60秒）。共享responseDeadline新增可选本地上限，既有其他模块仍默认60秒。
+
+遵守上游Cache-Control／X-Accel-Expires／Date／Age，禁止缓存或失败不复用；预取和进入共享请求，不因进入或返回续命。主动刷新／重试强制新取，晚到结果不覆盖新路由。月份元数据也有截止，关闭后再展开不能永久复用旧标题。30分钟只恢复p0位置／锚点，不缓存整份日报绕过撤回。当前代理未实现端到端ETag条件请求／304复用，不因原接口有ETag就宣称已完成。
+
+| 情况 | 当前前端处理 |
+| --- | --- |
+| 最新刊200且report=null | 原“还没有发布…”与第一期提示；不是服务缺失或平静刊 |
+| 200平静刊 | 原QuietFront，保留真实窗口导语；无虚假正文／看点／统计 |
+| latest／导航404 | 日报服务尚未接入，可重试，不缓存为空刊 |
+| 指定详情404、导航已成功 | 该日期没有已发布日报，不替换成其他日期 |
+| 详情和导航均404 | 一致显示未接入，先确认导航可用才判缺刊，不让响应竞态决定状态 |
+| 503／504、断网、非法JSON／字段 | 日报暂时无法载入，可重试，不回退Mock或当天文章 |
+| 旧月标题读取失败 | 保留原日期链接／回退标题，不捏造标题或额外错误组件 |
+| cover加载失败／无图 | 原移除封面分支，继续显示头条；无头像用原首字 |
+
+代理上游6秒、前端读取12秒；缺刊／非法日期不触发生成。generatedAt是业务生成时间，不是请求时间或缓存截止。后端仍需统一报告索引／详情／分享／媒体的撤回失效，前端TTL不证明生产许可链完成。
+
+### 7. 验收条件与变更记录
+
+2026-11-01建立DOCK-008：直接核对原日报前端、契约、API及edition／compose／correct／public-read源码，完成前端适配及接口参考。lint／生产构建、38项相关逻辑和22组聚焦浏览器检查通过，独立源码与质量复审通过，详见[日报专项验收](docs/pulse-daily-verification-2026-11-01.md)；此处不标记真实后端或联调完成。
+
+前端核查：全部原组件／条件字段，头条单独存在、跨栏重复、空栏顺延、快讯编号、原跟进／一手／来源数／related、撤回、封面分支与失败、月标题缺省与null、刊号超过索引长度、日期直达／缺刊、原目录／吸顶／p0滚动／历史位置、桌面／宽版／移动／reduced-motion、预取／刷新／重试／最早截止／no-store／晚到隔离。
+
+后端可参考的测试清单：24h刊期边界与晚释放、回灌与旧闻；前7自然日去重及合并／重归组；独立主体／转载矩阵、官方补选及不影响精选；代表权威与最高分；跟进正文门槛／全跟进放行／commentary；综合稿折叠、每源2／正文12／快讯10、同分稳定、空栏目；无评判失败与真平静、停机补刊／并发幂等／失败继续、已出刊不自动重写／人工订正与修订审计；所有读取重核撤回／释放／封面许可、统计口径、400期导航和按月标题、当前版权／媒体状态。实际迁移、任务、HTTP与真实业务联调均由后端后续交付。

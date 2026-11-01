@@ -1,2 +1,3 @@
-import { SectionLanding } from "../_components/home/SectionLanding";
-export default function DailyPage() { return <SectionLanding path="/daily" />; }
+import { DailyPage } from "./DailyPage";
+export const metadata = { title: "AI日报 · Pulse" };
+export default function Page() { return <DailyPage />; }
