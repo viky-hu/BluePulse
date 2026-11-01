@@ -177,7 +177,7 @@ try {
   await fast.reload(); await ready(fast); assert.equal(await fast.locator('[data-all-status="error"]').getByRole("alert").count(), 1);
   taxonomyFail = false;
   check("taxonomy service failure is an error rather than unregistered or empty classification");
-  await goto(fast, "/all?mock=1"); assert.equal(await fast.getByRole("heading", { name: "全部动态（演示）", exact: true }).count(), 1);
+  await goto(fast, "/all?mock=1"); assert.equal(await fast.getByRole("heading", { name: "全部动态", exact: true }).count(), 1);
   await cards(fast).first().locator("h3 a").click(); await fast.waitForURL(url => url.pathname.startsWith("/articles/")); await ready(fast, new URL(fast.url()).pathname);
   assert.ok((await paper(fast).innerText()).includes("演示数据"));
   check("explicit mock data and its detail route are labeled and isolated");

@@ -55,7 +55,7 @@ export function AllFeed() {
   const visible = feed.status === "loading" ? loaded.previous ?? (loaded.feed.status === "ready" ? loaded.feed : feed) : feed;
   return <div className={styles.page} data-all-status={feed.status}>
     <RouteReady ready={feed.status !== "loading"} />
-    <header className={styles.header}><h1>{filters.q ? `搜索“${filters.q}”` : "全部动态"}{shell.mock ? "（演示）" : ""}</h1></header>
+    <header className={styles.header}><h1>{filters.q ? `搜索“${filters.q}”` : "全部动态"}</h1></header>
     <AllToolbar filters={filters} />
     <div className={styles.results} data-feed-busy={feed.status === "loading"}>
       {feed.status === "error" && <div className={styles.emptyCard} role="alert"><EmptyState title="资讯暂时无法载入" action={route.cursor ? <Link href={firstHref}>返回第一页</Link> : <button type="button" onClick={retryFeed}>重试</button>}>{feed.error}</EmptyState></div>}

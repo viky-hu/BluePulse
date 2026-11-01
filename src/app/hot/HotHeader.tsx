@@ -12,7 +12,7 @@ function showMethod() {
   method.open = true;
   method.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
 }
-export function HotHeader({ hot, mock }: { hot: HotResponse | null; mock: boolean }) {
+export function HotHeader({ hot }: { hot: HotResponse | null }) {
   const bar = useRef<HTMLElement>(null), heading = useRef<HTMLHeadingElement>(null);
   const [scrolled, setScrolled] = useState(false), [under, setUnder] = useState(false);
   useEffect(() => {
@@ -28,7 +28,7 @@ export function HotHeader({ hot, mock }: { hot: HotResponse | null; mock: boolea
     const resize = new ResizeObserver(schedule); resize.observe(scroller);
     return () => { scroller.removeEventListener("scroll", schedule); resize.disconnect(); cancelAnimationFrame(frame); };
   }, []);
-  const title = `热点榜${mock ? "（演示）" : ""}`;
+  const title = "热点榜";
   const description = `过去 ${hot?.windowHours ?? 48} 小时，智慧警务科技领域讨论最多的 ${hot?.entries.length || 10} 件事`;
   return <>
     <header ref={bar} className={styles.phoneBar} data-scrolled={scrolled}>

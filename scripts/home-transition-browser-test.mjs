@@ -14,7 +14,7 @@ const origin = `http://127.0.0.1:${port}`;
 const artifactDir = "test-results/pulse-sidebar";
 const starredKey = "blue-pulse-starred-items-v1", enteredKey = "blue-pulse-entry-complete-v1";
 const first = MOCK_HOME_DATA.articles[0];
-const menuPages = [["/all", "全部动态（演示）"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/starred", "收藏"], ["/agent", "Agent 接入"], ["/about", /国内外警务科技每天都有新动静/], ["/changelog", "更新日志"], ["/feedback", "说说你的想法"]];
+const menuPages = [["/all", "全部动态"], ["/hot", "热点榜"], ["/daily", "AI日报"], ["/starred", "收藏"], ["/agent", "Agent 接入"], ["/about", /国内外警务科技每天都有新动静/], ["/changelog", "更新日志"], ["/feedback", "说说你的想法"]];
 const feedQueries = [];
 let articleOnline = true, availabilityOnline = true, feedRequests = 0, detailRequests = 0;
 const withdrawn = new Set();

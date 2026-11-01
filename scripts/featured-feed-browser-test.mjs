@@ -157,7 +157,7 @@ try {
       const proxyResponse = await page.request.get(`${origin}/api/bluepulse/site/groups/group-1/reports?topic=paper`); assert.equal(proxyResponse.headers()["cache-control"], "no-store");
       assert.equal((await page.request.get(`${origin}/api/bluepulse/site/groups/bad.id/reports`)).status(), 404);
       await goto(page); await page.locator('a[href="/story/event-1"]').click(); await ready(page, "/story/event-1"); assert.ok(await page.getByText("事件详情正在建设中", { exact: false }).isVisible()); assert.equal(await page.locator('aside a[href="/hot"]').getAttribute("aria-current"), "page"); check("desktop: proxy whitelist and no-store groups, original story destination");
-      await goto(page, "/?mock=1"); assert.equal(await page.locator("h1").textContent(), "精选（演示）"); assert.equal(await news(page).first().getByRole("button", { name: "收藏", exact: true }).isVisible(), true); check("desktop: explicit demo and local state stay separate from live");
+      await goto(page, "/?mock=1"); assert.equal(await page.locator("h1").textContent(), "精选"); assert.equal(await news(page).first().getByRole("button", { name: "收藏", exact: true }).isVisible(), true); check("desktop: explicit demo and local state stay separate from live");
       mode = "nostore"; await goto(page); await menu(page, "/hot"); const old = requests.filter(r => r.path === "/api/v1/site/timeline").length; await page.goBack(); await ready(page); assert.ok(requests.filter(r => r.path === "/api/v1/site/timeline").length > old); mode = "ready"; check("desktop: no-store data cannot be revived from history snapshot");
     }
     await context.close();

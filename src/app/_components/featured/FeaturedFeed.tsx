@@ -86,7 +86,7 @@ export function FeaturedFeed() {
   const filters = { ...route.filters, period: "all" as const };
   return <div className={styles.page} data-featured-status={feed.status}>
     <RouteReady ready={feed.status !== "loading"} />
-    <header className={styles.header}><h1>精选{shell.mock ? "（演示）" : ""}</h1></header>
+    <header className={styles.header}><h1>精选</h1></header>
     <FeedToolbar filters={filters} base="/" />
     <div className={styles.results} data-feed-busy={feed.status === "loading"}>
       {(feed.status === "error" || feed.status === "unavailable") && <div role="alert">{state(feed.status === "unavailable" ? "精选服务尚未接入" : "精选暂时无法载入", feed.status === "unavailable" ? "精选时间线服务尚未接入。" : feed.error ?? "请稍后重试。", <button type="button" onClick={retryFeed}>重试</button>)}</div>}

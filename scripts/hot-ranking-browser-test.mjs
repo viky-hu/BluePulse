@@ -94,8 +94,8 @@ try {
       assert.equal(await page.locator('[class*="live"] i').evaluate(el => getComputedStyle(el).animationName), "none");
       check("reduced: static live marker retains reading and controls");
     }
-    await goto(page, "/hot?mock=1"); assert.ok(await page.getByRole("heading", { level: 1, name: "热点榜（演示）", exact: true }).isVisible()); assert.equal(await cards(page).count(), 10);
-    check(`${spec.name}: explicit police demo uses the original title without extra explanation rows`);
+    await goto(page, "/hot?mock=1"); assert.ok(await page.getByRole("heading", { level: 1, name: "热点榜", exact: true }).isVisible()); assert.equal(await cards(page).count(), 10);
+    check(`${spec.name}: explicit police demo keeps the plain page title without extra explanation rows`);
     if (spec.name === "desktop") {
       reset();
       for (const n of [0, 1, 2, 3]) {

@@ -32,7 +32,7 @@ export function HotPage() {
   const retryHot = () => { invalidateHot(shell.routeKey, shell.mock); setRetry(value => value + 1); };
   return <div className={styles.page} data-hot-status={data.status}>
     <RouteReady ready={data.status !== "loading"} />
-    <HotHeader hot={hot} mock={shell.mock} />
+    <HotHeader hot={hot} />
     {(data.status === "error" || data.status === "unavailable") && <div className={`${styles.card} ${styles.emptyCard}`} role="alert"><div className={styles.empty}><div>{data.status === "unavailable" ? "热点榜服务尚未接入" : "热点榜暂时无法载入"}</div><p>{data.error}</p><button type="button" onClick={retryHot}>重试</button></div></div>}
     {data.status === "ready" && (!lead ? <div className={`${styles.card} ${styles.emptyCard}`}><div className={styles.empty}><div>暂时没有热点</div><p>还没有足够多来源共同讨论的事件。</p></div></div> : <>
       <section aria-label="热度前三" className={styles.topThree}><div className={styles.leadSlot}><Lead e={lead} /></div>{runners.map(e => <div className={styles.runnerSlot} key={e.story.publicId}><Runner e={e} /></div>)}</section>
