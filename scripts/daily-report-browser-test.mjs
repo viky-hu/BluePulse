@@ -8,7 +8,7 @@ import { MOCK_REPORT, MOCK_REPORT_INDEX, mockDailyNavigation } from '../src/app/
 const { chromium } = await import(pathToFileURL(process.env.PULSE_PLAYWRIGHT_MODULE ?? 'C:/Users/Admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs').href);
 const port = Number(process.env.PULSE_DAILY_PORT ?? 3230), origin = `http://127.0.0.1:${port}`, artifacts = 'test-results/daily-report';
 let payload = structuredClone(MOCK_REPORT), mode = 'ready', policy = 'public, max-age=60', age = null, delay = 0;
-const requests = [], checks = [], errors = [];
+const requests = [], checks = [], errors = [], layouts = [];
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
 const reset = () => { payload = structuredClone(MOCK_REPORT); mode = 'ready'; policy = 'public, max-age=60'; age = null; delay = 0; };
 const api = createServer(async (req,res) => {
@@ -40,7 +40,7 @@ async function settledCanvas(page) { await page.evaluate(()=>document.fonts.read
 try {
   await mkdir(artifacts,{recursive:true});for(let i=0;i<100;i++){try{if((await fetch(`${origin}/daily`)).ok)break;}catch{}if(i===99)throw Error(log);await new Promise(resolve=>setTimeout(resolve,100));}
   browser=await chromium.launch({headless:true});
-  for(const spec of [{name:'desktop',viewport:{width:1440,height:900}},{name:'wide',viewport:{width:1920,height:1080}},{name:'mobile',viewport:{width:390,height:844}},{name:'reduced',viewport:{width:1440,height:900},reducedMotion:'reduce'}]) {
+  for(const spec of [{name:'desktop',viewport:{width:1440,height:900}},{name:'narrow-desktop',viewport:{width:1180,height:820}},{name:'wide',viewport:{width:1920,height:1080}},{name:'mobile',viewport:{width:390,height:844}},{name:'reduced',viewport:{width:1440,height:900},reducedMotion:'reduce'}]) {
     if(process.env.PULSE_DAILY_CASE && process.env.PULSE_DAILY_CASE!==spec.name)continue;
     reset();const context=await browser.newContext({viewport:spec.viewport,reducedMotion:spec.reducedMotion??'no-preference'});await context.addInitScript(()=>{localStorage.setItem('blue-pulse-entry-complete-v1','1');localStorage.setItem('blue-pulse-entry-complete-v1:mock','1');});
     const page=await context.newPage();page.on('pageerror',error=>errors.push(`${spec.name}: ${error.message}`));
@@ -52,16 +52,22 @@ try {
     for(const text of ['头条','今日看点','本期版面','一手','跟进','另有 2 家信源报道','（本期完）'])assert.ok(await page.getByText(text,{exact:true}).count(),text);
     assert.equal(await paper(page).evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);
     if(spec.name==='mobile') assert.ok((await page.locator('#report-start > svg').boundingBox()).height >= 43, 'phone nameplate must keep its readable original 44px scene');
-    const isArchiveVisible=await page.getByRole('navigation',{name:'日报历史',exact:true}).isVisible();assert.equal(isArchiveVisible,spec.name==='wide');
+    const isArchiveVisible=await page.getByRole('navigation',{name:'日报历史',exact:true}).isVisible();assert.equal(isArchiveVisible,spec.name!=='mobile');
     const switcher=page.getByRole('navigation',{name:'切换日报、周报、月报'}).filter({visible:true});
     assert.equal(await switcher.getByRole('tab',{name:'周报',exact:true}).isDisabled(),true);assert.equal(await switcher.getByRole('tab',{name:'月报',exact:true}).isDisabled(),true);
     await page.screenshot({path:`${artifacts}/${spec.name}.png`});
     check(`${spec.name}: complete paper, metadata, seven pages/flash, original switch and no overflow`);
-    if(spec.name==='wide') {
+    if(spec.name!=='mobile') {
       const september=page.getByRole('navigation',{name:'日报历史'}).locator('details').filter({hasText:'2026 年 9 月'});const before=count('/months/2026-09');
       await september.locator('summary').click();await september.getByText(MOCK_REPORT_INDEX.at(-1).title,{exact:true}).waitFor();assert.equal(count('/months/2026-09'),before+1);
-      const side=page.getByRole('navigation',{name:'日报历史'}).locator('..');const size=await side.boundingBox();assert.ok(Math.abs(size.width-280)<1);
-      check('wide: original 280px archive and missing-title month fetch');
+      const side=page.getByRole('navigation',{name:'日报历史'}).locator('..');const size=await side.boundingBox(), frame=await page.locator('[data-p0-content]').boundingBox(), content=await page.locator('[data-daily-status] article').first().boundingBox();
+      assert.ok(size.width>=175&&size.width<=241);assert.ok(Math.abs(size.x-frame.x)<2,'desktop archive must use the existing blank left gutter');assert.equal(await page.locator('[data-phone-bar]').isVisible(),false);
+      const rightGutter=frame.x+frame.width-content.x-content.width;assert.ok(rightGutter>=15&&rightGutter<=33,'report must fill the available right paper with only its own gutter');
+      await paper(page).evaluate(el=>{el.scrollTop=450;});await page.waitForTimeout(40);assert.ok(Math.abs((await side.boundingBox()).y-(await paper(page).boundingBox()).y)<2,'archive sticks to p0, not the window');
+      const beforeHistory=await page.evaluate(()=>history.length);await page.getByRole('navigation',{name:'本期版面',exact:true}).getByRole('link',{name:/低空警务应用/}).click();assert.equal(await page.evaluate(()=>history.length),beforeHistory);assert.equal(await page.evaluate(()=>location.hash),'#s-7');
+      await page.waitForFunction(()=>{const el=document.querySelector('[data-p0-scroller]'),offset=document.querySelector('#s-7').getBoundingClientRect().top-el.getBoundingClientRect().top;return Math.abs(offset-24)<3||(offset>=24&&offset<el.clientHeight&&el.scrollHeight-el.clientHeight-el.scrollTop<2);});
+      layouts.push({profile:spec.name,paperWidth:frame.width,archiveWidth:size.width,reportWidth:content.width,rightGutter,headlineSize:await page.locator('section[aria-label="头版"] h2').evaluate(el=>getComputedStyle(el).fontSize)});
+      check(`${spec.name}: compact left archive fills the paper, sticks to p0, anchors and month fetch`);
     } else {
       await paper(page).evaluate(el=>{el.scrollTop=450;});const bar=page.locator('[data-phone-bar]');assert.ok(Math.abs((await bar.boundingBox()).y-(await paper(page).boundingBox()).y)<2);
       const before=await page.evaluate(()=>history.length);await page.getByRole('button',{name:'本期目录',exact:true}).click();const sheet=page.getByRole('dialog',{name:'本期目录'});await sheet.waitFor();
@@ -109,5 +115,5 @@ try {
     check('original citation opens the existing reader and back restores its paper position');
     await context.close();
   }
-  assert.deepEqual(errors,[]);await writeFile(`${artifacts}/results.json`,JSON.stringify({checks,errors},null,2));console.log(`${checks.length} focused checks passed`);
+  assert.deepEqual(errors,[]);await writeFile(`${artifacts}/results.json`,JSON.stringify({checks,errors,layouts},null,2));console.log(`${checks.length} focused checks passed`);
 } finally { await browser?.close();server.kill();await new Promise(resolve=>api.close(resolve)); }

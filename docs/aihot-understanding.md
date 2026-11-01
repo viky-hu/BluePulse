@@ -1,6 +1,6 @@
 # AIHOT 源码研究与 Pulse 移植依据
 
-2026-11-01 日报补充：再次直接阅读D:/AIHOT的report-latest／report-detail／daily-archive、features/report全部组件、OutlineSheet／PhoneBar／Kicker／Tabs及原样式，核对contracts、API、edition／compose／correct／publication reports和currentSignals。Pulse新增日报三路由、完整纸面／刊历／归档／目录及五组精确读取，按p0净容器1240px适配往期栏，保留原字段及条件分支；后端和正式刊期尚未实现。详见[dock.md DOCK-008](../dock.md#dock-008ai日报刊期阅读与合订本)。
+2026-11-01 日报补充：再次直接阅读D:/AIHOT的report-latest／report-detail／daily-archive、features/report全部组件、OutlineSheet／PhoneBar／Kicker／Tabs及原样式，核对contracts、API、edition／compose／correct／publication reports和currentSignals。Pulse新增日报三路由、完整纸面／刊历／归档／目录及五组精确读取，保留原字段及条件分支。同日按后续桌面要求取消原1240px往期栏门槛，电脑窗口保留176–240px左栏、收回日报外围留白并按正文实际宽度排版；移动行为沿用。后端和正式刊期尚未实现。详见[dock.md DOCK-008](../dock.md#dock-008ai日报刊期阅读与合订本)。
 
 本次明确的源码细节：日报在出刊时不调用模型、不按热榜rank排版；importance使用日内独立参与方，空栏目不是独立热度门槛。dailyMemory是前7个自然日而非最后7期，包含快讯／related并追溯当前归组；全是跟进时仍保留正文。后端先滤空组，前端再移出头条／跨栏去重／滤空并连续编号；只剩头条不是quiet。导航title缺省与null、全系列issueNumber与最多400条索引、撤回后公开头条替补／封面许可均分别保留。静态核查和前端受控验证不代表后端出刊或真实业务联调完成。
 

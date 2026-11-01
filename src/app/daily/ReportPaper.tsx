@@ -25,6 +25,7 @@ import { Halftone } from "./Halftone";
 import { Nameplate } from "./Nameplate";
 import { IssueDots } from "./IssueDots";
 import { monthDay } from "./_time";
+import styles from "./daily.module.css";
 import { EDITION, KIND_LABEL, MOTTO, dateLine, dateMark, headline, metricItems, neighbourLabel, reportPath, shortDay } from "./format";
 
 import { pad, keyOf, anchorOf, leadStoryOf, pagesOf, type ReportPage as Page } from "./_paper";
@@ -188,7 +189,7 @@ export function Rows<T>({ items, children }: { items: T[]; children: (item: T, c
   const rows: T[][] = [];
   for (let i = 0; i < items.length; i += 2) rows.push(items.slice(i, i + 2));
   return (
-    <div>
+    <div className={styles.rows}>
       {rows.map((row, r) => (
         <div key={r} className="grid border-b border-line @[760px]:grid-cols-2">
           {row.map((item, i) => children(item, i === 0 ? "@[760px]:pr-10 @[1040px]:pr-12" : "border-t border-line @[760px]:border-l @[760px]:border-t-0 @[760px]:pl-10 @[1040px]:pl-12"))}
@@ -247,12 +248,12 @@ function FrontPage({ report, pages, leadStory, count }: { report: ReportDetail; 
   const index = [...pages.map((p) => ({ id: p.id, label: p.label, n: `${p.items.length} 件` })), ...(report.flashes.length > 0 ? [{ id: "s-flash", label: "快讯", n: `${report.flashes.length} 条` }] : [])];
 
   return (
-    <section aria-label="头版" className="grid @[880px]:grid-cols-[minmax(0,1fr)_300px] @[1040px]:grid-cols-[minmax(0,1fr)_340px]">
+    <section aria-label="头版" className={`${styles.frontPage} grid @[880px]:grid-cols-[minmax(0,1fr)_300px] @[1040px]:grid-cols-[minmax(0,1fr)_340px]`}>
       {/* On a phone the headline comes before a landscape picture, so the first screen carries the news. */}
-      <div id={leadStory ? (anchorOf(leadStory) ?? undefined) : undefined} className="flex min-w-0 scroll-mt-[calc(var(--bar-h)+1.5rem)] flex-col py-7 @[880px]:border-r @[880px]:border-line @[880px]:py-10 @[880px]:pr-10">
+      <div id={leadStory ? (anchorOf(leadStory) ?? undefined) : undefined} className={`${styles.frontLead} flex min-w-0 scroll-mt-[calc(var(--bar-h)+1.5rem)] flex-col py-7 @[880px]:border-r @[880px]:border-line @[880px]:py-10 @[880px]:pr-10`}>
         <Kicker>{byEvent ? "头条" : "本期导读"}</Kicker>
         {cover && wide && <LeadPicture cover={cover} onError={() => setBroken(cover.url)} priority className="order-2 mt-5 @[560px]:order-1" />}
-        <h2 className="order-1 mt-4 text-[32px] font-black leading-[1.28] tracking-[-0.03em] text-ink [text-wrap:balance] @[520px]:text-[40px] @[560px]:order-2 @[1040px]:text-[48px] @[1040px]:leading-[1.22]">
+        <h2 className={`${styles.frontTitle} order-1 mt-4 text-[32px] font-black leading-[1.28] tracking-[-0.03em] text-ink [text-wrap:balance] @[520px]:text-[40px] @[560px]:order-2 @[1040px]:text-[48px] @[1040px]:leading-[1.22]`}>
           {leadStory?.itemId ? (
             <IntentLink viewTransition to={`/articles/${leadStory.itemId}`} className="transition-colors hover:text-accent">
               {title}
@@ -263,7 +264,7 @@ function FrontPage({ report, pages, leadStory, count }: { report: ReportDetail; 
         </h2>
         {dek && (
           <div className={cover && !wide ? "order-3 mt-6 grid gap-6 @[640px]:grid-cols-[minmax(0,1fr)_minmax(0,38%)] @[880px]:mt-7" : "order-3"}>
-            <p className={`text-[16.5px] leading-[1.9] text-ink-2 @[880px]:text-[17.5px] ${cover && !wide ? "" : "mt-6 @[560px]:text-justify @[880px]:mt-7"}`}>{dek}</p>
+            <p className={`${styles.frontParagraph} text-[16.5px] leading-[1.9] text-ink-2 @[880px]:text-[17.5px] ${cover && !wide ? "" : "mt-6 @[560px]:text-justify @[880px]:mt-7"}`}>{dek}</p>
             {cover && !wide && <LeadPicture cover={cover} onError={() => setBroken(cover.url)} />}
           </div>
         )}
@@ -277,7 +278,7 @@ function FrontPage({ report, pages, leadStory, count }: { report: ReportDetail; 
         {!!leadStory?.related?.length && <Related items={leadStory.related} className="order-5 mt-5 border-t border-line pt-4" />}
       </div>
 
-      <aside className="min-w-0 border-t border-line py-7 @[880px]:border-t-0 @[880px]:py-10 @[880px]:pl-8">
+      <aside className={`${styles.frontAside} min-w-0 border-t border-line py-7 @[880px]:border-t-0 @[880px]:py-10 @[880px]:pl-8`}>
         {highlights.length > 0 && (
           <>
             <Kicker>{period}看点</Kicker>
@@ -340,10 +341,10 @@ function QuietFront({ lead }: { lead: NonNullable<ReportDetail["lead"]> }) {
   return (
     <section aria-label="头版" className="pt-10 @[880px]:pt-16">
       <Kicker>头版</Kicker>
-      <h2 className="mt-4 text-[32px] font-black leading-[1.28] tracking-[-0.03em] text-ink [text-wrap:balance] @[520px]:text-[40px] @[1040px]:text-[48px] @[1040px]:leading-[1.22]">
+      <h2 className={`${styles.frontTitle} mt-4 text-[32px] font-black leading-[1.28] tracking-[-0.03em] text-ink [text-wrap:balance] @[520px]:text-[40px] @[1040px]:text-[48px] @[1040px]:leading-[1.22]`}>
         {lead.title}
       </h2>
-      {lead.leadParagraph && <p className="mt-6 max-w-[46em] text-[16.5px] leading-[1.9] text-ink-2 @[880px]:mt-7 @[880px]:text-[17.5px]">{lead.leadParagraph}</p>}
+      {lead.leadParagraph && <p className={`${styles.frontParagraph} mt-6 max-w-[46em] text-[16.5px] leading-[1.9] text-ink-2 @[880px]:mt-7 @[880px]:text-[17.5px]`}>{lead.leadParagraph}</p>}
     </section>
   );
 }
@@ -425,7 +426,7 @@ export function ReportPaper({ report, index }: { report: ReportDetail; index: Re
   // Only a daily comes out with nothing in it: a day the editors judged with nothing new (REPORTS.quiet).
   const quiet = count === 0 && report.flashes.length === 0;
   return (
-    <article className="@container">
+    <article className={`@container ${styles.paperArticle}`}>
       <Masthead report={report} index={index} quiet={quiet} />
       {quiet ? (
         report.lead && <QuietFront lead={report.lead} />

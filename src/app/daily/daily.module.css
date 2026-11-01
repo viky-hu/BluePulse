@@ -23,7 +23,47 @@
 .outlineCurrent { flex:none; font-size:11.5px; font-weight:600; }.outlineNote { flex:none; color:var(--outline-ink-4); font-size:12px; font-variant-numeric:tabular-nums; }
 .empty { display:flex; flex-direction:column; align-items:center; padding:56px 24px; text-align:center; }
 .empty h2 { margin:0; color:var(--ink-2); font-size:15px; font-weight:600; }.empty p { max-width:384px; margin:6px 0 0; color:var(--ink-4); font-size:13px; line-height:1.625; }.empty button { margin-top:16px; padding:0; border:0; background:transparent; color:var(--accent); font-size:13px; font-weight:500; cursor:pointer; }.empty button:hover { text-decoration:underline; }
-@container (min-width:1240px) { .shell { --bar-h:0px; display:flex; align-items:stretch; } .archive { display:flex; position:sticky; top:calc(-1 * var(--p0-padding-top, 0px)); height:var(--daily-scroller-height, 100vh); width:280px; flex:none; flex-direction:column; border-right:1px solid var(--line); background:color-mix(in srgb, #fdfdfb 50%, var(--surface)); padding:0 12px 0 20px; } .body { flex:1; padding:36px 40px 64px; } .phoneBar,.recent { display:none; } .paper :global(.daily-masthead) { padding-top:0; } }
+.paperArticle { container:report-paper / inline-size; }
+
+/* Desktop reports use the paper's inner edges instead of paying for both the
+   shared reading gutter and the report's own archive/body gutters. */
+@media (min-width:769px) {
+  .page {
+    margin-inline:calc(-1 * var(--p0-padding-inline, 0px));
+    margin-top:calc(-1 * var(--p0-padding-top, 0px));
+    margin-bottom:-38px;
+  }
+  .shell { --bar-h:0px; display:flex; align-items:stretch; min-height:var(--daily-scroller-height, 100%); }
+  .archive {
+    display:flex;
+    position:sticky;
+    top:calc(-1 * var(--p0-padding-top, 0px));
+    height:var(--daily-scroller-height, 100vh);
+    width:clamp(176px, 18cqw, 240px);
+    flex:none;
+    flex-direction:column;
+    border-right:1px solid var(--line);
+    background:color-mix(in srgb, #fdfdfb 50%, var(--surface));
+    padding-inline:12px;
+  }
+  .archive :global([data-pill-track] > :is(a,button)) { height:34px; padding-inline:8px; font-size:13px; }
+  .body { flex:1; padding:28px clamp(16px, 2cqw, 32px) 48px; }
+  .phoneBar,.recent { display:none; }
+  .paper { max-width:none; }
+  .paper :global(.daily-masthead) { padding-top:0; }
+  .frontTitle { font-size:clamp(28px, 4.35cqw, 44px); line-height:1.28; }
+  .frontParagraph { font-size:clamp(15px, 1.8cqw, 17px); }
+
+  @container report-paper (min-width:720px) {
+    .frontPage { grid-template-columns:minmax(0, 1fr) clamp(220px, 30cqw, 340px); }
+    .frontLead { border-right:1px solid var(--line); padding-block:28px; padding-right:24px; }
+    .frontAside { border-top:0; padding-block:28px; padding-left:24px; }
+  }
+  @container report-paper (min-width:760px) {
+    .rows > div > :first-child { padding-right:24px; }
+    .rows > div > :nth-child(2) { padding-left:24px; }
+  }
+}
 .page :global([class~="border"]), .page :global([class~="border-t"]), .page :global([class~="border-b"]), .page :global([class~="border-l"]), .page :global([class*="border-r"]) { border-color:var(--line); }
 .page :global(.text-ink) { color:var(--ink); }.page :global(.text-ink-2) { color:var(--ink-2); }.page :global(.text-ink-3) { color:var(--ink-3); }.page :global(.text-ink-4) { color:var(--ink-4); }.page :global(.text-accent) { color:var(--accent); }.page :global(.text-bg) { color:var(--bg); }
 .page :global(.bg-ink) { background:var(--ink); }.page :global(.bg-ink-4) { background:var(--ink-4); }.page :global(.bg-accent) { background:var(--accent); }.page :global(.bg-accent-soft) { background:var(--accent-soft); }.page :global(.bg-surface) { background:var(--surface); }.page :global(.border-line) { border-color:var(--line); }.page :global(.border-line-strong) { border-color:var(--line-strong); }.page :global(.border-ink) { border-color:var(--ink); }
