@@ -142,11 +142,17 @@
 }
 
 .featuredSection,
-.collectedSection,
+.collectedSection {
+  max-width: 920px;
+  margin-inline: auto;
+}
+
 .feedSection {
   max-width: 920px;
   margin-inline: auto;
 }
+
+.searchResults { max-width: 1320px; }
 
 .featuredSection {
   padding-bottom: 16px;
@@ -382,7 +388,7 @@
 }
 
 .searchPanel {
-  max-width: 920px;
+  max-width: 1320px;
   margin: 0 auto 23px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
@@ -655,7 +661,11 @@
   font-size: 11px;
 }
 
-.historySection,
+.historySection {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
 .accountPage {
   max-width: 920px;
   margin: 0 auto;
@@ -785,11 +795,6 @@
 }
 
 @media (max-width: 1000px) and (min-width: 769px) {
-  .sidebar {
-    left: 2.5%;
-    width: 25%;
-  }
-
   .readingArea {
     padding-inline: 24px;
   }

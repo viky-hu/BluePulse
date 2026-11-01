@@ -7,6 +7,6 @@ import { useMainShell } from "./MainShell";
 export function RootEntry({ whitePapers }: { whitePapers: WhitePaperArticle[] }) {
   const shell = useMainShell();
   return shell.entry === "intro" && shell.introHost
-    ? createPortal(<InitialIntro whitePapers={whitePapers} onMainReady={shell.introFinished} />, shell.introHost)
+    ? createPortal(<InitialIntro whitePapers={whitePapers} onMainReady={shell.introFinished} sceneTargets={shell.sceneTargets} />, shell.introHost)
     : null;
 }

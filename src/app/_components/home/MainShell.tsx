@@ -13,7 +13,7 @@ import { hasCachedRouteData, invalidateRouteData, prefetchRouteData } from "./ro
 import { NavigationProgress } from "./NavigationProgress";
 import { RouteRefresh } from "./RouteRefresh";
 import { finishEnter, finishExit, requestNavigation, type NavigationState } from "./view-transition";
-import { MainScene } from "./MainScene";
+import { MainScene, type MainSceneRefs } from "./MainScene";
 import styles from "./main-shell.module.css";
 
 gsap.registerPlugin(useGSAP);
@@ -22,6 +22,7 @@ type ShellContext = {
   activation: { key: string; restore: boolean };
   mock: boolean; routeKey: string; pathname: string; restore: boolean; entry: Entry;
   introHost: HTMLDivElement | null; introFinished: () => void;
+  sceneTargets: MainSceneRefs;
   ready: (key: string, value: boolean) => void; navigate: (href: string, options?: { preserveScroll?: boolean }) => void;
   holdRestore: (key: string) => () => void;
   href: (href: string) => string; refreshRevision: number; active: boolean;
@@ -48,6 +49,8 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
   const { state: browser, store } = useBrowserState(mock);
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), scroller = useRef<HTMLElement>(null), menu = useRef<HTMLElement>(null);
   const menuToggle = useRef<HTMLButtonElement>(null);
+  const greenTarget = useRef<SVGSVGElement>(null), paperTarget = useRef<SVGSVGElement>(null);
+  const sceneTargets = useMemo(() => ({ green: greenTarget, paper: paperTarget }), []);
   const motion = useRef<gsap.core.Animation | null>(null), motionKey = useRef("");
   const [entry, setEntry] = useState<Entry>("pending");
   const [introHost, setIntroHost] = useState<HTMLDivElement | null>(null);
@@ -246,7 +249,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
   const introFinished = useCallback(() => { document.documentElement.dataset.pulseEntry = "stable"; setEntry("revealing"); }, []);
   const active = entry === "stable" && navigation.phase === "idle" && pendingRoute === null;
   useEffect(() => { if (active && readyKeys[key]) rememberPage(key, mock); }, [active, readyKeys, key, mock]);
-  const context = useMemo<ShellContext>(() => ({ activation, mock, routeKey: key, pathname, restore, entry, introHost, introFinished, ready, holdRestore, navigate, href, refreshRevision, active }), [activation, mock, key, pathname, restore, entry, introHost, introFinished, ready, holdRestore, navigate, href, refreshRevision, active]);
+  const context = useMemo<ShellContext>(() => ({ activation, mock, routeKey: key, pathname, restore, entry, introHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active }), [activation, mock, key, pathname, restore, entry, introHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active]);
   const targetKey = pendingRoute ?? key;
   const refreshing = refreshRequest?.key === key;
   const loading = (entry === "stable" || entry === "revealing") && (refreshing || !readyKeys[targetKey] || (restoreTasks[targetKey] ?? 0) > 0);
@@ -264,7 +267,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>
       <NavigationProgress active={loading} />
       {refreshing && <RouteRefresh key={refreshRequest.id} id={refreshRequest.id} onComplete={completeRefresh} />}
-      <MainScene />
+      <MainScene greenRef={greenTarget} paperRef={paperTarget} />
       <div className={styles.menuLayer}>
         <button ref={menuToggle} className={styles.mobileToggle} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} aria-label={menuOpen ? "关闭菜单" : "打开菜单"} aria-expanded={menuOpen} aria-controls="pulse-main-menu">☰ 菜单</button>
         <button className={styles.scrim} data-open={menuOpen} onClick={closeMenu} aria-label="关闭菜单" tabIndex={menuOpen ? 0 : -1} />

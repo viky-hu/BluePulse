@@ -12,6 +12,8 @@ import { LogoMark } from "./LogoMark";
 import { ReportLine } from "./ReportLine";
 import { ScrollCueButton } from "./ScrollCueButton";
 import { WhitePaper } from "./WhitePaper";
+import type { MainSceneRefs } from "../home/MainScene";
+import { readMainSceneGeometry } from "./main-scene-geometry";
 import type { WhitePaperArticle } from "./white-paper-data";
 import {
   calculatePanelGeometry,
@@ -20,8 +22,6 @@ import {
   INTRO_COLORS,
   INTRO_SEQUENCE,
   INTRO_TIMING,
-  calculateMainGreenGeometry,
-  calculateMainPanelRect,
   type IntroPhase,
   type PanelGeometry,
   type ReportGeometry,
@@ -66,9 +66,11 @@ function getViewportGeometries() {
 export function InitialIntro({
   whitePapers,
   onMainReady,
+  sceneTargets,
 }: {
   whitePapers: WhitePaperArticle[];
   onMainReady: () => void;
+  sceneTargets: MainSceneRefs;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<SVGSVGElement>(null);
@@ -171,6 +173,7 @@ export function InitialIntro({
       let mainTransitionTimeline: gsap.core.Timeline | undefined;
       let resizeFrame: number | undefined;
       let mainTransitionStarted = false;
+      let mainGeometry: ReturnType<typeof readMainSceneGeometry> = null;
 
       const updatePhase = (nextPhase: IntroPhase) => {
         phaseRef.current = nextPhase;
@@ -199,8 +202,11 @@ export function InitialIntro({
         const subtitleProgress = Math.max(0, Math.min(reportMotion.subtitleProgress, 1));
         const topDistance = nextGeometry.green.centerY - nextGeometry.green.top;
         const bottomDistance = nextGeometry.green.bottom - nextGeometry.green.centerY;
-        const mainGreen = calculateMainGreenGeometry(nextGeometry);
         const baseGreen = nextGeometry.green;
+        const mainGreen = mainGeometry ? {
+          x: mainGeometry.green.x, width: mainGeometry.green.width,
+          top: mainGeometry.green.y, bottom: mainGeometry.green.y + mainGeometry.green.height,
+        } : baseGreen;
         const lerp = (from: number, to: number) =>
           from + (to - from) * greenMorphProgress;
         const greenX = lerp(baseGreen.x, mainGreen.x);
@@ -282,10 +288,7 @@ export function InitialIntro({
 
       const syncPanel = () => {
         const current = geometryRef.current;
-        const target = calculateMainPanelRect(
-          current,
-          reportGeometryRef.current,
-        );
+        const target = mainGeometry?.paper ?? current;
         const progress = Math.max(0, Math.min(panelMotion.progress, 1));
         const lerp = (from: number, to: number) =>
           from + (to - from) * progress;
@@ -629,6 +632,10 @@ export function InitialIntro({
         geometryRef.current = nextGeometries.panel;
         reportGeometryRef.current = nextGeometries.report;
         whitePaperLayoutRef.current = nextGeometries.whitePapers;
+        // Update the SVG coordinate space before measuring CSS endpoints. React
+        // commits the same viewBox below; no layout reads occur in tween updates.
+        scene.setAttribute("viewBox", `0 0 ${nextGeometries.panel.viewportWidth} ${nextGeometries.panel.viewportHeight}`);
+        mainGeometry = readMainSceneGeometry(scene, sceneTargets);
         setGeometry(nextGeometries.panel);
         setReportGeometry(nextGeometries.report);
         setWhitePaperLayout(nextGeometries.whitePapers);
@@ -641,6 +648,7 @@ export function InitialIntro({
         resizeFrame = requestAnimationFrame(() => {
           resizeFrame = undefined;
           safeContext(() => {
+            mainGeometry = readMainSceneGeometry(scene, sceneTargets);
             syncCurtain();
             syncReport();
             syncWhitePapers(nextGeometries.whitePapers);

@@ -1,9 +1,11 @@
 .shell {
-  --green-left: 24vw;
+  --menu-left: 2.8vw;
+  --menu-width: clamp(220px, 18vw, 280px);
+  --green-left: calc(var(--paper-left) - 2.5vw);
   --green-right: 1.470588235vw;
   --green-top: 6.026315789dvh;
-  --paper-left: 26.5vw;
-  --paper-right: 6.470588235vw;
+  --paper-left: max(23vw, calc(var(--menu-left) + var(--menu-width) + 16px));
+  --paper-right: 3.470588235vw;
   --paper-top: 4.226315789dvh;
   --paper-bottom: 6.5dvh;
   position: fixed;
@@ -32,11 +34,11 @@
 .scrim { display: none; pointer-events: auto; }
 @media (max-width: 768px) {
   .shell {
-    --green-left: 27vw;
-    --green-right: max(12px, 4.5vw);
+    --green-left: max(10px, env(safe-area-inset-left));
+    --green-right: max(10px, env(safe-area-inset-right));
     --green-top: max(0px, calc(max(44px, min(18dvh, 28vmin)) - 5dvh));
-    --paper-left: 31vw;
-    --paper-right: calc(max(12px, 4.5vw) + 6vw);
+    --paper-left: calc(var(--green-left) + 8px);
+    --paper-right: calc(var(--green-right) + 8px);
     --paper-top: max(0px, calc(max(44px, min(18dvh, 28vmin)) - 6.8dvh));
     --paper-bottom: 5.5dvh;
   }

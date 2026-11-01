@@ -6,7 +6,6 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { MOCK_HOME_DATA, MOCK_HOME_FEATURED, MOCK_ARTICLE_DETAILS, MOCK_TAXONOMY, MOCK_SOURCES } from "../src/app/_lib/home-mock.ts";
-import { calculateMainPanelRect, calculatePanelGeometry, calculateReportGeometry } from "../src/app/_components/intro/intro-config.ts";
 
 const { chromium } = await import(process.env.PULSE_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PULSE_PLAYWRIGHT_MODULE).href : "playwright");
 const port = Number(process.env.PULSE_TEST_PORT ?? 3100), apiPort = port + 1;
@@ -75,7 +74,10 @@ async function localPage(page, pathname) {
   await settled(page, pathname);
 }
 async function geometry(page, width, height) {
-  const expected = calculateMainPanelRect(calculatePanelGeometry(width, height), calculateReportGeometry(width, height));
+  const x = width <= 768 ? 18 : Math.max(width * .23, width * .028 + Math.min(280, Math.max(220, width * .18)) + 16);
+  const right = width <= 768 ? 18 : width * .03470588235;
+  const y = width <= 768 ? Math.max(0, Math.max(44, Math.min(height * .18, Math.min(width, height) * .28)) - height * .068) : height * .04226315789;
+  const expected = { x, y, width: width - x - right, height: height - y - height * (width <= 768 ? .055 : .065) };
   const bounds = await page.locator("[data-main-paper]").boundingBox();
   for (const [key, value] of Object.entries({ x: expected.x, y: expected.y, width: expected.width, height: expected.height })) assert.ok(Math.abs(bounds[key] - value) < 1, `${key}: ${bounds[key]} vs ${value}`);
   const frame = await page.locator("[data-p0-content]").boundingBox();
