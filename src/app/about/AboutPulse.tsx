@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RouteReady, useMainShell } from "../_components/home/MainShell";
+import { browserKeys } from "../_lib/browser-state";
 import { ABOUT } from "./_config";
 import { SiteStatsError, type SiteStats } from "./_data";
 import { getCachedAboutStats, loadAboutStats } from "./_cache";
@@ -71,6 +72,9 @@ export function AboutPulse() {
     return cached ? { activation, key: `${requestKey}:0`, stats: cached.stats, status: "ready" } : null;
   });
   const [retry, setRetry] = useState(0);
+  const [openingIntro, setOpeningIntro] = useState(false);
+  const [introError, setIntroError] = useState(false);
+  const introRequested = useRef(false);
   const [focus, setFocus] = useState<number | null>(null);
   const [at, setAt] = useState(0);
   const shown = useRef(0);
@@ -111,11 +115,32 @@ export function AboutPulse() {
   ];
   const item = latest.length ? latest[at % latest.length] : undefined;
 
+  const openIntro = () => {
+    if (introRequested.current) return;
+    introRequested.current = true;
+    setOpeningIntro(true);
+    setIntroError(false);
+    try {
+      localStorage.removeItem(browserKeys(mock).entry);
+      window.location.assign(href("/"));
+    } catch {
+      introRequested.current = false;
+      setOpeningIntro(false);
+      setIntroError(true);
+    }
+  };
+
   return <article className={styles.page} data-about-page>
     <RouteReady ready={status !== "loading"} />
+    <div className={styles.topbar}>
+      <p className={styles.kicker}>关于 Pulse</p>
+      <button type="button" className={`${styles.secondary} ${styles.introButton}`} onClick={openIntro} disabled={openingIntro}>
+        产品初始页 <span aria-hidden="true">↗</span>
+      </button>
+    </div>
+    {introError && <p className={styles.dataStatus} role="status">暂时无法重置动画播放状态，请允许本站使用浏览器存储后重试。</p>}
     <header className={styles.hero}>
       <div>
-        <p className={styles.kicker}>关于 Pulse</p>
         <h1 className={styles.headline}>{ABOUT.headline[0]}<br /><span>{ABOUT.headline[1]}</span></h1>
         <p className={styles.lead}>{ABOUT.lead}</p>
       </div>

@@ -13,6 +13,9 @@
   container: about / inline-size;
 }
 .hero { display: grid; align-items: end; gap: 25px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.introButton { flex: none; cursor: pointer; font-family: inherit; }
+.introButton:disabled { cursor: wait; opacity: .6; }
 .kicker { margin: 0; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.6; }
 .headline { margin: 18px 0 0; font-size: clamp(25px, 4.15cqi, 46px); font-weight: 700; line-height: 1.4; letter-spacing: 0; text-wrap: pretty; }
 .headline > span { color: var(--accent); }
