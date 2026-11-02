@@ -14,7 +14,8 @@
 }
 .hero { display: grid; align-items: end; gap: 25px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.introButton { flex: none; cursor: pointer; font-family: inherit; }
+.introButton { flex: none; min-height: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 1.5; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-family: inherit; transition: color .18s; }
+.introButton:hover { background: transparent; border-color: transparent; color: var(--accent); }
 .introButton:disabled { cursor: wait; opacity: .6; }
 .kicker { margin: 0; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.6; }
 .headline { margin: 18px 0 0; font-size: clamp(25px, 4.15cqi, 46px); font-weight: 700; line-height: 1.4; letter-spacing: 0; text-wrap: pretty; }
