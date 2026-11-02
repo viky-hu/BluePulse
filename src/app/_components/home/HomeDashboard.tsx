@@ -10,6 +10,7 @@ import { buildHomeHref, canonicalHref, parseHomeRoute, type HomeFilters } from "
 import { emptyHomeFeed, getCachedHomeFeed, getCachedHomeSources, invalidateHomeFeed, loadHomeFeed, loadHomeSources, type HomeFeed } from "./home-feed-cache";
 import { ARTICLE_TOPIC_LABELS } from "./article-topic-labels";
 import styles from "./home.module.css";
+import { rememberArticlePreview } from "../../articles/_reader/preview";
 
 export function displayDate(value?: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return "日期待核";
@@ -24,7 +25,7 @@ export function ArticleRows({ articles, kind = "article" }: { articles: ArticleC
   const shell = useMainShell();
   return <div className={styles.articleList}>
     {articles.map((article, index) => <div key={article.id} className={styles.articleEntry} data-card-key={article.id}>
-      <Link href={shell.href(`/articles/${article.id}`)} className={`${styles.articleRow} ${kind === "featured" ? styles.featuredRow : ""}`}>
+      <Link href={shell.href(`/articles/${article.id}`)} className={`${styles.articleRow} ${kind === "featured" ? styles.featuredRow : ""}`} onClick={() => rememberArticlePreview(article, shell.mock)}>
         <span className={styles.articleIndex}>{kind === "featured" ? `TOP ${index + 1}` : String(index + 1).padStart(2, "0")}</span>
         <span className={styles.articleRowBody}>
           <span className={styles.articleRowMeta}><time>{kind === "collected" ? `收录于 ${displayDate(article.first_seen_at)} · 原文 ${displayDate(article.published_at)}` : displayDate(article.published_at ?? article.first_seen_at)}</time><span className={styles.metaDot} />{article.source.name}</span>

@@ -25,7 +25,7 @@ export function categorySupported(topic: string, taxonomy: { slug: string }[]) {
 }
 export function allArticleParams(filters: HomeFilters, cursor: string | null) {
   const params = new URLSearchParams({ period: filters.period, sort: filters.sort, limit: "40" });
-  for (const [key, value] of Object.entries({ q: filters.q, topic: filters.topic, region: filters.region, source: filters.source, source_type: filters.sourceType, entity: filters.entity, cursor })) if (value) params.set(key, value);
+  for (const [key, value] of Object.entries({ q: filters.q, topic: filters.topic, tag: filters.tag, region: filters.region, source: filters.source, source_type: filters.sourceType, entity: filters.entity, cursor })) if (value) params.set(key, value);
   return params;
 }
 

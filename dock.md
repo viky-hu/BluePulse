@@ -1,6 +1,6 @@
 # Pulse 前后端接口对接总册
 
-更新日期：2026-10-31。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
+更新日期：2026-11-02。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
 
 技术边界：Pulse 保留 Next.js 16 / React 19 / TypeScript / Tailwind 4 / GSAP，以及 Python / FastAPI 后端。复用 AIHOT 的组件、业务机制和契约思路，不移植 React Router loader、Fastify、PostgreSQL SQL 或 pg-boss。
 
@@ -29,6 +29,7 @@
 | DOCK-006 | 精选时间线、同新闻阅读组与内嵌热点 | `/` | `GET /api/bluepulse/site/timeline`、`site/groups/:factId/reports` → FastAPI `/api/v1/site/…` | 前端和精确代理已实现；归组、发布读取、热点与真实联调待后端实施；本轮最终验收另记 |
 | DOCK-007 | 热点榜、参与者与24小时曲线 | `/hot` | `GET /api/bluepulse/site/hot` → 建议 FastAPI `/api/v1/site/hot` | 前端及精确代理受控验收通过；真实排名、证据、媒体及事件详情待后端实施 |
 | DOCK-008 | AI日报、刊期阅读与合订本 | `/daily`、`/daily/:key`、`/daily/archive` | 精确 `GET /api/bluepulse/site/reports/daily…` → FastAPI `/api/v1/site/reports/daily…` | 前端及精确代理受控验收通过；真实出刊／报告读取待后端实施 |
+| DOCK-009 | 单条新闻、原文与阅读工具 | `/articles/:id`、`/articles/:id/original` | 既有详情追加可选reader；精确Markdown／poster.png／og.png／事件后续读取 | 前端复用及接口预留；旧详情可兼容，完整阅读投影及导出／图像仍待后端实施与真实联调 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -821,3 +822,97 @@ ReportIndexEntry为 `{key,issueNumber,title:string|null,count:number}`；ReportN
 前端核查：全部原组件／条件字段，头条单独存在、跨栏重复、空栏顺延、快讯编号、原跟进／一手／来源数／related、撤回、封面分支与失败、月标题缺省与null、刊号超过索引长度、日期直达／缺刊、原目录／吸顶／p0滚动／历史位置、桌面／宽版／移动／reduced-motion、预取／刷新／重试／最早截止／no-store／晚到隔离。
 
 后端可参考的测试清单：24h刊期边界与晚释放、回灌与旧闻；前7自然日去重及合并／重归组；独立主体／转载矩阵、官方补选及不影响精选；代表权威与最高分；跟进正文门槛／全跟进放行／commentary；综合稿折叠、每源2／正文12／快讯10、同分稳定、空栏目；无评判失败与真平静、停机补刊／并发幂等／失败继续、已出刊不自动重写／人工订正与修订审计；所有读取重核撤回／释放／封面许可、统计口径、400期导航和按月标题、当前版权／媒体状态。实际迁移、任务、HTTP与真实业务联调均由后端后续交付。
+
+
+## DOCK-009：单条新闻、原文与阅读工具
+
+### 1. 功能与状态
+
+匿名阅读单篇新闻，保留AIHOT标题／原标题、导读／推荐理由、来源细线侧栏、评分／入选、正文语言、目录／进度、收藏／已读、其他报道、原帖媒体／引用、事件后续和相关事件。桌面更多菜单、移动工具栏／操作抽屉、Markdown与分享海报均按原行为适配。页面不是新的事件详情模块，也不恢复主题菜单。
+
+**本轮仅Next前端、精确GET代理与交接，不修改Python、调用模型或采集。** 既有`GET /api/v1/articles/{UUID}`可继续读取真实纯文本；完整reader投影、Markdown、海报／OG、事件后续及媒体许可链仍由后端实施。没有后端时保留真实404／故障；显式`?mock=1`仅使用隔离演示。Mock的海报和Markdown不会调用真实后端，不制造可下载的成功文件。
+
+### 2. AIHOT 源码证据
+
+以下相对`D:/AIHOT`：
+
+- `apps/web/app/routes/{item,item-original}.tsx`：普通／原文阅读、手机点击预览、目录门槛、摘要限制、推荐理由／评分／同新闻、桌面两侧栏、移动工具与更多操作。
+- `features/item/{ArticleBody,ReaderTools,PosterSheet,MediaGallery,QuotedPost,StoryFollowups}.tsx`、`highlight.ts`、`preview.ts`：正文图片键盘放大、代码复制和按需高亮、最多九项原帖媒体、视频原帖出口、引用译文、附近加载事件后续。
+- `components/ui/{Page,OutlineSheet,Menu,Tabs,Sheet,Lightbox}.tsx`、`components/shell/PhoneBar.tsx`与`app.css`：版式、细线栏、17–18px／1.8正文节奏、目录、吸顶、操作弹层。
+- `packages/contracts/src/site.ts:SiteItemDetail/StoryFollowup`；`apps/api/src/routes/{site,og}.ts`；`packages/backend/src/publication/{detail,items,rules,og}.ts`、`content/sanitize.ts`、`media/{imgproxy,poster,og}.ts`：语言投影、目录锚点、发布／索引／全文／导出资格及签名媒体。
+- `editorial/{analyze,writing,prompts}.ts`、`providers/receipts.ts`和`industry/prompts/`：内容生成及版本依据；它们属于后台处理，不由页面触发。
+
+### 3. AIHOT 原始数据流与契约
+
+详情读取只发送当前展示语言的白名单HTML，另一语言通常为null；中文原文、机器译文与原文分别标识。没有当前语言时可使用同一reader中明确提供的另一语言，不能找旧原始字段绕过限制。`hasTranslation`表示两种正文可对照；`body.complete`是译文完整性，既不同于采集完整，也不同于来源授权。正文h2–h4使用稳定`sec-N`锚点；至少三个目录项才显示目录工具。
+
+`readingMode=summary-only`是来源限制：去掉正文、推荐理由、评分／入选、分类／标签、归组／事件及原帖，只留摘要和来源入口。非受限详情也可`body=null`，此时不制造正文。`group.reportCount>1`时显示其他报道；`sameEvent`指向当前精选代表，不能据分数推导入选或独立推荐理由。`StoryFollowup`为`{factId,representative:{id,title,source:{name},timelineAt}}`，响应`{items,more}`。
+
+AIHOT的`hasItemPage`与列表资格不同，Markdown又额外检查public及可导出内容；Pulse当前详情仍遵守现有`public_article_conditions()`，本次前端不放宽后端公开范围。站内全文、再分发、索引和媒体必须由各自明确政策判定，不能把parse_status、可抓取、存在译文、在收藏里等当作许可。
+
+### 4. Pulse 建议及差异
+
+沿用UUID及旧详情顶层字段，追加可选`reader:ArticleReader`，详见`src/app/articles/_reader/types.ts`。无reader时仅按旧公开接口兼容，文本始终转义；明确出现reader（包括null／非法结构）时不得回退旧正文。非法reader作为读取错误。合法reader的`body=null`保持无正文；受限状态移除依赖字段。
+
+规范化结果显式投影公开字段：不保留原始reader对象、未知字段或嵌套私有属性；任意明确reader下的旧`source_body/zh_body`均清空，确保SSR HTML／Flight和浏览器内存不会夹带已禁止的旧材料。白名单HTML经原版同类`sanitize-html`再核验，脚本、事件属性、危险URL及任意样式不进入正文；实际展示正文生成目录。正文增强复用原高亮算法及`highlight.js@11.12.0`，不让模型生成目录或网页代码。
+
+新增后端建议：
+
+| GET FastAPI路径 | Next同源路径 | 返回／行为 |
+| --- | --- | --- |
+| `/api/v1/articles/:id?body_language=zh\|original` | `/api/bluepulse/articles/:id?body_language=…` | 原详情追加reader；未知旧后端即使忽略body_language，前端仍可安全选择其已有纯文本 |
+| `/api/v1/articles/:id/markdown` | `/api/bluepulse/articles/:id/markdown` | `text/markdown; charset=utf-8`、安全Content-Disposition文件名；当前无导出资格返回404 |
+| `/api/v1/articles/:id/poster.png` | `/api/bluepulse/articles/:id/poster.png` | 当前公开读取生成的1080×1440 PNG，Pulse品牌和文章二维码；不读取浏览器收藏快照生成 |
+| `/api/v1/articles/:id/og.png` | `/api/bluepulse/articles/:id/og.png` | 原版1200×630文章分享PNG，只给当前可分享文章 |
+| `/api/v1/site/stories/:publicId/followups` | `/api/bluepulse/site/stories/:publicId/followups` | AIHOT同形`{items,more}`，当前证据和代表重新核验；无数据不制造后续 |
+
+其他报道复用DOCK-006的`site/groups/:factId/reports`，本页不带列表筛选；分类进入已有`/all?topic=…`。标签进入`/all?tag=…`并原样传给articles接口，**后端只有同时支持精确tag筛选才输出reader.tags**；不可忽略tag返回全部，不可用q模糊替代。
+
+内容生成交接：沿用原版材料预筛、独立评分、结构化分类／标签和理解式写作，普通材料短摘要；空／纯链接原帖不补造新闻。中文标题、答案先行摘要、推荐理由各有含义，`selected`由确认门禁给出；推荐理由跟随当前代表／人工决定，不能用importance_score临时拼造。译文／引用翻译绑定材料修订，旧输入的翻译不混入新原文；完整性显式返回。所有模型结果绑定input revision、model、prompt/config版本，付费回执先保存再业务写，保留人工覆盖，未知结果按阶段C处置。本轮不新增“打开即生成”接口，也不限定队友内部表结构或调度框架。
+
+### 5. 请求响应示例
+
+旧详情字段保持。以下为追加reader示意，不是当前真实后端已有输出：
+
+```json
+{
+  "reader": {
+    "readingMode": "full",
+    "body": {"zh": "<h2 id=\"sec-1\">公开评估</h2><p>允许展示的译文。</p>", "original": null, "zhKind": "translation", "complete": false},
+    "bodyLanguage": "zh", "hasTranslation": true,
+    "outline": [{"id":"sec-1","text":"公开评估","level":2}],
+    "selected": true, "reason": "后台确认的推荐理由。", "sameEvent": null,
+    "group": null, "story": null, "relatedStories": [], "tags": [],
+    "channel": "news", "x": null, "indexable": false, "markdownAvailable": true
+  }
+}
+```
+
+ArticleReader的group复用GroupInfo，story／relatedStories复用`{publicId,title}`；x为AIHOT详情原帖投影：authorName／handle／avatarUrl／可选avatarSrcSet／media／quoted，不把全文塞进feed摘要字段。media的kind为image或video，URL／fullUrl／poster／srcSet、width／height及alt来自当前获准的媒体服务；quoted含authorName／handle／text／url／translation。图片代理不能允许浏览器任意URL抓取，后端签名／有效期／上游限制和撤回后失效仍需实施。
+
+仅摘要可返回相同外壳但`readingMode:"summary-only",body:null,hasTranslation:false,outline:[],selected:false,reason:null,sameEvent:null,group:null,story:null,relatedStories:[],tags:[],x:null,indexable:false,markdownAvailable:false`。原文请求只发送原文；中文源没有另一语言时以实际bodyLanguage明确回退。不存在、撤回或不符合当前公开政策用404；不能返回占位新闻。
+
+演示：`/articles/4ed2a8d4-efb7-4ce6-8a43-4ee36f27d001?mock=1`，仅摘要为尾号d002。现有演示列表ID也可进入；演示文章、收藏／已读、预览与缓存均与普通模式隔离。
+
+### 6. 缓存和异常
+
+Next服务端首屏与元信息通过React请求内cache去重，不持有管理员信息；浏览器初值进入同document最多16项／60秒缓存，上限与详情和taxonomy的最早上游截止取早，原文与中文URL独立。保留Cache-Control、Date、Age、X-Accel-Expires、ETag、Content-Disposition、X-Robots-Tag及条件请求，二进制／Markdown不转成JSON。no-store/no-cache不复用，304无响应体。历史位置30分钟不延长正文寿命，过期先读新结果再恢复；SSR初值不写入本地收藏／历史正文。
+
+| 状态 | 前端行为 |
+| --- | --- |
+| 旧200纯文本 | 安全转义已有实际材料，缺新字段不造理由／事件／导出资格 |
+| reader受限／body=null | 执行明确限制，不回退旧字段；仅摘要按原版文案，普通无正文保留导读与原站入口 |
+| 404 | 内容不存在或不再公开；清除当前卡片预览及旧读取缓存 |
+| 503／504／断网／非法JSON或reader | 原暂时无法加载与重试，不回退演示 |
+| taxonomy失败 | 仍可阅读真实文章，分类名用已有精确字典；本组合不缓存 |
+| 事件后续失败／真实空 | 不阻断主文，不造推荐列表 |
+| 海报404／图像失败 | 原分享海报失败状态，禁用无成功图像的保存／文件分享 |
+| Markdown失败 | 下载保留真实HTTP结果；微信复制路径使用原失败提示 |
+
+代理上游6秒，浏览器读取12秒；旧请求晚到不能覆盖当前路由。站内普通链接保留原生修饰键，语种使用replace且保留位置，目录hash replace不增加历史；返回恢复来路与筛选，直达则回精选／全部。正文HTML中的真实外链安全保留，不把站外URL当同源业务接口。
+
+### 7. 验收条件与变更记录
+
+2026-11-02：建立DOCK-009。完成范围与实际验证结果以`docs/pulse-article-reader-verification-2026-11-02.md`为准；当前文档和受控HTTP验证均不表示真实FastAPI扩展、模型处理、媒体／许可或分享生成已经完成。
+
+后端验收包括：兼容旧UUID／公开条件、精确tag、正文结构与目录、原文／中文／部分译文、修订绑定、人工覆盖与代表理由；restricted／撤回／全文／导出／索引／原帖与图片的统一当前政策；Markdown及分享图不绕开详情资格，缓存使用可信截止不叠加续命；群组及后续使用真实Fact／Story证据、当前代表，不从文章分数推算。需提交真实迁移、规则／任务、接口测试与联调结果。

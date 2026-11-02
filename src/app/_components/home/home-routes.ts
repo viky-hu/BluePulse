@@ -6,6 +6,7 @@ export type HomeFilters = {
   period: ArticlePeriod;
   q: string;
   topic: string;
+  tag?: string;
   region: ArticleRegion | "";
   source: string;
   sourceType: string;
@@ -33,7 +34,8 @@ export function canonicalHref(href: string): string {
 
 export function parseHomeRoute(pathname: string, search: string | { toString(): string }): HomeRoute {
   const params = new URLSearchParams(search.toString());
-  const id = pathname.startsWith("/articles/") ? pathname.slice(10) : null;
+  const articlePath = /^\/articles\/([^/]+)(?:\/original)?$/.exec(pathname);
+  const id = articlePath?.[1] ?? (pathname.startsWith("/articles/") ? pathname.slice(10) : null);
   const kind: HomeRoute["kind"] = pathname === "/" ? "home"
     : pathname === "/search" ? "search"
     : pathname === "/all" ? "all"
@@ -57,6 +59,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
       period: period === "24h" || period === "7d" || period === "30d" || period === "all" ? period : fallback,
       q: query,
       topic: params.get("topic") ?? "",
+      tag: (params.get("tag") ?? "").trim().slice(0, 100),
       region: region === "domestic" || region === "foreign" ? region : "",
       source: params.get("source") ?? "",
       sourceType: params.get("source_type") ?? "",
@@ -72,6 +75,7 @@ export function buildHomeHref(pathname: string, filters?: HomeFilters, options: 
     if (filters.period !== (pathname === "/all" || pathname === "/" ? "all" : pathname === "/articles" ? "30d" : "7d")) params.set("period", filters.period);
     if (filters.q) params.set("q", filters.q.trim().slice(0, 200));
     if (filters.topic) params.set("topic", filters.topic);
+    if (filters.tag) params.set("tag", filters.tag);
     if (filters.region) params.set("region", filters.region);
     if (filters.source) params.set("source", filters.source);
     if (filters.sourceType) params.set("source_type", filters.sourceType);

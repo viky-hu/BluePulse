@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isDailyDate, isDailyMonth } from "../../../daily/_route";
+import { isDailyDate, isDailyMonth } from "../../../daily/_route.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,8 @@ function isAllowedPath(path: string[]): boolean {
   if (path[0] === "site" && path[1] === "reports" && path[2] === "daily") {
     return path.length === 3 || (path.length === 4 && (path[3] === "latest-page" || isDailyDate(path[3]))) || (path.length === 5 && ((path[3] === "navigation" && isDailyDate(path[4])) || (path[3] === "months" && isDailyMonth(path[4]))));
   }
+  if (path.length === 3 && path[0] === "articles" && ARTICLE_ID_PATTERN.test(path[1]) && ["markdown", "poster.png", "og.png"].includes(path[2])) return true;
+  if (path.length === 4 && path[0] === "site" && path[1] === "stories" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "followups") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "hot") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "timeline") return true;
   if (path.length === 4 && path[0] === "site" && path[1] === "groups" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "reports") return true;
@@ -77,20 +79,22 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
+    const forwarded = new Headers({ Accept: request.headers.get("accept") ?? "application/json", "X-Request-ID": request.headers.get("x-request-id") ?? requestId });
+    for (const name of ["if-none-match", "if-modified-since"]) { const value = request.headers.get(name); if (value !== null) forwarded.set(name, value); }
     const upstream = await fetch(upstreamUrl, {
       method: "GET",
       cache: "no-store",
       redirect: "manual",
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      headers: {
-        Accept: request.headers.get("accept") ?? "application/json",
-        "X-Request-ID": request.headers.get("x-request-id") ?? requestId,
-      },
+      headers: forwarded,
     });
 
     const headers = new Headers();
     for (const name of [
       "content-type",
+      "content-disposition",
+      "etag",
+      "x-robots-tag",
       "cache-control",
       "x-accel-expires",
       "age",
@@ -105,7 +109,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!headers.has("x-request-id")) headers.set("x-request-id", requestId);
     if (path[1] === "groups") headers.set("cache-control", "no-store");
 
-    return new Response(upstream.body, {
+    return new Response([204, 205, 304].includes(upstream.status) ? null : upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,

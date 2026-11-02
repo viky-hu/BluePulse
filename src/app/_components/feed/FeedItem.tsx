@@ -14,6 +14,7 @@ import { IntentLink } from "./IntentLink";
 import { MediaThumbs, ScoreLabel, SourceLine, StarButton } from "./parts";
 import { GroupButton, GroupSources } from "./ReadingGroup";
 import styles from "./feed.module.css";
+import { rememberArticlePreview } from "../../articles/_reader/preview";
 
 export const FeedItem = memo(function FeedItem({ article, taxonomy, showTags = false, at, group, filters }: { article: FeedArticle; taxonomy: Topic[]; showTags?: boolean; at?: string; group?: GroupInfo | null; filters?: TimelineFilters }) {
   const shell = useMainShell();
@@ -24,7 +25,7 @@ export const FeedItem = memo(function FeedItem({ article, taxonomy, showTags = f
   const showSources = !!group && (group.reportCount > 1 || group.additionalSourceCount > 0);
   const topics = showTags ? article.topics?.slice(0, 3) ?? [] : [];
   const quoted = isX ? article.x?.quoted : null;
-  const open = () => store.recordRead(article);
+  const open = () => { rememberArticlePreview(article, shell.mock); store.recordRead(article); };
   return <article className={styles.card} data-read={read} data-item-id={article.id}>
     <header className={styles.cardMeta}>
       <SourceLine article={article} />

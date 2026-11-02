@@ -5,8 +5,11 @@ import { getCachedFeaturedFeed, invalidateFeaturedFeed, loadFeaturedFeed } from 
 import { getCachedHot, invalidateHot, loadHot } from "../../hot/_cache";
 import { getCachedDailyPage, invalidateDailyPage, loadDailyPage } from "../../daily/_cache";
 import { dailyRoute } from "../../daily/_route";
+import { articleRoute } from "../../articles/_reader/route";
+import { getCachedArticle, invalidateArticle, loadArticle } from "../../articles/_reader/cache";
 
 export function hasCachedRouteData(key: string, mock: boolean): boolean {
+  if (articleRoute(key)) return getCachedArticle(key, mock) !== null;
   if (dailyRoute(new URL(key, "https://pulse.local").pathname)) return getCachedDailyPage(key, mock) !== null;
   if (new URL(key, "https://pulse.local").pathname === "/hot") return getCachedHot(key, mock) !== null;
   if (new URL(key, "https://pulse.local").pathname === "/") return getCachedFeaturedFeed(key, mock) !== null;
@@ -15,6 +18,7 @@ export function hasCachedRouteData(key: string, mock: boolean): boolean {
     ? getCachedAboutStats(key, mock) !== null : hasCachedHomeFeed(key, mock);
 }
 export function invalidateRouteData(key: string, mock: boolean) {
+  if (articleRoute(key)) invalidateArticle(key, mock);
   invalidateDailyPage(key, mock);
   invalidateHot(key, mock);
   invalidateFeaturedFeed(key, mock);
@@ -24,6 +28,7 @@ export function invalidateRouteData(key: string, mock: boolean) {
 }
 export function prefetchRouteData(href: string): Promise<void> {
   const url = new URL(href, "https://pulse.local");
+  if (articleRoute(url.pathname)) return loadArticle(href, url.searchParams.get("mock") === "1").then(() => undefined);
   if (dailyRoute(url.pathname)) return loadDailyPage(href, url.searchParams.get("mock") === "1").then(() => undefined);
   if (url.pathname === "/hot") return loadHot(href, url.searchParams.get("mock") === "1").then(() => undefined);
   if (url.pathname === "/") return loadFeaturedFeed(href, url.searchParams.get("mock") === "1").then(() => undefined);

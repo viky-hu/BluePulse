@@ -1,3 +1,5 @@
+import type { ArticleReader } from './_reader/types';
+
 export interface SourceInfo {
   id: string;
   name: string;
@@ -25,6 +27,8 @@ export interface ArticleCard {
 }
 
 export interface ArticleDetail extends ArticleCard {
+  /** Explicit public reader policy; null is invalid and must never recover legacy full text. */
+  reader?: ArticleReader | null;
   source_body: string | null;
   zh_body: string | null;
   summary: string | null;

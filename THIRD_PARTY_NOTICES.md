@@ -4,6 +4,8 @@
 
 Pulse 的浏览器状态、会话恢复和菜单实现移植参考了 AIHOT 开源框架的以下文件：
 
+- `D:/AIHOT/apps/web/app/routes/{item,item-original}.tsx`、`features/item/{ArticleBody,ReaderTools,PosterSheet,MediaGallery,QuotedPost,StoryFollowups}.tsx`、`features/item/{preview,highlight}.ts`、`components/ui/{Page,OutlineSheet,Menu}.tsx`、`shell/PhoneBar.tsx`、`app.css`：单篇阅读、源文／翻译、正文排版与图片／代码增强、来源／推荐两栏、目录／进度、原帖及引用、事件后续、预览、操作菜单与分享海报。Pulse对应`src/app/articles/_reader/`及文章路由，使用原版highlight.js按需语言实现、sanitize-html白名单机制，改为Next.js、UUID、p0内部滚动／实际内容宽度和Pulse品牌。原`contracts/site.ts`、`publication/{detail,items,rules,og}.ts`、`content/sanitize.ts`及API site／og路由用于字段与权限交接；未移植Fastify／PostgreSQL。Python阅读投影、Markdown／图像生成和统一全文许可仍待实施；MIT不授予原站品牌或新闻／媒体转载权，完整原许可如下。
+
 - `D:/AIHOT/apps/web/app/routes/{report-latest,report-detail,daily-archive}.tsx`、`features/report/{ReportPaper,ReportLayout,ReportNav,Halftone,IssueDots,Nameplate,format}`、`components/ui/{OutlineSheet,Kicker,Tabs,Page}.tsx`、`shell/PhoneBar.tsx`、`app.css`及`site/brand/nameplates/`：日报纸面、点阵日期／刊历、原通用日报字形、归档月份、近期日期条、目录抽屉和条件字段。Pulse对应`src/app/daily/`和`public/daily/nameplates/`，保持SVG几何／viewBox，使用Pulse出版者、字体和p0滚动／净容器适配；周月切换暂禁用。`packages/contracts/src/site.ts`、`apps/api/src/routes/site.ts`、`reports/{edition,compose,correct}.ts`、`publication/reports.ts`等用于契约与规则交接，不移植React Router、Fastify、SQL或pg-boss。原字形由源码所述Noto Sans SC生成，第三方字体原许可仍适用；原站名称和Logo未复制。真实报告后端待实施，见DOCK-008。
 
 - `D:/AIHOT/apps/web/app/routes/hot.tsx`、`features/hot/{Sparkline,Delta}.tsx`、`features/hot/curve.ts`：完整热点榜主卡／副卡／列表、标题／窄屏操作、热度说明、原趋势／徽标、小时缺测分段及单调曲线绘制；Pulse对应 `src/app/hot/`，复用现有 `Faces/SourceAvatar/Badge`，仅调整警务文案、Next.js及p0内部滚动／内容宽度适配。`PhoneBar.tsx`、`app.css`为窄屏标题、原字号／颜色／圆角／阴影依据，未移植全站壳。`packages/contracts/src/site.ts`、`apps/api/src/routes/site.ts`、`packages/backend/src/publication/{hot,stories,scope,representative}.ts`、`events/{hot,group}.ts`为字段、公开证据、媒体／头像、独立参与方／趋势及后端交接依据；不移植React Router、Fastify、SQL或pg-boss。真实热榜与事件详情待后端实施，详见DOCK-007；源站品牌、第三方新闻全文及媒体权利不随软件MIT许可取得。
@@ -57,4 +59,56 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+
+## highlight.js
+
+本轮阅读器使用的依赖许可原文（保留于对应npm包中）：
+
+```text
+BSD 3-Clause License
+
+Copyright (c) 2006, Ivan Sagalaev.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+
+## sanitize-html
+
+本轮阅读器使用的依赖许可原文（保留于对应npm包中）：
+
+```text
+Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```

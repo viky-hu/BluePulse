@@ -36,6 +36,7 @@ function Thumb({ previous }: { previous: MutableRefObject<Place | null> }) {
 export interface TabItem {
   key: string; label: ReactNode; to?: string; prefetch?: "intent";
   resetScroll?: boolean; disabled?: boolean; title?: string;
+  replace?: boolean;
 }
 export function PillTabs({ items, active, onSelect, size = "md", label, fill = false }: { items: TabItem[]; active: string; onSelect?: (key: string) => void; size?: "md" | "sm" | "xs"; label: string; fill?: boolean }) {
   const previous = useRef<Place | null>(null);
@@ -45,7 +46,7 @@ export function PillTabs({ items, active, onSelect, size = "md", label, fill = f
     {items.map(item => {
       const on = item.key === active;
       const inner = <>{on && <Thumb previous={previous} />}<span className={styles.tabLabel}>{item.label}</span></>;
-      return item.to ? item.prefetch === "intent" ? <IntentLink key={item.key} href={item.to} keepScroll={!item.resetScroll} data-filter={item.key} aria-current={on ? "page" : undefined} title={item.title}>{inner}</IntentLink> : <Link key={item.key} href={item.to} data-pulse-scroll={!item.resetScroll ? "preserve" : undefined} data-filter={item.key} aria-current={on ? "page" : undefined} title={item.title}>{inner}</Link> : <button key={item.key} type="button" role="tab" aria-selected={on} disabled={item.disabled} title={item.title} onClick={() => onSelect?.(item.key)}>{inner}</button>;
+      return item.to ? item.prefetch === "intent" ? <IntentLink key={item.key} href={item.to} replace={item.replace} data-pulse-replace={item.replace || undefined} keepScroll={!item.resetScroll} data-filter={item.key} aria-current={on ? "page" : undefined} title={item.title}>{inner}</IntentLink> : <Link key={item.key} href={item.to} replace={item.replace} data-pulse-replace={item.replace || undefined} data-pulse-scroll={!item.resetScroll ? "preserve" : undefined} data-filter={item.key} aria-current={on ? "page" : undefined} title={item.title}>{inner}</Link> : <button key={item.key} type="button" role="tab" aria-selected={on} disabled={item.disabled} title={item.title} onClick={() => onSelect?.(item.key)}>{inner}</button>;
     })}
   </Track></div>;
 }

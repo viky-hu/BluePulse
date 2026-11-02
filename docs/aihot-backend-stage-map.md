@@ -1,5 +1,9 @@
 # AIHOT 机制移植：Pulse 后端差距与阶段交接
 
+2026-11-02新闻阅读交接：本轮前端完整复用AIHOT单篇阅读及原文、正文增强、目录／进度、两侧栏／移动工具、其他报道／事件后续和分享动作。既有`articles/{UUID}`继续兼容，新增可选reader安全投影、`body_language`查询及精确Markdown／poster.png／og.png、`site/stories/:publicId/followups`代理预留，详见[DOCK-009](../dock.md#dock-009单条新闻原文与阅读工具)。没有修改Python或触发采集／模型，真实全文结构、译文完整性／修订、来源许可、公开／导出／索引政策、媒体和分享生成仍待队友实施。阶段B/C/D/E/H的结论不因前端完成改变。
+
+后端需保持现有UUID和匿名公开读取，按原版输出当前允许的单语言HTML、outline、推荐理由／入选／代表、group、story／related、tag和原帖；输出tag前同时实现精确articles tag筛选。译文绑定材料revision且显式完整性，模型prompt／input／回执与人工覆盖按原阶段；原文与翻译页面不触发付费生成。summary-only、body=null和撤回不能由历史快照或旧正文字段回退绕过；Markdown与PNG每次读取同一当前政策，site_fulltext与syndicate_fulltext不同。当前集中public_article_conditions仍保留，不由前端擅自放宽到所有未收录材料。
+
 2026-11-01 日报交接：前端已按原纸面和导航行为适配 `/daily`、日期详情与合订本，新增五组精确 `GET /api/v1/site/reports/daily…` 读取预留（浏览器经Next同源代理）。真实Report／刊期／引用／修订／规则生成与API仍待队友实施；没有修改FastAPI、调用模型或运行出刊任务。规则、字段、错误／截止和后端检查清单见[DOCK-008](../dock.md#dock-008ai日报刊期阅读与合订本)，作为参考而非内部表结构或调度框架要求。
 
 同日后续桌面调整仅涉及前端容器、左栏及字号：电脑窗口保留左侧刊种／往期，收回外围留白；原字段、条件分支、五组读取及本阶段后端依赖不变，不增加后端接口任务。

@@ -107,7 +107,7 @@ async function requestHomeFeed({ key, pathname, filters, cursor, mock }: FeedReq
       next.featured = pathname === "/" ? MOCK_HOME_DATA.featured.slice(0, 6) : [];
     } else {
       const params = new URLSearchParams({ period: filters.period, sort: filters.sort, limit: "20" });
-      for (const [name, value] of Object.entries({ q: filters.q, topic: filters.topic, region: filters.region, source: filters.source, source_type: filters.sourceType, entity: filters.entity, cursor })) {
+      for (const [name, value] of Object.entries({ q: filters.q, topic: filters.topic, tag: filters.tag, region: filters.region, source: filters.source, source_type: filters.sourceType, entity: filters.entity, cursor })) {
         if (value) params.set(name, value);
       }
       const signal = AbortSignal.timeout(12_000);
