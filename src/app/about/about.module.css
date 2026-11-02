@@ -14,9 +14,7 @@
 }
 .hero { display: grid; align-items: end; gap: 25px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.introButton { flex: none; min-height: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 1.5; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-family: inherit; transition: color .18s; }
-.introButton:hover { background: transparent; border-color: transparent; color: var(--accent); }
-.introButton:disabled { cursor: wait; opacity: .6; }
+.introButton { flex: none; cursor: pointer; font-family: inherit; }
 .kicker { margin: 0; color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.6; }
 .headline { margin: 18px 0 0; font-size: clamp(25px, 4.15cqi, 46px); font-weight: 700; line-height: 1.4; letter-spacing: 0; text-wrap: pretty; }
 .headline > span { color: var(--accent); }
@@ -27,6 +25,9 @@
 .primary:hover { background: #125b64; }
 .secondary { background: var(--surface); color: var(--ink); }
 .secondary:hover { background: #edf3f0; border-color: #a3b9b0; }
+.secondary.introButton { min-height: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 1.5; text-decoration: underline; text-underline-offset: 3px; transition: color .18s; }
+.secondary.introButton:hover { background: transparent; border-color: transparent; color: var(--accent); }
+.secondary.introButton:disabled { cursor: wait; opacity: .6; }
 .page a:focus-visible, .page button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .how { margin-top: 38px; }
 .dataStatus { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin: 0; font-size: 11px; line-height: 1.8; color: #75817e; }
