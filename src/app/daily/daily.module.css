@@ -1,7 +1,7 @@
 .page { --ink:#202a30; --ink-2:#303c42; --ink-3:#59656b; --ink-4:#657176; --accent:#176b75; --accent-soft:rgba(23,107,117,.08); --accent-softer:rgba(23,107,117,.05); --line:#dfe4e1; --line-strong:#d1d9d5; --line-soft:#e9ede9; --surface:#fff; --bg:#faf9f6; --bg-sunk:#f3f3ef; --bar-h:48px; --muted:var(--ink-4); --soft:var(--line-soft); container:daily / inline-size; min-width:0; color:var(--ink); }
 .shell { min-width:0; }
 .body { min-width:0; padding-bottom:24px; }
-.paper { width:100%; max-width:1160px; margin-inline:auto; }
+.paper { width:100%; }
 .archive { display:none; }
 .phoneBar { position:sticky; z-index:40; top:calc(-1 * var(--p0-padding-top, 0px)); display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; height:48px; background:color-mix(in srgb,var(--bg) 85%,transparent); backdrop-filter:blur(24px) saturate(150%); text-align:center; }
 .wideBar { grid-template-columns:minmax(0,1fr) 44px; } .wideBar > :first-child { justify-self:center; }

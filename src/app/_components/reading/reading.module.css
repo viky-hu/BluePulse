@@ -1,4 +1,4 @@
-.page { --reading-ink: #202a30; --reading-muted: #59656b; --reading-accent: #176b75; --reading-line: #e0e6e2; color: var(--reading-ink); max-width: 1320px; margin-inline: auto; container: reading / inline-size; }
+.page { --reading-ink: #202a30; --reading-muted: #59656b; --reading-accent: #176b75; --reading-line: #e0e6e2; color: var(--reading-ink); min-width: 0; container: reading / inline-size; }
 .layout { display: grid; gap: 24px; padding-bottom: 18px; }
 .main, .aside { min-width: 0; }
 .aside { display: grid; gap: 16px; align-content: start; }

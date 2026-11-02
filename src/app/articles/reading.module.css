@@ -98,9 +98,9 @@
 .footer { display: flex; justify-content: space-between; gap: 20px; padding: 25px 0 34px; border-top: 1px solid var(--ink); font-size: 11px; letter-spacing: .1em; }
 .footer span { color: #77746f; letter-spacing: 0; }
 
-.breadcrumb { display: flex; gap: 11px; padding: 25px 0; font-size: 11px; color: #77746f; }
+.breadcrumb { display: flex; gap: 11px; padding: 8px 0 16px; font-size: 11px; color: #77746f; }
 .breadcrumb a:hover { color: var(--ink); text-decoration: underline; }
-.detailLayout { display: grid; grid-template-columns: minmax(0, 820px) minmax(180px, 230px); gap: 24px; max-width: 1520px; padding: 20px 0 40px; margin: 0 auto; }
+.detailLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 230px); gap: 24px; width: 100%; padding: 0 0 40px; margin: 0; }
 .detailMain { min-width: 0; }
 .detailKicker { font-size: 11px; letter-spacing: .13em; color: #517b69; }
 .detailTitle { margin: 21px 0 18px; font-size: clamp(26px, 4.5cqw, 42px); line-height: 1.25; letter-spacing: 0; font-weight: 400; overflow-wrap: anywhere; }
@@ -111,12 +111,12 @@
 .sectionHeading span { color: #8e8a82; font-size: 11px; }
 .sectionHeading h2 { margin: 0; font-size: 20px; font-weight: 400; }
 .abstract { margin-bottom: 50px; }
-.abstract > p { margin: 24px 0 0; font-size: 17px; line-height: 2.05; }
+.abstract > p { max-width: 72ch; margin: 24px 0 0; font-size: 17px; line-height: 2.05; }
 .bodySection { margin-bottom: 48px; }
 .contentNotice { display: flex; align-items: flex-start; gap: 10px; padding: 14px 0 18px; color: #696660; font-size: 12px; line-height: 1.7; }
 .noticeDot { flex: none; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: #77bba3; }
-.bodyText { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 2.08; }
-.originalText { color: #595751; font-family: Georgia, "Times New Roman", serif; font-size: 15px; line-height: 1.85; }
+.bodyText { max-width: 78ch; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 2.08; }
+.originalText { max-width: 78ch; color: #595751; font-family: Georgia, "Times New Roman", serif; font-size: 15px; line-height: 1.85; }
 .originalDisclosure { margin-top: 48px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .originalDisclosure summary { display: flex; justify-content: space-between; padding: 19px 0; list-style: none; cursor: pointer; font-size: 13px; }
 .originalDisclosure summary::-webkit-details-marker { display: none; }

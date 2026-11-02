@@ -143,16 +143,14 @@
 
 .featuredSection,
 .collectedSection {
-  max-width: 920px;
-  margin-inline: auto;
+  min-width: 0;
 }
 
 .feedSection {
-  max-width: 920px;
-  margin-inline: auto;
+  min-width: 0;
 }
 
-.searchResults { max-width: 1320px; }
+.searchResults { min-width: 0; }
 
 .featuredSection {
   padding-bottom: 16px;
@@ -388,8 +386,8 @@
 }
 
 .searchPanel {
-  max-width: 1320px;
-  margin: 0 auto 23px;
+  min-width: 0;
+  margin: 0 0 23px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
 }
@@ -662,13 +660,11 @@
 }
 
 .historySection {
-  max-width: 1320px;
-  margin: 0 auto;
+  min-width: 0;
 }
 
 .accountPage {
-  max-width: 920px;
-  margin: 0 auto;
+  min-width: 0;
 }
 
 .historyList {

@@ -6,11 +6,16 @@ export type NavigationState<T> = {
   pending: NavigationRequest<T> | null;
 };
 export type NavigationStep<T> = { state: NavigationState<T>; commit?: NavigationRequest<T> };
+export type NavigationOrigin = "main-menu" | "content";
+
+export function navigationIntent(current: string, destination: string, origin: NavigationOrigin): "scene" | "content" {
+  return origin === "main-menu" && current !== destination ? "scene" : "content";
+}
 
 export function requestNavigation<T>(
-  state: NavigationState<T>, request: NavigationRequest<T>, reducedMotion = false, waitingForData = false,
+  state: NavigationState<T>, request: NavigationRequest<T>, reducedMotion = false, waitingForData = false, animateScene = true,
 ): NavigationStep<T> {
-  if (reducedMotion) {
+  if (reducedMotion || !animateScene) {
     return {
       state: { phase: "idle", currentKey: request.key, pending: null },
       ...(request.key !== state.currentKey ? { commit: request } : {}),

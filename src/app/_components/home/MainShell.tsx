@@ -12,7 +12,7 @@ import { canonicalHref, entryMode, parseHomeRoute } from "./home-routes";
 import { hasCachedRouteData, invalidateRouteData, prefetchRouteData } from "./route-data-cache";
 import { NavigationProgress } from "./NavigationProgress";
 import { RouteRefresh } from "./RouteRefresh";
-import { finishEnter, finishExit, requestNavigation, type NavigationState } from "./view-transition";
+import { finishEnter, finishExit, navigationIntent, requestNavigation, type NavigationState } from "./view-transition";
 import { MainScene, type MainSceneRefs } from "./MainScene";
 import styles from "./main-shell.module.css";
 
@@ -119,7 +119,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (performance.getEntriesByType("navigation").some(item => (item as PerformanceNavigationTiming).type === "back_forward")) setActivation({ key, restore: true });
   }, [key, pathname, store]);
 
-  const navigate = useCallback((target: string, options: { preserveScroll?: boolean } = {}) => {
+  const navigate = useCallback((target: string, options: { preserveScroll?: boolean; origin?: "main-menu" | "content" } = {}) => {
     const destination = href(target), targetKey = canonicalHref(destination);
     if (targetKey === navigationRef.current.currentKey && navigationRef.current.phase === "idle") {
       invalidateRouteData(targetKey, mock);
@@ -134,12 +134,17 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     const feedQuery = ["/", "/all"].includes(currentPath) && new URL(destination, "https://pulse.local").pathname === currentPath;
     const preserveScroll = feedQuery && options.preserveScroll === true;
     if (preserveScroll && scroller.current) saveSessionSnapshot(`position:${targetKey}`, position(scroller.current), mock);
+    const intent = navigationIntent(keyRef.current, targetKey, options.origin ?? "content");
+    if (intent === "content") {
+      motion.current?.kill(); motion.current = null; motionKey.current = "";
+      contextSafe(() => { if (stage.current) gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
+    }
     if (feedQuery) {
       motion.current?.kill(); motionKey.current = "";
       contextSafe(() => { if (stage.current) gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
     }
     const waiting = navigationRef.current.phase === "entering" && motionKey.current !== `entering:${navigationRef.current.currentKey}`;
-    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced() || feedQuery, waiting);
+    const step = requestNavigation(navigationRef.current, { key: targetKey, view: destination }, reduced() || feedQuery, waiting, intent === "scene");
     navigationRef.current = step.state; setNavigation(step.state);
     if (step.commit) {
       setActivation({ key: step.commit.key, restore: preserveScroll }); setPendingRoute(step.commit.key);
@@ -194,7 +199,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (navigation.phase === "exiting") {
       motionKey.current = token; motion.current?.kill();
       contextSafe(() => {
-        motion.current = gsap.to(stage.current, { autoAlpha: 0, y: -5, duration: .22, ease: "power2.in", onComplete: () => {
+        motion.current = gsap.to(stage.current, { autoAlpha: 0, y: -3, duration: .14, ease: "power2.in", onComplete: () => {
           const step = finishExit(navigationRef.current); navigationRef.current = step.state; setNavigation(step.state);
           if (step.commit) {
             setActivation({ key: step.commit.key, restore: false }); setPendingRoute(step.commit.key);
@@ -205,7 +210,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     } else if (navigation.phase === "entering" && key === navigation.currentKey && readyKeys[key] && !restoreTasksRef.current.get(key)) {
       motionKey.current = token;
       contextSafe(() => {
-        motion.current = gsap.fromTo(stage.current, { autoAlpha: 0, y: 7 }, { autoAlpha: 1, y: 0, duration: reduced() ? 0 : .4, ease: "power2.out", onComplete: () => {
+        motion.current = gsap.fromTo(stage.current, { autoAlpha: 0, y: 4 }, { autoAlpha: 1, y: 0, duration: reduced() ? 0 : .22, ease: "power2.out", onComplete: () => {
           const step = finishEnter(navigationRef.current); navigationRef.current = step.state; setNavigation(step.state);
         } });
       })();
@@ -261,7 +266,10 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     const sameView = canonicalHref(`${url.pathname}${url.search}`) === keyRef.current;
     if (url.origin !== location.origin || (url.hash && sameView) || !parseHomeRoute(url.pathname, url.searchParams).valid) return;
     // A cross-page anchor is a new owned navigation, not history restoration of the old page.
-    event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`, { preserveScroll: anchor.dataset.pulseScroll === "preserve" });
+    event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`, {
+      preserveScroll: anchor.dataset.pulseScroll === "preserve",
+      origin: anchor.closest("#pulse-main-menu") ? "main-menu" : "content",
+    });
   };
   return <Context.Provider value={context}>
     <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>
