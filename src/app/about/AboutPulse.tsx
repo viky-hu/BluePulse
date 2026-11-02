@@ -135,7 +135,9 @@ export function AboutPulse() {
     <div className={styles.topbar}>
       <p className={styles.kicker}>关于 Pulse</p>
       <button type="button" className={`${styles.secondary} ${styles.introButton}`} onClick={openIntro} disabled={openingIntro}>
-        产品初始页 <span aria-hidden="true">↗</span>
+        产品初始页 <svg className={styles.introArrow} aria-hidden="true" viewBox="0 0 16 16" fill="none">
+          <path d="M4 12 12 4M5 4h7v7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
     </div>
     {introError && <p className={styles.dataStatus} role="status">暂时无法重置动画播放状态，请允许本站使用浏览器存储后重试。</p>}

@@ -25,7 +25,8 @@
 .primary:hover { background: #125b64; }
 .secondary { background: var(--surface); color: var(--ink); }
 .secondary:hover { background: #edf3f0; border-color: #a3b9b0; }
-.secondary.introButton { min-height: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 1.5; text-decoration: underline; text-underline-offset: 3px; transition: color .18s; }
+.secondary.introButton { min-height: 0; gap: 5px; padding: 2px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 14px; line-height: 1.5; text-decoration: underline; text-underline-offset: 3px; transition: color .18s; }
+.introArrow { display: block; width: 14px; height: 14px; flex: none; }
 .secondary.introButton:hover { background: transparent; border-color: transparent; color: var(--accent); }
 .secondary.introButton:disabled { cursor: wait; opacity: .6; }
 .page a:focus-visible, .page button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
