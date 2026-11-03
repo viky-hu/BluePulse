@@ -1,5 +1,7 @@
 # Pulse 前后端接口对接总册
 
+2026-11-03跨模块依赖补充：模型、材料版本、付费回执、事件归组与发布门禁、热点／日报生成的 [实施交接](docs/aihot-model-pipeline-handoff-2026-11-03.md) 已整理，供队友在信源合并后实施。它不新增公开路径或改变下列字段契约，不要求照抄内部表结构；DOCK-006／007／008的真实后端与联调仍待完成。本轮只有文档更新，没有实现模型、热点或出刊服务。
+
 更新日期：2026-11-02。本文是可持续追加的模块对接报告。**建议契约不等于后端已实现；Mock 验收不等于真实业务联调。**
 
 技术边界：Pulse 保留 Next.js 16 / React 19 / TypeScript / Tailwind 4 / GSAP，以及 Python / FastAPI 后端。复用 AIHOT 的组件、业务机制和契约思路，不移植 React Router loader、Fastify、PostgreSQL SQL 或 pg-boss。

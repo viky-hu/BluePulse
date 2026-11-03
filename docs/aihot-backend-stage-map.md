@@ -1,5 +1,9 @@
 # AIHOT 机制移植：Pulse 后端差距与阶段交接
 
+2026-11-03模型链路总交接：详见 [源码复核、实施工作包与验收清单](aihot-model-pipeline-handoff-2026-11-03.md)。用户确定自动筛选发布、人工可纠正，按步骤配置模型且初期共用一个兼容模型，精选宁缺毋滥，整体交付含真实热点与日报。本次仅更新研究与交接文档；main基线8738045尚未包含队友的信源提交，合并后须重新核对本阶段图，不能拿旧差距否定其新实现。
+
+实施顺序为B材料版本／来源身份与许可→C回执／预算／持久任务→D预筛／双评分／结构化／写作→E事件与发布门禁→F规则日报，G权限／人工覆盖／审计随管理写操作一起完成。热点本身仍在E，独立日报在F；不能因本次文档或已有前端验收而标记B–G完成。周月刊、项目、站外通知和新增机器出口不扩进本期；H仅复用当前公开读取所需政策，不要求先建RSS／MCP／同步ledger。
+
 2026-11-02新闻阅读交接：本轮前端完整复用AIHOT单篇阅读及原文、正文增强、目录／进度、两侧栏／移动工具、其他报道／事件后续和分享动作。既有`articles/{UUID}`继续兼容，新增可选reader安全投影、`body_language`查询及精确Markdown／poster.png／og.png、`site/stories/:publicId/followups`代理预留，详见[DOCK-009](../dock.md#dock-009单条新闻原文与阅读工具)。没有修改Python或触发采集／模型，真实全文结构、译文完整性／修订、来源许可、公开／导出／索引政策、媒体和分享生成仍待队友实施。阶段B/C/D/E/H的结论不因前端完成改变。
 
 后端需保持现有UUID和匿名公开读取，按原版输出当前允许的单语言HTML、outline、推荐理由／入选／代表、group、story／related、tag和原帖；输出tag前同时实现精确articles tag筛选。译文绑定材料revision且显式完整性，模型prompt／input／回执与人工覆盖按原阶段；原文与翻译页面不触发付费生成。summary-only、body=null和撤回不能由历史快照或旧正文字段回退绕过；Markdown与PNG每次读取同一当前政策，site_fulltext与syndicate_fulltext不同。当前集中public_article_conditions仍保留，不由前端擅自放宽到所有未收录材料。
@@ -109,7 +113,7 @@ Pulse 保留 ModelAdapter，设计 Python 持久任务/租约方案，不引入 
 
 依赖 B/E，C用于周月模型。AIHOT 原路径：`D:/AIHOT/packages/backend/src/reports/edition.ts: dailyEdition,arrangeDaily,dailyMemory`、`compose.ts: composeDaily,grounded,composeDueReports`、`correct.ts`、`site/site.ts: EDITION_TIMES`、worker schedules。
 
-独立 Report/刊期/引用模型，不复用 FeaturedEdition 冒充日报。规则挑选去重/来源限额/快讯；默认时间及12正文/10快讯/2每源/7期记忆可先按参考机制实现并记录配置。周/月只从日报选择20/30事件，模型写导读而不增删事实；引用当前许可/撤回重新核验。
+独立 Report/刊期/引用模型，不复用 FeaturedEdition 冒充日报。规则挑选去重/来源限额/快讯；默认时间及12正文/10快讯/2每源/前7自然日记忆按参考机制实现并记录配置，记忆含快讯／related并追溯当前归组。周/月只从日报选择20/30事件，模型写导读而不增删事实；这部分仅保留长期研究，本次不启用周月任务。引用当前许可/撤回重新核验。
 
 验收：截止后确认进下一期、已出刊不自动重写、停机补缺幂等、无重大新闻与无资料判断区分、隐去已撤回引用及依赖导读/封面、模型产生新名字/数字时使用确定性回退。前端交付真实latest-page/index/detail/navigation，空刊期不是错误mock。
 
