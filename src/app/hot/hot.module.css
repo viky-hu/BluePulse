@@ -1,7 +1,7 @@
 /* AIHOT routes/hot.tsx + app.css source values; p0 container sizing only. MIT.
    Copyright (c) 2026 数字生命卡兹克. See THIRD_PARTY_NOTICES.md. */
 .page { --ink: #202a30; --ink-2: #303c42; --ink-3: #59656b; --ink-4: #657176; --line: #dfe4e1; --line-soft: #e9ede9; --line-strong: #d1d9d5; --accent: #176b75; --surface: #fff; --hot: #b3402a; --bg-sunk: #f3f3ef; container: hot / inline-size; min-width: 0; padding-bottom: 40px; color: var(--ink); overflow-wrap: anywhere; }
-.num, .rankLabel, .rowRank, .peak, .leadHeat > div, .runnerMetrics > span, .rowHeat > span, .rowMobileHeat { font-variant-numeric: tabular-nums; }
+.num, .rankLabel, .rowRank, .peak, .leadHeat > div, .runnerMetrics > span, .rowHeat > [data-hot-heat], .rowMobileHeat { font-variant-numeric: tabular-nums; }
 .nowrap { white-space: nowrap; }.pushRight { margin-left: auto; }
 .desktopHeader { display: none; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 24px; padding: 4px 0 20px; }
 .liveLabel { display: flex; align-items: center; gap: 8px; color: var(--hot); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
@@ -53,7 +53,7 @@
 @container hot (min-width: 760px) {
   .desktopHeader { display: flex; }.phoneBar, .phoneHeading { display: none; }
   .topThree { grid-template-columns: repeat(12,minmax(0,1fr)); gap: 16px; }.leadSlot { grid-column: span 7; grid-row: span 2; }.runnerSlot { grid-column: span 5; }.leadCopy h2 { font-size: 25px; line-height: 1.38; }.runnerSummary { -webkit-line-clamp: 1; }
-  .others { margin-top: 28px; }.othersHeader > span { display: block; }.row { grid-template-columns: 44px minmax(0,1fr) auto 104px 76px; align-items: center; column-gap: 24px; padding: 14px 24px; }.rowRank { font-size: 17px; }.rowSummary { -webkit-line-clamp: 1; }.rowMobile { display: none; }.rowFaces { display: flex; align-items: center; gap: 10px; }.rowSpark { display: block; width: 104px; height: 28px; }.rowHeat { display: flex; flex-direction: column; align-items: end; gap: 4px; }.rowHeat > span { color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
+  .others { margin-top: 28px; }.othersHeader > span { display: block; }.row { grid-template-columns: 44px minmax(0,1fr) auto 104px 76px; align-items: center; column-gap: 24px; padding: 14px 24px; }.rowRank { font-size: 17px; }.rowSummary { -webkit-line-clamp: 1; }.rowMobile { display: none; }.rowFaces { display: flex; align-items: center; gap: 10px; }.rowSpark { display: block; width: 104px; height: 28px; }.rowHeat { display: flex; flex-direction: column; align-items: end; gap: 4px; }.rowHeat > [data-hot-heat] { color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
 }
 @container hot (min-width: 1040px) {
   .leadSlot { grid-column: span 8; }.runnerSlot { grid-column: span 4; }.leadBody[data-visual="true"] { grid-template-columns: minmax(0,1fr) minmax(0,.72fr); gap: 28px; }.heatPanel, .cover { order: 0; aspect-ratio: 16/10; }.cover img { aspect-ratio: 16/10; }

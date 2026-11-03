@@ -63,3 +63,9 @@ node scripts/navigation-loading-browser-test.mjs
 `/hot?mock=1` 为显式隔离演示。正式 `/hot` 在接口缺失时显示待接入，合法空榜与故障分开；不以文章重要性、点击数或静态演示新闻生成正式排名。`/story/:publicId` 仍为诚实待接入目标，完整事件详情及合并308另行交付。
 
 完整字段、计算口径、计数／名单差异、25点曲线、媒体许可与撤回、30秒／上游截止及后端签收条件见根目录 [DOCK-007](../dock.md#dock-007热点榜参与者与24小时曲线)。MIT完整许可及版权保留在 `THIRD_PARTY_NOTICES.md`。
+
+## 2026-11-02 趋势胶囊回归核对
+
+对照 AIHOT `apps/web/app/routes/hot.tsx`、`features/hot/{Delta,Sparkline,curve}.tsx`、共享 `Faces/SourceAvatar/Badge` 与 Pulse `src/app/hot/`、`src/app/_components/feed/`：主卡／两副卡／其余行、状态徽标、热度值、趋势、参与者头像及名单、曲线缺测分段、封面／热度面板分支、空态、方法说明折叠及移动吸顶均有对应实现；未发现遗漏 AIHOT 成功态组件。Pulse 的差异限于 Next.js 路由／读取缓存、p0 内部滚动、窄屏容器断点、共享组件落位和本地 CSS Module，这些属于框架及页面容器适配。接口尚未接入的真实热榜、故事详情和生产数据是后端缺口，不是前端组件缺失。
+
+截图所示放大来自桌面榜单行的 `.rowHeat > span` 选择器：它同时命中热度数字和 `Delta` 的直接 `span`，将胶囊文字覆盖成 20px。现在热度数值有独立 `data-hot-heat` 标记，桌面字号规则只应用于数值，趋势组件仍使用 AIHOT 的 22px 高、11.5px 字、全圆角及四种语义分支。专项浏览器检查现为27组通过，覆盖1360×760桌面、390×844移动和桌面 reduced-motion；新增的各视口计算样式断言均通过，桌面热度数值仍为20px。`pnpm lint`、`pnpm build` 及7项热点契约测试通过。此记录是源码对照和受控前端验证，不代表真实后端联调或生产运行验收。

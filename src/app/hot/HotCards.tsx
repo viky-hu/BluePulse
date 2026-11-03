@@ -69,6 +69,6 @@ export function Row({ e }: { e: HotEntryView }) {
     <div className={styles.rowCopy}><h3><StoryLink e={e} />{e.badges.length > 0 && <span className={styles.rowBadges}><Badges e={e} /></span>}</h3>{e.summary && <p className={styles.rowSummary}>{e.summary}</p>}
       <div className={styles.rowMobile}><Faces participants={e.participants} total={e.participantCount} size={20} /><span className={styles.rowSource}><span className={styles.num}>{e.sourceCount}</span> 个来源</span><span className={styles.rowMobileMetrics}><span className={styles.rowMobileHeat}>{Math.round(e.heat)}</span><Delta trend={e.trend} pct={e.trendPct} /></span></div>
     </div>
-    <div className={styles.rowFaces}><Faces participants={e.participants} total={e.participantCount} size={20} /></div><Sparkline values={e.spark} className={styles.rowSpark} /><div className={styles.rowHeat}><span>{Math.round(e.heat)}</span><Delta trend={e.trend} pct={e.trendPct} /></div>
+    <div className={styles.rowFaces}><Faces participants={e.participants} total={e.participantCount} size={20} /></div><Sparkline values={e.spark} className={styles.rowSpark} /><div className={styles.rowHeat}><span data-hot-heat>{Math.round(e.heat)}</span><Delta trend={e.trend} pct={e.trendPct} /></div>
   </li>;
 }

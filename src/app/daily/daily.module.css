@@ -7,7 +7,10 @@
 .wideBar { grid-template-columns:minmax(0,1fr) 44px; } .wideBar > :first-child { justify-self:center; }
 .phoneBar button,.phoneBar a { min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; }
 .phoneBar button { justify-self:end; }
-.back { justify-self:start; color:var(--accent); font-size:16px; }
+.back { justify-self:start; gap:.5rem; min-height:44px; padding:.5rem .75rem; border-radius:999px; color:var(--accent); font-size:18px; line-height:1.5; font-weight:500; text-decoration:none; }
+.back svg { width:26px; height:26px; flex:none; }
+.back:hover { background:var(--bg-sunk); }
+.back:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .phoneTitle { font-size:15.5px; font-weight:600; opacity:0; transform:translateY(4px); transition:opacity .2s, transform .2s; } .titleShown { opacity:1; transform:translateY(0); } .scrolled { box-shadow:0 1px 0 var(--line-soft); }
 
 .recent { display:flex; gap:8px; overflow-x:auto; padding:6px 0 4px; scrollbar-width:none; }

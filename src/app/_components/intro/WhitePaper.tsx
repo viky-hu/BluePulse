@@ -1,5 +1,6 @@
 import {
   getWhitePaperHeadlineLines,
+  getWhitePaperStapleGeometry,
   type WhitePaperLayout,
 } from "./white-paper-config";
 import type { WhitePaperArticle } from "./white-paper-data";
@@ -45,13 +46,7 @@ export function WhitePaper({
     headlineY + headlineLineHeight * headlineLines.length + layout.height * 0.04,
   );
   const bodyStrokeWidth = clamp(layout.width * 0.008, 1.5, 3.8);
-  const stapleLength = clamp(layout.width * 0.2, 10, 22);
-  const stapleRise = stapleLength * Math.sin((40 * Math.PI) / 180);
-  const stapleRun = stapleLength * Math.cos((40 * Math.PI) / 180);
-  const stapleInset = padding * 1.1;
-  // Align the whole diagonal's top/left bounds, not just its lower-left endpoint.
-  const stapleStartX = stapleInset;
-  const stapleStartY = stapleInset + stapleRise;
+  const staple = getWhitePaperStapleGeometry(layout.width);
   const contentClassName = styles.paperContent;
 
   return (
@@ -85,10 +80,7 @@ export function WhitePaper({
         >
           <line
             data-white-paper-staple-line={article.id}
-            x1={stapleStartX}
-            y1={stapleStartY}
-            x2={stapleStartX + stapleRun}
-            y2={stapleStartY - stapleRise}
+            {...staple}
           />
         </g>
 

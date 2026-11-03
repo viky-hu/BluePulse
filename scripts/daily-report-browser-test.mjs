@@ -37,12 +37,43 @@ async function ready(page,path='/daily') { await page.waitForFunction(path => lo
 async function goto(page,path='/daily') { await page.goto(`${origin}${path}`);await ready(page,path.split(/[?#]/)[0]); }
 async function menu(page,href) { const button=page.getByRole('button',{name:'打开菜单',exact:true});if(await button.isVisible())await button.click();await page.locator(`[data-home-sidebar] a[href="${href}"]`).click();await ready(page,href); }
 async function settledCanvas(page) { await page.evaluate(()=>document.fonts.ready);await page.waitForTimeout(1050); }
+async function sampleIssueHandoff(page, path) {
+  const samples = page.evaluate(async path => {
+    const frames = [];
+    const seed = `daily-${path.slice(-10)}-date`;
+    const deadline = performance.now() + 10000;
+    let started = null;
+    while (performance.now() < deadline) {
+      await new Promise(requestAnimationFrame);
+      const host = document.querySelector(`[data-halftone-seed="${seed}"]`);
+      const canvas = host?.querySelector('[data-halftone-canvas]');
+      const text = host?.querySelector('[data-halftone-text]');
+      if (!host || !canvas || !text) continue;
+      started ??= performance.now();
+      if (performance.now() - started >= 1250) break;
+      let darkPixels = 0, opaquePixels = 0, minRgb = 765;
+      if (canvas.width && canvas.height) {
+        const ctx = canvas.getContext('2d');
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 0; i < pixels.length; i += 4) {
+          if (pixels[i + 3] > 0) opaquePixels++;
+          minRgb = Math.min(minRgb, pixels[i] + pixels[i + 1] + pixels[i + 2]);
+          if (pixels[i + 3] > 32 && pixels[i] + pixels[i + 1] + pixels[i + 2] < 390) darkPixels++;
+        }
+      }
+      frames.push({ elapsed: Math.round(performance.now() - started), phase: host.dataset.halftonePhase, ready: host.dataset.halftoneReady === 'true', textOpacity: Number(getComputedStyle(text).opacity), canvasOpacity: Number(getComputedStyle(canvas).opacity), size: [canvas.width, canvas.height], darkPixels, opaquePixels, minRgb });
+    }
+    return { frames, finalPath: location.pathname, lastSeed: document.querySelector('[data-halftone-seed]')?.dataset.halftoneSeed ?? null };
+  }, path);
+  await page.locator(`a[href="${path}"]:visible`).first().click();
+  return samples;
+}
 try {
   await mkdir(artifacts,{recursive:true});for(let i=0;i<100;i++){try{if((await fetch(`${origin}/daily`)).ok)break;}catch{}if(i===99)throw Error(log);await new Promise(resolve=>setTimeout(resolve,100));}
   browser=await chromium.launch({headless:true});
-  for(const spec of [{name:'desktop',viewport:{width:1440,height:900}},{name:'narrow-desktop',viewport:{width:1180,height:820}},{name:'wide',viewport:{width:1920,height:1080}},{name:'mobile',viewport:{width:390,height:844}},{name:'reduced',viewport:{width:1440,height:900},reducedMotion:'reduce'}]) {
+  for(const spec of [{name:'desktop',viewport:{width:1440,height:900}},{name:'narrow-desktop',viewport:{width:1180,height:820}},{name:'wide',viewport:{width:1920,height:1080}},{name:'mobile',viewport:{width:390,height:844}},{name:'reduced',viewport:{width:1440,height:900},reducedMotion:'reduce'},{name:'font-delay',viewport:{width:1440,height:900},fontDelay:500}]) {
     if(process.env.PULSE_DAILY_CASE && process.env.PULSE_DAILY_CASE!==spec.name)continue;
-    reset();const context=await browser.newContext({viewport:spec.viewport,reducedMotion:spec.reducedMotion??'no-preference'});await context.addInitScript(()=>{localStorage.setItem('blue-pulse-entry-complete-v1','1');localStorage.setItem('blue-pulse-entry-complete-v1:mock','1');});
+    reset();const context=await browser.newContext({viewport:spec.viewport,reducedMotion:spec.reducedMotion??'no-preference'});await context.addInitScript(delay=>{localStorage.setItem('blue-pulse-entry-complete-v1','1');localStorage.setItem('blue-pulse-entry-complete-v1:mock','1');if(delay){const ready=document.fonts.ready;Object.defineProperty(document.fonts,'ready',{configurable:true,get:()=>new Promise(resolve=>setTimeout(()=>ready.then(resolve),delay))});}},spec.fontDelay??0);
     const page=await context.newPage();page.on('pageerror',error=>errors.push(`${spec.name}: ${error.message}`));
     await context.route('**/daily-fixture-*.svg',route=>route.fulfill({status:route.request().url().includes('missing')?404:200,contentType:'image/svg+xml',body:route.request().url().includes('missing')?'invalid image':'<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#a4d7c7"/></svg>'}));
     await goto(page);await settledCanvas(page);
@@ -57,6 +88,42 @@ try {
     assert.equal(await switcher.getByRole('tab',{name:'周报',exact:true}).isDisabled(),true);assert.equal(await switcher.getByRole('tab',{name:'月报',exact:true}).isDisabled(),true);
     await page.screenshot({path:`${artifacts}/${spec.name}.png`});
     check(`${spec.name}: complete paper, metadata, seven pages/flash, original switch and no overflow`);
+    if(['desktop','mobile','reduced','font-delay'].includes(spec.name)) {
+      const capture=await sampleIssueHandoff(page,'/daily/2026-10-31'),frames=capture.frames;
+      await writeFile(`${artifacts}/${spec.name}-handoff.json`,JSON.stringify(capture,null,2));
+      assert.ok(frames.length>20,`record the new issue handoff across multiple display frames; ${JSON.stringify(capture)}`);
+      const visibleText=frames.find(frame=>frame.textOpacity>0.01);
+      assert.equal(visibleText,undefined,`the DOM numeral must be hidden from the first new-issue frame; frame=${JSON.stringify(visibleText)}`);
+      const invisibleCanvas=frames.find(frame=>!frame.ready||frame.canvasOpacity<0.99||frame.darkPixels===0);
+      assert.equal(invisibleCanvas,undefined,`the painted Canvas must be visible from the first new-issue frame; frame=${JSON.stringify(invisibleCanvas)}`);
+      if(spec.name==='reduced') assert.ok(frames.every(frame=>frame.phase==='complete'),'reduced motion must show the complete static halftone from its first frame');
+      else {
+        assert.equal(frames[0].phase,'revealing','the first visible dot frame must preserve the entrance animation');
+        const complete=frames.findIndex(frame=>frame.phase==='complete');
+        assert.ok(complete>0,'the Canvas must reveal and then complete');
+        assert.ok(frames.slice(complete).every(frame=>frame.phase==='complete'),'the completed reveal must not restart');
+      }
+      await ready(page,'/daily/2026-10-31');await settledCanvas(page);
+      assert.equal(await page.locator('[data-halftone-seed="daily-2026-10-31-date"]').getAttribute('data-halftone-phase'),'complete');
+      check('issue change hands off directly to a painted halftone without a text-only or blank frame');
+      if(spec.name==='reduced') {
+        const first=await page.locator('[data-halftone-canvas]').evaluate(canvas=>{const ctx=canvas.getContext('2d');return Array.from(ctx.getImageData(0,0,canvas.width,canvas.height).data).reduce((sum,value,index)=>index%4===3?sum+value:sum,0);});
+        await page.waitForTimeout(80);
+        const second=await page.locator('[data-halftone-canvas]').evaluate(canvas=>{const ctx=canvas.getContext('2d');return Array.from(ctx.getImageData(0,0,canvas.width,canvas.height).data).reduce((sum,value,index)=>index%4===3?sum+value:sum,0);});
+        assert.equal(first,second,'reduced motion must hand off to a complete static Canvas');
+        check('reduced motion paints the full static halftone without an entrance loop');
+      }
+      if(spec.name==='desktop') {
+        await page.locator('a[href="/daily/2026-10-30"]:visible').first().click();
+        await page.waitForFunction(()=>location.pathname==='/daily/2026-10-30');
+        await page.locator('a[href="/daily/2026-10-29"]:visible').first().click();
+        await ready(page,'/daily/2026-10-29');
+        await page.waitForFunction(()=>{const host=document.querySelector('[data-halftone-seed="daily-2026-10-29-date"]');return host?.dataset.halftoneReady==='true';});
+        assert.equal(await page.locator('[data-halftone-seed^="daily-"]').getAttribute('data-halftone-seed'),'daily-2026-10-29-date');
+        await settledCanvas(page);
+        check('rapid consecutive issue changes leave only the final issue drawing');
+      }
+    }
     if(spec.name!=='mobile') {
       const september=page.getByRole('navigation',{name:'日报历史'}).locator('details').filter({hasText:'2026 年 9 月'});const before=count('/months/2026-09');
       await september.locator('summary').click();await september.getByText(MOCK_REPORT_INDEX.at(-1).title,{exact:true}).waitFor();assert.equal(count('/months/2026-09'),before+1);
@@ -83,6 +150,10 @@ try {
     await context.close();
   }
   if(!process.env.PULSE_DAILY_CASE || process.env.PULSE_DAILY_CASE==='desktop') {
+    const fallbackContext=await browser.newContext({viewport:{width:1440,height:900}});await fallbackContext.addInitScript(()=>{localStorage.setItem('blue-pulse-entry-complete-v1','1');localStorage.setItem('blue-pulse-entry-complete-v1:mock','1');const getContext=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(...args){return this.hasAttribute('data-halftone-canvas')?null:getContext.apply(this,args);};});
+    const fallbackPage=await fallbackContext.newPage();await goto(fallbackPage);const fallback= fallbackPage.locator('[data-halftone-seed="daily-2026-11-01-date"]');
+    assert.equal(await fallback.getAttribute('data-halftone-ready'),'false');assert.ok(Number(await fallback.locator('[data-halftone-text]').evaluate(el=>getComputedStyle(el).opacity))>0.95);assert.equal(await fallback.locator('[data-halftone-canvas]').evaluate(el=>getComputedStyle(el).opacity), '0');
+    check('Canvas unavailable keeps the accessible DOM numeral visible');await fallbackContext.close();
     const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});await context.addInitScript(()=>localStorage.setItem('blue-pulse-entry-complete-v1','1'));
     await context.route('**/daily-fixture-*.svg',route=>route.fulfill({status:route.request().url().includes('missing')?404:200,contentType:'image/svg+xml',body:route.request().url().includes('missing')?'invalid image':'<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#a4d7c7"/></svg>'}));
     const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -103,7 +174,10 @@ try {
     assert.equal((await page.request.get(`${origin}/api/bluepulse/site/reports/daily/latest-page`)).headers()['cache-control'],policy);
     check('proxy allows only the five daily read shapes and preserves cache policy');
     await goto(page,'/hot?mock=1');const before=count('/latest-page');await page.locator('[data-home-sidebar] a[href="/daily?mock=1"]').hover();await page.waitForTimeout(200);assert.equal(count('/latest-page'),before);
-    await goto(page,'/hot');await page.locator('[data-home-sidebar] a[href="/daily"]').hover();await page.waitForTimeout(300);const prefetched=count('/latest-page');await menu(page,'/daily');assert.equal(count('/latest-page'),prefetched);await menu(page,'/daily');assert.equal(count('/latest-page'),prefetched+1);
+    await goto(page,'/hot');await page.locator('[data-home-sidebar] a[href="/daily"]').hover();await page.waitForTimeout(300);const prefetched=count('/latest-page');await menu(page,'/daily');assert.equal(count('/latest-page'),prefetched);
+    // The previous ready DOM can remain until the refresh effect starts; wait for the actual read.
+    const refreshed=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/bluepulse/site/reports/daily/latest-page');
+    await menu(page,'/daily');await refreshed;await ready(page);assert.equal(count('/latest-page'),prefetched+1);
     check('mock prefetch stays isolated, live intent/enter share cache, active menu refreshes');
     policy='no-store';await goto(page);const noStore=count('/latest-page');await menu(page,'/hot');await page.goBack();await ready(page);assert.ok(count('/latest-page')>noStore);
     policy='public, max-age=60';age=59;await goto(page);await menu(page,'/hot');await page.waitForTimeout(1300);const expired=count('/latest-page');await page.goBack();await ready(page);assert.ok(count('/latest-page')>expired);

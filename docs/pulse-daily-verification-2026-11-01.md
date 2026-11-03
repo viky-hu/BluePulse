@@ -51,6 +51,16 @@ node scripts/daily-report-browser-test.mjs
 
 真实后端待办：Report／引用／修订及刊期任务，Fact／Story与确认精选、日内独立主体、权威与分类校准、读取时撤回／释放／封面许可、索引／详情／月份／导航及真实联调。前端完整、Mock可读、静态源码研究和受控服务通过均不等于上述后端完成。
 
+## 日报点阵数字交接修复
+
+2026-11-02。日期切换时，Halftone 之前等待 `document.fonts.ready` 才隐藏DOM文字；Canvas 尺寸布局和 ResizeObserver 首次回调也可能在首帧后重设同尺寸画布，形成清晰数字或空白帧。现在按当前字体立即测量和绘制首帧，再交接给 Canvas；字体完成后只重新测量并保留当前动画进度。只有尺寸确实变化才重设 Canvas backing store，重测会取消旧 RAF 后续接，字体 Promise 在组件失效后不再写入。
+
+Halftone 按刊期 seed 区分 waiting、revealing、complete 三态；首帧先同步绘制可见点阵，之后只启动一条 GSAP 作用域生命周期内的 RAF 绘制链。reduced-motion 直接绘制完整静态点阵。Canvas 不可用时阶段保持 waiting，原 DOM 数字继续可见。数字仍保留为可访问文本，数据、接口、字型和刊期切换行为不变。
+
+先在旧实现上运行新增逐帧回归，确认会捕获文字单独显现／Canvas 空帧；修复后完整生产浏览器脚本35项通过，无 pageerror。逐帧采样检查文本与 Canvas 的可见状态、Canvas 像素及阶段；验证桌面1440×900、窄桌面1180×820、宽桌面1920×1080、手机390×844、1440×900 reduced-motion，以及将 `document.fonts.ready` 人为延迟500ms的场景。桌面连续切换10/31→10/30→10/29后，仅最终刊期进入完整状态；reduced-motion 始终是完整静态点阵；模拟 Halftone Canvas `getContext` 不可用时DOM数字保持可见。原日报列表、历史、目录、缓存及返回位置回归仍通过。
+
+最终验证：`pnpm lint`、`pnpm build`、日报及共享缓存／路由等逻辑测试38项通过；`node scripts/daily-report-browser-test.mjs`生产浏览器检查35项通过。浏览器使用确定性本地 fixture，不连接真实日报后端。
+
 ## 后续桌面排版修订
 
 用户明确要求电脑窄窗口也尽量保留左侧日报／周报／月报与往期栏，收回该栏左边的大段留白，可灵活收紧字号和排布；本轮不设计移动端。此要求覆盖上文首次交付的1240px／280px布局门槛，原始功能及业务契约不变。
@@ -68,3 +78,17 @@ node scripts/daily-report-browser-test.mjs
 新左栏期望先在旧构建上验证失败，再实现并通过。`pnpm lint`、`pnpm build`和增强后的`node scripts/daily-report-browser-test.mjs`通过，共25组检查、无pageerror。除上表三个电脑窗口外，复验1440减少动效及已有390移动回归；后者仅确认原日期条／目录和44px字标未受影响。新增检查左栏与白纸左边缘对齐、无顶栏、正文右边距、p0吸顶、桌面目录定位及不新增历史条目；保留旧月标题按需读取、日期详情、合订本及既有异常／缓存／返回位置检查。平滑滚动以实际锚点到达或滚动到底为准，不依赖固定700ms。
 
 已人工查看1180与1440及1920截图。共享白纸、导航动画、其他会话纸角斜线未纳入本次修改；所有日报原组件及字段分支保留。接口、算法与后端状态不变，本次不算真实后端联调。
+
+## 2026-11-03：消除日期数字交接时的清晰文字闪现
+
+原始源码 `D:/AIHOT/apps/web/app/features/report/Halftone.tsx` 的 DOM 文字与 Canvas 都带有 `transition-opacity duration-300`。Pulse 已有首帧同步绘制、按 seed 隔离和 ResizeObserver／字体重测修复，但保留的300ms交叉淡化仍会让清晰数字先出现。增强回归先在修复前的生产构建上失败：目标刊期首个采样帧为 `revealing`、`ready=true`，画布内部已有387个有效深色像素，文字透明度却为1、Canvas透明度为0。旧断言把“画布内部有像素”当作“画布已显示”，遗漏了这个问题。
+
+本次在现有未提交改动上增量删除两层的透明度过渡，按既有 `canvasReady` 同次切换可见性。复用原点阵采样、噪声、配色、950ms浮现和指针效果，保留 `HANDOFF_PROGRESS`、useGSAP作用域、RAF／observer／字体回调清理及重测时保持进度；DOM文字继续承担测量与辅助技术阅读，Canvas不可用时仍显示文字。公开props、日报接口和路由不变，保留AIHOT MIT及原版权声明。
+
+逐帧测试在点击前启动，以目标 `data-halftone-seed` 出现开始记录1250ms，不再用URL作为采样前置条件。正常场景从首个采样帧起要求文字透明度≤0.01、Canvas透明度≥0.99且有有效数字像素，并验证 `revealing → complete` 后不重启；reduced-motion要求所有采样帧均为 `complete`。完整回归另暴露原有活动菜单刷新检查的等待竞态：旧DOM仍为ready时，请求尚未发出就读取计数；测试改为等待真实刷新响应，业务实现未改。
+
+验证结果：`pnpm lint`、`pnpm build`及 `node scripts/daily-report-browser-test.mjs` 均通过，生产浏览器共35组检查、无pageerror。桌面1440×900、手机390×844、reduced-motion、字体Promise延迟500ms分别记录77／76／77／76帧；所有帧文字透明度均为0、Canvas透明度均为1且数字像素非空。窄桌面1180×820、宽桌面1920×1080、连续快速切换、Canvas不可用、原日报导航／缓存／异常／返回位置回归通过。已查看生产浏览器的早期、中期、完成态截图，数字从可见点阵连续浮现到完成态。
+
+证据在被忽略的 `test-results/daily-report/`：`desktop-handoff-before.json` 为修复前失败记录，`{desktop,mobile,reduced,font-delay}-handoff.json` 为修复后逐帧结果，`handoff-{early,middle,complete}.png` 为动画截图，`results.json` 为完整验收结果。既有Node `MODULE_TYPELESS_PACKAGE_JSON`提示仍在；使用确定性fixture及mock，不代表真实日报后端联调。
+
+参考：[GSAP避免FOUC](https://gsap.com/resources/fouc/)、[GSAP React生命周期](https://gsap.com/resources/React/)、[React useLayoutEffect](https://react.dev/reference/react/useLayoutEffect)、[MDN Canvas宽度重置行为](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/width)。

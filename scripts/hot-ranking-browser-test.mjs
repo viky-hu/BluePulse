@@ -57,6 +57,14 @@ try {
     assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
     const leadChildren = await lead(page).locator(':scope > div').evaluateAll(els => els.map(el => ({ width: el.getBoundingClientRect().width, scroll: el.scrollWidth })));
     assert.equal(leadChildren.every(e => e.scroll <= e.width + 1), true, JSON.stringify(leadChildren));
+    const trendStyles = await page.locator('[data-hot-card="row"] [data-hot-delta]').evaluateAll(els => els.map(el => ({ height: getComputedStyle(el).height, fontSize: getComputedStyle(el).fontSize, radius: getComputedStyle(el).borderRadius })));
+    assert.ok(trendStyles.length > 0);
+    assert.ok(trendStyles.every(style => style.height === "22px" && style.fontSize === "11.5px" && style.radius === "999px"), JSON.stringify(trendStyles));
+    if (spec.name === "desktop") {
+      const heatStyle = await page.locator('[data-hot-card="row"] [data-hot-heat]').first().evaluate(el => ({ height: getComputedStyle(el).height, fontSize: getComputedStyle(el).fontSize }));
+      assert.equal(heatStyle.fontSize, "20px", JSON.stringify(heatStyle));
+    }
+    check(`${spec.name}: ranking trend states keep AIHOT pill dimensions while heat values retain their own type size`);
     check(`${spec.name}: original lead/runners/rows, heat panel and no paper overflow`);
     await page.screenshot({ path: `${artifacts}/${spec.name}.png`, fullPage: true });
     const faces = lead(page).getByRole("button", { name: "11 位参与者，查看名单" });

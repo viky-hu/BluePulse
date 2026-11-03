@@ -60,13 +60,17 @@ function valueNoise(seed: number) {
 
 const TAU = Math.PI * 2;
 const INTRO_MS = 950;
+const HANDOFF_PROGRESS = 0.28;
 const easeOutBack = (p: number) => 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
 
 export function Halftone({ seed, className = "", children }: { seed: string; className?: string; children: ReactNode }) {
   const hostRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [drawn, setDrawn] = useState(false);
+  const [readySeed, setReadySeed] = useState<string | null>(null);
+  const [completeSeed, setCompleteSeed] = useState<string | null>(null);
+  const canvasReady = readySeed === seed;
+  const phase = canvasReady ? (completeSeed === seed ? "complete" : "revealing") : "waiting";
 
   useGSAP(() => {
     const host = hostRef.current;
@@ -134,8 +138,12 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
       pad = Math.ceil(parseFloat(getComputedStyle(label).fontSize) * 0.25);
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       Object.assign(canvas.style, { left: `${-pad}px`, top: `${-pad}px`, width: `${width + 2 * pad}px`, height: `${height + 2 * pad}px` });
-      canvas.width = Math.round((width + 2 * pad) * dpr);
-      canvas.height = Math.round((height + 2 * pad) * dpr);
+      const pixelWidth = Math.round((width + 2 * pad) * dpr);
+      const pixelHeight = Math.round((height + 2 * pad) * dpr);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, pad * dpr, pad * dpr);
 
       const S = 2;
@@ -224,10 +232,10 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
       return true;
     };
 
-    const draw = (now: number) => {
-      frame = 0;
-      if (disposed) return;
-      const t = still ? 1 : Math.min(1, (now - started) / INTRO_MS);
+    const paint = (now: number) => {
+      if (disposed) return false;
+      const progress = Math.min(1, (now - started) / INTRO_MS);
+      const t = still ? 1 : HANDOFF_PROGRESS + progress * (1 - HANDOFF_PROGRESS);
       ctx.clearRect(-pad, -pad, width + 2 * pad, height + 2 * pad);
       if (tint) {
         ctx.globalAlpha = 0.12 * t;
@@ -273,7 +281,13 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
         }
         ctx.fill();
       }
-      if (t < 1) frame = requestAnimationFrame(draw);
+      return t < 1;
+    };
+
+    const draw = (now: number) => {
+      frame = 0;
+      if (paint(now)) frame = requestAnimationFrame(draw);
+      else if (!disposed) setCompleteSeed(seed);
     };
 
     const redraw = () => {
@@ -284,7 +298,13 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
       if (!layout()) return;
       readColors();
       paintTint();
-      redraw();
+      if (started) {
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        if (paint(performance.now())) frame = requestAnimationFrame(draw);
+        else setCompleteSeed(seed);
+      }
+      else redraw();
     };
 
     const onMove = (e: PointerEvent) => {
@@ -307,21 +327,23 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
     const scheme = matchMedia("(prefers-color-scheme: dark)");
     const onScheme = recolour;
 
-    document.fonts.ready.then(() => {
-      if (disposed || !layout()) return;
-      readColors();
-      paintTint();
-      started = performance.now();
-      setDrawn(true);
-      redraw();
-      resize.observe(host);
-      theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
-      scheme.addEventListener("change", onScheme);
-      if (hover && !still) {
-        canvas.addEventListener("pointermove", onMove);
-        canvas.addEventListener("pointerleave", onLeave);
-      }
-    });
+    if (!layout()) return;
+    readColors();
+    paintTint();
+    started = performance.now();
+    const animating = paint(started);
+    if (disposed) return;
+    setReadySeed(seed);
+    if (animating) frame = requestAnimationFrame(draw);
+    else setCompleteSeed(seed);
+    resize.observe(host);
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    scheme.addEventListener("change", onScheme);
+    document.fonts.ready.then(() => { if (!disposed) rebuild(); });
+    if (hover && !still) {
+      canvas.addEventListener("pointermove", onMove);
+      canvas.addEventListener("pointerleave", onLeave);
+    }
 
     return () => {
       disposed = true;
@@ -335,11 +357,11 @@ export function Halftone({ seed, className = "", children }: { seed: string; cla
   }, { scope: hostRef, dependencies: [seed], revertOnUpdate: true });
 
   return (
-    <span ref={hostRef} className={`relative inline-block ${className}`}>
-      <span ref={textRef} className={`transition-opacity duration-300 ${drawn ? "opacity-0" : ""}`}>
+    <span ref={hostRef} className={`relative inline-block ${className}`} data-halftone-seed={seed} data-halftone-ready={canvasReady} data-halftone-phase={phase}>
+      <span ref={textRef} data-halftone-text className={canvasReady ? "opacity-0" : ""}>
         {children}
       </span>
-      <canvas ref={canvasRef} aria-hidden="true" className={`absolute left-0 top-0 size-0 transition-opacity duration-300 ${drawn ? "opacity-100" : "opacity-0"}`} />
+      <canvas ref={canvasRef} data-halftone-canvas aria-hidden="true" className={`absolute left-0 top-0 size-0 ${canvasReady ? "opacity-100" : "opacity-0"}`} />
     </span>
   );
 }

@@ -28,6 +28,7 @@ import {
 } from "./intro-config";
 import {
   calculateWhitePaperLayout,
+  getWhitePaperStapleGeometry,
   type WhitePaperId,
   type WhitePaperLayoutSet,
 } from "./white-paper-config";
@@ -306,16 +307,7 @@ export function InitialIntro({
         });
 
         if (p0) {
-          const stapleInset = Math.min(Math.max(p0.width * 0.1, 4), 18) * 1.1;
-          const stapleLength = Math.min(Math.max(p0.width * 0.2, 10), 22);
-          const stapleRise = stapleLength * Math.sin((40 * Math.PI) / 180);
-          const stapleRun = stapleLength * Math.cos((40 * Math.PI) / 180);
-          const source = {
-            x1: stapleInset,
-            y1: stapleInset + stapleRise,
-            x2: stapleInset + stapleRun,
-            y2: stapleInset,
-          };
+          const source = getWhitePaperStapleGeometry(p0.width);
           const targetLine = {
             x1: target.x - p0.x + source.x1,
             y1: target.y - p0.y + source.y1,

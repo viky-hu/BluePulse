@@ -30,6 +30,19 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Shared local coordinates keep the cover and permanent p0 corner identical. */
+export function getWhitePaperStapleGeometry(paperWidth: number) {
+  const inset = clamp(paperWidth * 0.1, 4, 18) * 1.1;
+  const length = clamp(paperWidth * 0.2, 10, 22);
+  const angle = (40 * Math.PI) / 180;
+  return {
+    x1: inset,
+    y1: inset + length * Math.sin(angle),
+    x2: inset + length * Math.cos(angle),
+    y2: inset,
+  };
+}
+
 function makePaper(
   id: WhitePaperId,
   x: number,
