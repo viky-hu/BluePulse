@@ -19,7 +19,7 @@ def _attempt_count(session: Session, material: Material, version: str) -> int:
 
 
 def process_model_batch(session: Session, analyzer, *, source_id: str,
-                        max_calls: int) -> dict[str, int | bool]:
+                        max_calls: int, include_selection: bool = True) -> dict[str, int | bool]:
     """Count actual new paid attempts; saved results can resume at zero budget."""
     if max_calls < 0:
         raise ValueError("invalid_max_calls")
@@ -63,7 +63,7 @@ def process_model_batch(session: Session, analyzer, *, source_id: str,
                                                 "provider_http_403", "provider_http_429"}:
                     counts["stop_batch"] = True
                     break
-        if not material.relevant or not hasattr(analyzer, "score"):
+        if not include_selection or not material.relevant or not hasattr(analyzer, "score"):
             continue
         remaining = max_calls - int(counts["calls_used"])
         result = process_selection(session, material, analyzer, max_calls=remaining)

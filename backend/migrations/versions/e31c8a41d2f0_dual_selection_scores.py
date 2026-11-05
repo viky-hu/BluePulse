@@ -22,6 +22,18 @@ def upgrade() -> None:
     # Historical one-pass candidate decisions remain in AnalysisAttempt receipts,
     # but cannot qualify a material under the new two-receipt selection gate.
     op.execute("UPDATE materials SET featured_candidate = 0, importance_score = 0")
+    # Backfill cross-source identity only after all columns used by the current
+    # Material ORM exist. c9e2f4a6d110 may run against an older populated DB.
+    from sqlalchemy.orm import Session
+    from bluepulse_backend.material_identity import reconcile_title
+    from bluepulse_backend.models import Material
+
+    with Session(op.get_bind()) as session:
+        keys = session.scalars(sa.select(Material.title_key).where(
+            Material.title_key.is_not(None)).distinct()).all()
+        for key in sorted(keys):
+            reconcile_title(session, key)
+        session.flush()
 
 
 def downgrade() -> None:

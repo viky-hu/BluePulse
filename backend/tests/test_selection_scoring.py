@@ -170,6 +170,36 @@ def test_model_batch_caps_total_classification_and_score_calls(tmp_path):
     engine.dispose()
 
 
+def test_classification_only_does_not_spend_calls_on_selection(tmp_path):
+    engine = make_engine(f"sqlite:///{(tmp_path / 'classification-only.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = Source(slug="nist", name="NIST", region="foreign", country_code="US",
+                        language="en", source_type="official", topics=[],
+                        allowed_hosts=["www.nist.gov"], excerpt_allowed=True,
+                        selection_threshold=60)
+        session.add(source)
+        session.commit()
+        url = "https://www.nist.gov/news-events/news/classification-only"
+        ingest(session, source, MockSourceAdapter([Candidate(
+            url=url, title="Radio test", body="Police radio interoperability evidence. " * 12)]))
+
+        class Combined(SequenceScorer):
+            input_version = "analysis-five-axis-v1"
+
+            def analyze(self, material):
+                return AnalysisResult(True, "警用通信", "原文描述警用通信互通试验。", ("practice",), 0)
+
+        analyzer = Combined([score(8, "unused")])
+        result = process_model_batch(session, analyzer, source_id=source.id, max_calls=1,
+                                     include_selection=False)
+        material = session.scalar(select(Material))
+        assert result["calls_used"] == 1 and result["score_calls"] == 0
+        assert analyzer.calls == 0
+        assert material.public and not material.featured_candidate
+    engine.dispose()
+
+
 def test_live_score_request_contains_same_material_not_source_threshold(tmp_path):
     engine, session, material, _ = setup_material(tmp_path, threshold=76)
     requests = []

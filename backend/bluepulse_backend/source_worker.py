@@ -27,7 +27,7 @@ RETRYABLE = {"timeout", "transport_error", "http_500", "http_502", "http_503", "
 
 def run_cycle(session: Session, client_factory: Callable, *, source_slugs: list[str],
               max_items: int = 2, retry_attempts: int = 2, retry_delay: float = 2,
-              analyzer=None, model_remaining: int = 0,
+              analyzer=None, model_remaining: int = 0, include_selection: bool = True,
               sleeper: Callable[[float], None] = time.sleep) -> dict:
     """Retry only transient fetch failures; every try remains a separate SourceRun."""
     if not 1 <= max_items <= 5 or not 0 <= retry_attempts <= 3 or model_remaining < 0:
@@ -71,7 +71,8 @@ def run_cycle(session: Session, client_factory: Callable, *, source_slugs: list[
         if analyzer is not None and source is not None and source.enabled:
             if attempts[-1]["status"] in {"completed", "partial", "no_candidates"}:
                 processing = process_model_batch(session, analyzer, source_id=source.id,
-                                                 max_calls=model_remaining)
+                                                 max_calls=model_remaining,
+                                                 include_selection=include_selection)
                 report["model_used"] += processing["calls_used"]
                 model_remaining -= processing["calls_used"]
                 if processing["stop_batch"]:
@@ -98,6 +99,8 @@ def main() -> None:
     parser.add_argument("--cycles", type=int, default=1)
     parser.add_argument("--interval-seconds", type=int, default=3600)
     parser.add_argument("--allow-paid-model", action="store_true")
+    parser.add_argument("--classification-only", action="store_true",
+                        help="classify and publish eligible articles without five-axis scoring")
     parser.add_argument("--max-model-calls-total", type=int, default=0)
     parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
     parser.add_argument("--report-dir", type=Path, default=Path("data/source-worker"))
@@ -135,7 +138,8 @@ def main() -> None:
                 report = run_cycle(session, client_factory, source_slugs=args.source or list(SOURCES),
                                    max_items=args.max_items, retry_attempts=args.retry_attempts,
                                    retry_delay=args.retry_delay, analyzer=analyzer,
-                                   model_remaining=remaining)
+                                   model_remaining=remaining,
+                                   include_selection=not args.classification_only)
             remaining -= report["model_used"]
             args.report_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
