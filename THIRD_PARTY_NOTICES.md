@@ -2,6 +2,8 @@
 
 ## AIHOT
 
+2026-11-03文档交接：`docs/aihot-model-pipeline-handoff-2026-11-03.md` 与 `docs/selection-annotation-guide.md` 使用AIHOT源码的流程说明和评分权重，统一后续警务领域实施／标注口径；本次没有复制后端业务实现或改变既有许可。后续实质代码移植继续保留本文件的完整MIT声明及 `Copyright (c) 2026 数字生命卡兹克`。
+
 Pulse 的浏览器状态、会话恢复和菜单实现移植参考了 AIHOT 开源框架的以下文件：
 
 - `D:/AIHOT/apps/web/app/routes/{item,item-original}.tsx`、`features/item/{ArticleBody,ReaderTools,PosterSheet,MediaGallery,QuotedPost,StoryFollowups}.tsx`、`features/item/{preview,highlight}.ts`、`components/ui/{Page,OutlineSheet,Menu}.tsx`、`shell/PhoneBar.tsx`、`app.css`：单篇阅读、源文／翻译、正文排版与图片／代码增强、来源／推荐两栏、目录／进度、原帖及引用、事件后续、预览、操作菜单与分享海报。Pulse对应`src/app/articles/_reader/`及文章路由，使用原版highlight.js按需语言实现、sanitize-html白名单机制，改为Next.js、UUID、p0内部滚动／实际内容宽度和Pulse品牌。原`contracts/site.ts`、`publication/{detail,items,rules,og}.ts`、`content/sanitize.ts`及API site／og路由用于字段与权限交接；未移植Fastify／PostgreSQL。Python阅读投影、Markdown／图像生成和统一全文许可仍待实施；MIT不授予原站品牌或新闻／媒体转载权，完整原许可如下。
