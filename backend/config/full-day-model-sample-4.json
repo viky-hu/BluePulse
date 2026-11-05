@@ -1,0 +1,9 @@
+{
+  "sample_day": "2026-11-01",
+  "items": [
+    {"source": "htx-news", "url": "https://www.htx.gov.sg/whats-happening/all-news---events/all-news/2026/leveraging-ai-to-reimagine-day-2-ops", "case": "positive_product"},
+    {"source": "nist-public-safety", "url": "https://www.nist.gov/news-events/news/2026/09/enhancing-public-safety-communication-reliability-through-5g-sidelink", "case": "positive_paper"},
+    {"source": "ccgp-policing-tech", "url": "https://www.ccgp.gov.cn/cggg/zygg/gkzb/202611/t20261101_27598681.htm", "case": "off_topic_keyword_hit"},
+    {"source": "govuk", "url": "https://www.gov.uk/government/publications/live-facial-recognition-deployment-records", "case": "missing_attachment_evidence"}
+  ]
+}

@@ -1,149 +1,158 @@
-# Blue Pulse 后端（Stage1 主干）
+# Blue Pulse 后端基础链路
 
-目前已搭起来源采集、文章存储、精选快照和匿名阅读 API 的主链路。有可核对的摘要或正文时，配置的模型可判断相关性，生成中文短标题、摘要、主题、重要性分和独立的精选候选判断。仅有标题/元数据的条目保留为 `pending_model`，不调用模型、不公开展示；没有模型配置时同样保留原始材料等待处理。精选只选模型或已确认人工判断推荐的相关文章。
+本目录是 2026-10-27 从空后端重建的 **M0–M2 骨架**。当前可运行的链路是：`SourceAdapter → Candidate → URL/来源校验 → Material/Revision/Discovery → Analyzer → 已存结果恢复 → 公开资格 → /api/v1`。`MockSourceAdapter` 和 `MockAnalyzer` 用于离线检查；十五个限量真实来源入口和一个真实模型调用器只通过显式试验命令执行。正式数据库不自动填充测试资讯。
 
-## Windows 本地启动
+旧后端的人工选稿标注已从删除前备份恢复到忽略目录 `data/legacy-selection/`。20 条已确认金标准、40 条试标池和两份 95 条候选池的校验和与使用限制见[恢复记录](../docs/selection-recovery-2026-10-28.md)。这些数据未导入新数据库；旧标注脚本依赖旧模型，不能直接用于当前后端。
 
-在 PowerShell 进入 `backend` 目录后运行：
+## 本地运行
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
-alembic upgrade head
-python -m bluepulse_backend.worker sync-config
-```
-
-本地默认使用 `backend/data/bluepulse-dev.db` 的 SQLite，不需要先安装数据库服务。准备切换 PostgreSQL 时，在运行迁移、API 和 worker 的每个 PowerShell 窗口设置：
+在 `repo/backend` 下执行：
 
 ```powershell
-$env:BLUEPULSE_DATABASE_URL = "postgresql+psycopg://用户名:密码@localhost:5432/bluepulse"
+uv venv .venv
+uv pip install --python .venv/Scripts/python.exe -e ".[test]"
+.\.venv\Scripts\python.exe -m bluepulse_backend.cli migrate
+.\.venv\Scripts\python.exe -m bluepulse_backend.cli sync-taxonomy
+.\.venv\Scripts\python.exe -m uvicorn bluepulse_backend.api:app --host 127.0.0.1 --port 8000
 ```
 
-启动 API：
+数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。新数据库只含七个主题，没有来源或文章；前端看到真实空态。`启动BluePulse.bat` 仍只启动前端，后端须单独启动。
+
+## 离线完整性检查
 
 ```powershell
-python -m uvicorn bluepulse_backend.main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m pytest -q --basetemp=.tmp/pytest
+.\.venv\Scripts\python.exe -m bluepulse_backend.mock_check
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini check
 ```
 
-另开窗口立即采集一次：
+`mock_check` 使用临时 SQLite 库和 `example.test`，输出逐源漏斗、处理结果与 HTTP 状态，退出后删除临时数据。它不会写正式库，也不会从网络采集。测试覆盖去重、修订、历史材料、来源失败、分析失败重试、结果未知、已存回执恢复、撤回、许可、精选门禁、分页与错误码。
+
+## 限量真实试验
+
+### 来源采集入口
+
+GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；2026-11-04 的[复测记录](../docs/govuk-text-attachment-2026-11-04.md)记录了附件原链接、表格结构、资产主机 robots 与两种格式逐行一致的结果。同一表格不重复并入正文；PDF 与多媒体未处理，来源公开许可继续保持关闭。
+
+2026-10-29 的前五站只读探针见工作区根目录[《前五信源采集探针》](../../前五信源采集探针-2026-10-29.md)。探针每站最多检查 3 个详情，只输出元数据与正文长度，不写业务库或调用模型：
 
 ```powershell
-python -m bluepulse_backend.worker ingest-once
+.\.venv\Scripts\python.exe -m bluepulse_backend.top5_probe --source npcc --max-items 3 --execute --output data/probe-npcc-next.json
 ```
 
-只重试某个来源（不会访问其他来源），或补分析历史待处理文章：
+试验来源目录包括 GOV.UK、NIST Public Safety、NIST Forensic Science、中国政府采购网、NPCC News、江苏省公安厅警务动态、Police Digital Service、Biometric Update 执法栏目、HTX News、Police Science & Technology、StateScoop 执法技术栏目、NIST Information Technology、NIST Standards、Europol Newsroom 和 Singapore Police Force Police Life。NIJ 技术专题已按用户决定退出当前活跃目录，历史试验数据仍保留。选源依据、每源状态与采集门禁见[信源与采集链路记录](../docs/source-collection-2026-10-28.md)、[新增信源试验](../../新增信源试验-2026-10-29.md)、[第 6–9 项扩源试验](../../信源6到9试验-2026-10-29.md)、[新增五信源探针](../../新增五信源探针-2026-10-30.md)、[三站提取路径复查](../../三个信源提取路径复查-2026-10-30.md)、[Police Science 自动采集复测](<../../Police Science自动采集复测-2026-10-31.md>)、[新增三信源试验](../../新增三信源试验-2026-10-31.md)及[新增两信源试验](../../新增两信源试验-2026-10-31.md)。默认 `preview` 只读外站、最多返回 2 条且不写数据库或调用模型：
 
 ```powershell
-python -m bluepulse_backend.worker ingest-once --source gdelt-public-news
-python -m bluepulse_backend.worker reprocess-pending --source openalex-policing-tech --limit 10
-python -m bluepulse_backend.worker translate-pending --source nij-policing-tech --limit 10
-python -m bluepulse_backend.worker backfill-entities
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_collection --source ccgp-policing-tech --mode preview --max-items 2 --execute
 ```
 
-本机查看所有已启用来源最近一次运行状态及失败原因，或只补跑最近失败的来源：
+`--mode ingest` 需提供已迁移的 `--database-url`，材料保持待分析状态；`--mode ingest-analyze` 还需 `--allow-paid-model`，从工作区 `.env` 读取模型配置并在调用前核验 `/models`，通过 `--max-model-calls` 限制本次分析次数（1–5）。新建来源默认不允许对外摘录或全文展示；核对来源条款和内容质量后才可调整公开许可。入口不自动定时运行，也不导入旧标注。
+
+### 自动触发与诊断（2026-11-04）
+
+新的 `source_worker` 是可由 Windows 任务计划程序调用的命令入口，也能在一次进程中按间隔运行限定次数。每次对现有 15 入口最多取 2 条；网络超时、传输错误和 HTTP 5xx 最多重试 2 次，每次都是独立 `SourceRun`，不会重试 robots 禁止、403、429 或解析错误。结构化 JSON 诊断保存在 `data/source-worker/`。先对**单独已迁移库**运行，例如：
 
 ```powershell
-python -m bluepulse_backend.worker source-status
-python -m bluepulse_backend.worker retry-failed
-python -m bluepulse_backend.worker retry-failed --apply
-python -m bluepulse_backend.worker retry-failed --source gdelt-public-news --apply
-python -m bluepulse_backend.worker recover-interrupted
-python -m bluepulse_backend.worker recover-interrupted --apply
-python -m bluepulse_backend.worker ingest-once --source npcc-policing-tech --idempotency-key manual-npcc-20261006
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_worker --execute --database-url sqlite:///D:/path/to/isolated.db --max-items 2 --retry-attempts 2 --report-dir data/source-worker
 ```
 
-`retry-failed` 默认仅预览，不访问网站；加 `--apply` 才执行。部分成功来源需另加 `--include-partial`，成功、跳过或运行中的来源不会默认补跑。`recover-interrupted` 默认只预览中断或租约已失效的运行；`--apply` 每次重跑一项。采集入口共用数据库租约锁（120 秒期限、20 秒心跳），与 `schedule` 撞车时返回 `busy`，不会并发采集。同一天的定时采集以及按来源补跑带固定幂等键；手动 `ingest-once` 可指定 `--idempotency-key` 防止重复提交。进程崩溃后先等租约到期，再执行恢复；恢复按原来源范围重跑，URL 去重避免重复入库，但未提交的模型调用可能重复计费。先运行 `python -m alembic upgrade head` 应用锁表迁移。外站 WAF 和 GDELT 限流不会因此被绕过。
+显式追加 `--allow-paid-model --max-model-calls-total 4` 才会核验模型并处理已采材料；该上限覆盖本进程全部来源和周期。当前相关稿通常占 **1 次分类＋2 次独立五轴评分**，所以 4 次上限通常只能完整处理 1 篇相关稿；额度不足时保存第一分并在下轮续做第二分。可加 `--cycles 2 --interval-seconds 3600` 自动重复两轮；进程退出后预算不跨进程累计。模型断线结果未知时保留回执待处置，不自动重发。每份正文至少 **300 个非空白字符**才进入自动模型处理及公开资格；不强制打开附件，旧稿仍可进入 `period=all`。模型分类判相关、给出摘要和至少一类后，若来源已允许摘录，自动进入公开列表，无人工审核步骤。五轴双评分只决定精选候选及展示的 `importance_score`；各来源门槛默认未校准，完成两分也不会自动入选首页。每轮按当前来源权限重新投影已分析材料，许可打开或关闭都不重复付费。默认来源许可仍关闭，模型结果不会自行更改许可。详情全文仍由 `full_text_allowed` 独立控制。实测与边界见[自动采集及收紧记录](../docs/source-automation-2026-11-04.md)、[五轴双评分记录](../docs/dual-selection-scoring-2026-11-04.md)。
 
-单次采集输出包括各来源失败原因、模型调用数、不相关与延期处理数量。API/RSS 每个来源单次最多分析配置的 `max_analysis_candidates` 条新候选（默认 8，新增来源为 3–5 条），已入库 URL 不重复调用模型；其余候选可在后续采集处理。GDELT 返回 HTTP 429 后，后续运行会在 15 分钟内跳过该来源（输出 `source_skipped`），避免反复触发限流。对 WAF 交互式挑战会记录失败，不尝试绕过。
+### 首批内部选稿试运行
 
-新增 `npcc-policing-tech`（NPCC 官方 HTML 列表及限量详情）和 `biometric-update-law-enforcement-rss`（执法生物识别分类 RSS）。NPCC 先按标题/导语筛科技主题，再读取详情；BU 只接受本站文章路径，最多补抓 3 篇详情。可先运行 `python -m scripts.npcc_smoke --limit 2` 与 `python -m scripts.source_quality_smoke --source biometric-update-law-enforcement-rss` 只读检查，再运行 `sync-config` 和单源 `ingest-once`。HTX 的动态列表仍是待办，未加入采集配置。
-
-英文 `full_text` 正文在相关性分析通过后翻译为中文并另存 `zh_body`，原文 `source_body` 始终保留。为控制单篇模型调用与截断风险，当前仅自动翻译不超过 6000 字符的正文；长篇、缺正文或仅有摘要的文章按原文/摘要回退展示，不计作翻译失败。翻译按段落或句子边界分块，只有全部分块成功才保存中文全文；模型失败时文章仍可作为已处理内容展示，并记录 `translation_failures`。`translate-pending` 可按来源补译已入库、符合该限制的英文文章。采集报告的 `model_calls` 只统计相关性分析调用，翻译调用另计。
-
-文章列表和详情现返回独立的 `body_status`（`full_text`、`abstract_only`、`summary_only`、`partial_text`、`metadata_only`）及 `translation_status`（`not_required`、`available`、`pending`、`failed`、`source_unavailable`、`too_long`）。新文章翻译失败会持久化；旧文章无法可靠追溯历史翻译失败，按现有正文和译文保守推导状态。详情页根据状态说明回退，始终保留真实原文链接。图片展示不属于本轮范围。
-
-`/articles?q=...` 在已迁移的 SQLite 库使用 FTS5 三字片段索引检索原文/中文标题、原文/中文正文和中文摘要；不足 3 字的查询回退到模糊匹配。索引由数据库触发器在文章新增、修改、删除时更新，迁移会索引已有文章。筛选、排序和 cursor 分页规则不变。PostgreSQL 目前沿用相同字段的模糊匹配，全文索引与实机验证仍待完成。升级前备份数据库并运行 `python -m alembic upgrade head`。
-
-或者启动每日调度 worker（Asia/Shanghai 06:00）：
+首批 4 篇官方原文的[试运行结果](../docs/editorial-pilot-result-2026-11-03.md)从已有本地 `baseline-*.json` 和主题复核记录生成，不发网络请求、不调用模型，也不写默认业务库。在 `repo/backend` 下，使用一个**尚不存在或为空**的输出目录：
 
 ```powershell
-python -m bluepulse_backend.worker schedule
+.\.venv\Scripts\python.exe -m bluepulse_backend.editorial_pilot prepare --selection-file config/editorial-pilot-4.json --input-dir data/source-validation --output-dir data/editorial-pilot/first-batch
+.\.venv\Scripts\python.exe -m bluepulse_backend.editorial_pilot record --output-dir data/editorial-pilot/first-batch --review-file data/editorial-pilot/first-batch/review-first-pass.json
 ```
 
-API 文档位于 `http://127.0.0.1:8000/docs`。前端开发源可用 `BLUEPULSE_CORS_ORIGINS` 配置，默认允许 localhost:3000。
+`prepare` 在独立 `editorial-pilot.db` 导入并重放同批候选，生成含正文与证据段落的本地 `packet.json` 和可编辑的 `review-template.json`。若需重新准备，请指定新的空目录。复核者填写 `decision=pending/advance/hold/reject`、姓名、理由、原页与逐项事实检查；`advance` 只有原页和证据锚点都核对后才可记录。`record` 将决定绑定材料修订与内容哈希，发现修订或来源许可变化即拒绝记录，写出带时间戳的内部结果文件。这里的 `advance` 仅指进入下一步人工编辑，**不修改材料公开状态、来源许可或正式库**；最终采用和公开仍须单独审批与政策核对。
 
-## 来源和内容处理
+### 15 源单日全流程试跑
 
-- GDELT DOC 2.0：按配置关键词发现新闻标题与原站链接；API `seendate` 是索引发现时间，**不当作原站发布时间**。只对 `article_hosts` 显式允许的 HTTPS 主机和路径检查 robots 后尝试取正文；无法取到可信正文的条目由当前配置 `store_metadata_only: false` 计入 `metadata_skipped`，不再新增待处理记录，也不在前台冒充新闻。此前已经入库的标题级记录保留但不公开。当前配置的主机只是保守起点，不能覆盖任意 GDELT 返回的网站。
-- Police1 Recently Published：读取公开 RSS 的标题、链接、时间和摘要；对本源允许的 HTTPS 同站文章在 robots 允许时限速尝试补正文。访问挑战、拒绝或正文抽取不足时保留 RSS 摘要；RSS 本身被 WAF 拦截时整源记失败，不绕过验证。
-- OpenAlex：用标题和摘要范围内的布尔检索，再要求标题或摘要前段有明确警务领域与技术信号，减少泛论文章。保存题名、发布日期、作者和可取得的学术摘要；作者机构所在国不冒充论文讨论地区。缺摘要的结果不公开。
-- NIST 官方 RSS：先接入 Public Safety 和 Forensic Science 两个栏目。仅读取近 180 天的同站新闻条目，排除活动页，不抓详情 HTML；RSS 摘要保存为 `summary_only`，由模型判断是否有足够的警务科技关联。NIST 其他栏目暂不启用：Cybersecurity 抽查时为空，Information Technology 与 Standards 范围过宽，需要再调筛选口径。
-- GOV.UK Search + Content API：按 Home Office 和近 180 天范围检索警务 AI、人脸识别、无人机，标题/搜索摘要必须同时出现技术与警务信号；仅访问官方内容 API 的固定政府文档路径，最多取 5 篇新内容，已入库 URL 跳过。使用内容接口的首次发布日期，不把搜索索引更新日当作新文章日期。正文不足 600 字符或只是附件导语时标 `summary_only`，有足量正文才标 `full_text`；HTML 网页本身不爬取。新文章若在内容接口获得官方站点或其静态资源域名的图片，会保存图片链接、说明和替代文字；没有图片就不显示占位图。
-- 中国政府采购网：受控翻阅中央/地方公开招标 HTML 列表，利用标题及列表中的采购人信息优先选择候选，再读取同站公告详情，提取标题、公告时间与正文；先按警务和技术关键词粗筛，再由模型判断相关性并生成结构化字段。只访问 `www.ccgp.gov.cn` 的配置路径，先读取 `robots.txt`，不跟随重定向，限制页面大小、翻页数、请求间隔和单次候选数。已入库 URL 在访问详情和调用模型前跳过。
-- 美国司法部 NIJ 技术文章：受控读取公开 HTML 列表和同站文章全文，提取标题、发布日期、正文，再交给相同的模型处理流程。先检查 `robots.txt`，只访问 `nij.ojp.gov` 的技术文章列表和详情路径，限制页面大小、请求间隔、翻页数与单次详情数；已入库 URL 不再请求详情。此列表偏历史资料，不能替代实时新闻来源。
-- 江苏省公安厅“警务动态”：受控读取公开栏目和同站文章全文，优先取标题明确涉及 AI、无人机、数智警务等技术的文章，再由模型判断是否相关及能否进入精选；普通警务新闻不会因为来自公安机关而直接推送。只访问 `gat.jiangsu.gov.cn` 的该栏目及对应详情，先检查 `robots.txt`，不跟随重定向，限制响应大小、请求间隔和单次详情数。部分文章转载自其他媒体，页面来源不等同于独立的一手效果验证。
+2026-11-04 的[真实稿本地闭环试验](../docs/real-article-local-closure-2026-11-04.md)从 GOV.UK 限量采集 2 条、对其中 1 条做 1 次真实模型分类，在隐藏隔离库验证 0 公开；再复制为仅供本机测试的展示库，实际核对分类列表和详情页。运行命令、逐项结果及模型导读的事实措辞问题见报告。常规 `source_collection` 的 GOV.UK/NIST 路径已统一进行 robots 预检，失败不会继续访问搜索或 RSS。
 
-来源配置位于 `config/sources.json`，主题位于 `config/taxonomy.json`；修改配置后须运行 `python -m bluepulse_backend.worker sync-config` 才会更新运行库。适配器只访问清单里的 HTTPS 主机，不跟随重定向；通用 API/RSS 响应上限为 8 MiB，GOV.UK JSON 和网页正文上限为 2 MiB。文章按 canonical URL 幂等去重；相同内容不同 URL 的文章会保留并标记重复候选。单篇详情解析失败不会丢弃同源其他文章，运行结果记录 `detail_parse_failed` 并标为部分成功。缺正文、无地区或尚未模型处理都会显式记录状态。公开 API 不展示 `metadata_only`，并将 `published_at` 与 `first_seen_at` 分开返回。
-
-厂商/模型实体清单位于 `config/entities.json`，由 `sync-config` 同步到数据库。只有原始标题、中文标题、摘要或原始正文明确出现清单别名时才建立文章关联，同时记录命中字段和别名；这属于保守的名称匹配，不代表模型完成了实体消歧，也不代表实体与来源存在合作关系。新文章入库时自动关联；升级已有数据库后依次运行 `alembic upgrade head`、`sync-config`、`backfill-entities`。回填可重复执行，不会生成重复关联。
-
-模型适配器默认读取仓库目录上一级的 `.env` 中的 `base_url`、`key`、`llm_id`。部署时也可设置 `BLUEPULSE_LLM_API_BASE`、`BLUEPULSE_LLM_API_KEY`、`BLUEPULSE_LLM_MODEL`，或用 `BLUEPULSE_ENV_FILE` 指定配置文件。密钥仅用于服务端请求，不会写入数据库或 API 响应。模型失败时保留原始资料并标记 `model_failed`；API/RSS 的不相关条目会记录为 `irrelevant` 以避免重复调用模型，但不会进入文章列表或精选。RSS/GDELT/GOV.UK 还要求原始材料中有明确技术信号；RSS/GDELT 的历史文章可由回填命令复核，输出 `rejected_existing` 数量。采购网的不相关公告不入库。
-
-本机若选择 `DeepSeek-V4.1-Flash`，分类请求会使用 JSON 响应模式和 3000 token 输出预算，给该模型的推理阶段留出空间；英文译文也使用 3000 token 上限。若模型返回 `finish_reason: length`，不保存可能截断的结果。`Qwen3.8-Flash` 在 2026-10-06 的本机测试中，模型列表与鉴权正常，但极短的流式/非流式推理请求均在响应头阶段超时；同一服务商的 DeepSeek 模型正常。此情况更像该模型通道的问题，不宜仅靠无限增加客户端超时掩盖。
-
-采集分析、采购公告分析和历史正文补译现通过 `ingestion/model_adapter.py` 的 `ModelAdapter` 接口调用。当前唯一的具体实现是 `openai_compatible`，由 `BLUEPULSE_LLM_PROVIDER` 选择（未设置时默认该值）；设置未知提供方会报错，不会静默切换服务。接口允许在离线测试中注入替身。模型分别输出“相关”和“首页精选候选”及推荐理由；精选不会再用相关性或分数自动补足六篇。已确认的人工判断单独保存，公开状态与精选优先服从人工决定，模型重跑不会覆盖它。旧文章迁移时默认不是精选候选，不会凭旧分数自动上榜。更完整的评分分项、模型/提示词版本和带权限的后台纠错仍待 P1 后续实施。
-
-从 `backend` 目录单独测试该来源：
+[2026-11-03 实时端到端限量测试](../docs/live-end-to-end-2026-11-03.md)在新隔离库直接联网采集现有 15 个入口、每源最多 2 条；首轮 Europol robots 请求传输故障在同规则复测后成功，最终 30 条入库，4 条代表样本完成真实模型分类，真实稿公开数为 0。命令保留逐源请求、正文、日期、重放去重及 API 证据。新空目录运行（付费模型调用需显式开启，最多 4 次）：
 
 ```powershell
-python -m scripts.ccgp_smoke
-python -m scripts.nij_smoke
-python -m scripts.jiangsu_smoke --limit 2
-python -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m bluepulse_backend.live_end_to_end --execute --allow-paid-model --max-items 2 --max-model-calls 4 --output-dir data/live-end-to-end/next-run
 ```
 
-三个 HTML smoke 脚本会真实访问各自站点并输出抓取计数或失败类型，不写数据库。`ccgp_smoke` 现在显式禁用模型分析；正式 `ingest-once` 仍会调用已配置的模型。本机若无法连接 `www.ccgp.gov.cn`，采购网脚本会停在获取 `robots.txt` 的步骤，不会绕过站点限制。先运行 `alembic upgrade head`，再运行 `python -m bluepulse_backend.worker sync-config` 将新来源同步到数据库；随后可运行 `python -m bluepulse_backend.worker ingest-once --source jiangsu-police-news` 单独采集。Police1 的 RSS 若返回 WAF 交互式挑战，会明确记录失败，不尝试用浏览器伪装或第三方代理绕过。
+仅采集与入库时省略 `--allow-paid-model` 并设 `--max-model-calls 0`；失败单源可在同一目录加 `--retry-source europol-news` 复测。不要把这次限量成功解释为跨日期稳定或全部 30 条完成分类。
 
-RSS/API 来源可用不调用模型、不写数据库的只读质量检查：
+[2026-11-03 试跑报告](../docs/full-day-pilot-2026-11-03.md)用 11-01 留存的 15 × 2 篇归档样本，在独立库完成导入、去重、分析回执、主题关系和 API 检查。它使用人工复核标签作为固定分析输入，30 篇均被处理；6 篇进入内部待审，15 篇暂缓，9 篇拒绝。真实稿因来源公开许可门禁而不会显示；分类列表和详情的正向接口契约由**另一独立库的合成许可样本**验证。正式业务库未写入、文章未公开。前端当前七类已对应新库 taxonomy；正式库须在部署准备完成后单独同步。
+
+在 `repo/backend` 下指定新的空输出目录复跑：
 
 ```powershell
-python -m scripts.source_quality_smoke --source openalex-policing-tech
-python -m scripts.source_quality_smoke --source gdelt-public-news
-python -m scripts.source_quality_smoke --source police1-recent
-python -m scripts.source_quality_smoke --source nist-public-safety-rss
-python -m scripts.source_quality_smoke --source nist-forensic-science-rss
-python -m scripts.source_quality_smoke --source govuk-policing-tech
+.\.venv\Scripts\python.exe -m bluepulse_backend.full_day_pilot --output-dir data/full-day-pilot/replay-01
 ```
 
-2026-10-05 本机抽查：OpenAlex 可获取多数摘要，但仍需模型判定专业相关性；NIJ、江苏公安、采购网样本均取到全文；Police1 RSS 遇到交互式 WAF，无法从本机抓取；GDELT 本轮 49 条均为标题级且没有允许站点正文，因此不会公开。新增 NIST 两个栏目各取到 3 条摘要级近期新闻；GOV.UK 官方 API 取到警务 AI 政策等 3 条，其中附件导语只作摘要级，其他两条为正文级。正式单源采集时，GOV.UK 3 条均分析并入库；NIST Public Safety 3 条中 1 条判无关、2 条进入文章库且都未进精选。NIST Forensic Science 尚未执行正式采集。**这不是所有来源都已稳定产出可展示文章的证明**。站点结构、接口、网络路径和查询结果会变化，需周期性复查。
+另对 4 篇代表样本做过真实模型分类试验，最大调用数与实际调用数都是 4；3 篇与人工口径一致，GOV.UK 附件证据不足的样本被模型判为主题相关，仍须由证据门禁暂缓。脱敏回执与限制见同一报告。确需重跑模型核验时，显式使用新的隔离输出目录和调用上限：
 
-已确认的 20 条标注可通过 `python -m scripts.selection_eval --limit 15` 对开发集做只读模型回放，输出逐例相关性/精选对照；留出的 5 条可通过 `--split holdout --limit 5` 在规则定稿后验证。回放会调用模型，但不修改数据库或人工标签。当前样本规模小，不能据此声称精选质量已经稳定。
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.full_day_model_probe --execute --allow-paid-model --max-model-calls 4 --output-dir data/full-day-pilot/model-replay-01
+```
 
-要把已确认标注用于旧文章，先运行 `alembic upgrade head`，再执行 `python -m scripts.apply_selection_gold` 预览，核对影响范围后才加 `--apply` 写入。人工标为无关的文章不再由公开 API 提供；人工标为相关但仍待模型处理的文章不会提前公开。该操作可重复运行，同一案例不产生新改动，已有其他人工决定不会被覆盖。导入前应备份开发数据库；标注 JSONL 保持原样。
+### 文章去重与新旧稿
 
-积压盘点用 `python -m scripts.pending_audit`，不调用模型。需要先处理人工确认且有摘要的文章时，可用 `python -m bluepulse_backend.worker reprocess-pending --source openalex-policing-tech --editorial-only --limit 2`；不要盲目对只有标题的 GDELT 记录全量调用模型。`python -m scripts.content_smoke` 只读检查一个公开来源从文章列表到详情、原站链接和精选快照的 API 链路。
+[去重与日期验证报告](../docs/dedup-freshness-2026-11-03.md)记录了归档 60 条入口样本的隔离回放：同 URL 后为 59 条材料，另识别 NPCC/PDS 一组不同 URL 的高置信同稿，独立正文为 58 份；StateScoop 4 条均判历史稿。入库只自动关联同标题、同发布日期、正文高度重合的同稿；镜像保留来源证据但不重复调用模型或进入公开列表。仅有日期的页面不会被当作精确到小时的发布，`24h` 列表排除这类材料。使用新空目录复跑：
 
-重复验收可运行 `python -m unittest tests.test_full_flow -v`：用独立临时数据库和离线模型替身验证一篇明确相关的文章从采集输出、分类、摘要/翻译、存储，到公开列表、详情、精选与图片字段，不修改开发库。若后端 `127.0.0.1:8000` 和前端 `127.0.0.1:3000` 已启动，还可运行 `python -m scripts.content_smoke --source govuk-policing-tech --frontend-url http://127.0.0.1:3000`，只读核验当前库的一篇真实公开文章在 API 和前端详情页的同一标题；输出 `frontend_checked: true` 即通过。前端精选只使用近 7 天候选，空时会解释原因，不拿旧文或低价值内容凑位。修改来源配置后先执行 `sync-config` 才会生效。
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.dedup_freshness_pilot --output-dir data/dedup-freshness-pilot/replay-next
+```
 
-## 公开 API
+### 15 源逐日限量验证
 
-- `GET /api/v1/home/featured`
-- `GET /api/v1/articles?period=30d&topic=research&region=foreign&q=police&sort=recent&limit=20`（`period` 还支持 `all` 浏览历史资料）
-- `GET /api/v1/articles?period=all&entity=axon&source_type=media`（实体 slug 与来源类型可组合筛选）
-- `GET /api/v1/articles/{article_id}`
-- `GET /api/v1/entities?type=vendor&limit=20`（仅列出有关联公开文章的实体及文章数）
-- `GET /api/v1/taxonomy`
-- `GET /api/v1/sources`
-- `GET /api/v1/health/live` 和 `/api/v1/health/ready`
+采集方式、历史故障及 2026-11-01 首轮结果见 [15 源台账](../docs/source-validation-ledger-2026-11-01.md)、[稳定性与正文质量记录](../docs/source-validation-baseline-2026-11-01.md)和[主题质量抽查](../docs/source-quality-2026-11-02.md)。在 `repo/backend` 下每日执行一次；网络命令每入口最多 2 篇，不调用模型，原响应只在本地忽略目录保存每源首篇，`observation.db` 是独立观察库：
 
-列表使用带排序键和筛选指纹的 cursor 分页；公开列表、详情与精选只展示 `processed` 且未软删除、未被人工判无关的文章。待处理或已判定不相关的原始记录仍保存在后台供后续分析，不在公开接口展示。精选先服从人工 `select/reject`，无人工决定时使用模型候选判断；按近 24 小时优先、不足时从近 7 天补足，最多六条。候选不足则留空，不用低价值相关内容凑数。
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_validation --max-items 2 --execute
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_validation_summary --output data/source-validation/daily-summary.csv
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_validation_compare
+```
 
-前端文章库位于 `/articles`，站内详情位于 `/articles/{id}`。中文全文存在时详情页默认显示译文，并可展开英文原文；中文全文缺失时明确标注并显示可用的原文；连原文也缺失时显示提示与来源链接。
-实体目录位于 `/entities`，实体与来源类型筛选在文章库中可组合使用。
+如需复测单源，在第一条命令加 `--source npcc` 等 slug。每次留下不同时间戳的 `baseline-*.json` 和 `review-*.json`；review 模板的 `topic_fit`（`direct/adjacent/off`）、正文清洁度、证据充分度和选稿适配度由人工填写，不能用 `full_text` 自动代替。单次专题质量抽样可显式运行 `--source npcc --max-items 5 --quality-sample --execute`；日常命令的默认上限仍为 2。标注后按采集日期输出样本主题密度：
 
-## 后续主线
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.source_quality_summary --as-of 2026-11-02 --run-from 2026-11-01 --run-to 2026-11-02 --new-only --output-csv data/source-validation/source-quality-2026-11-02.csv --output-json data/source-validation/source-quality-2026-11-02.json
+```
 
-人工选稿首轮试标已缩至 20 条本地案例：在 `backend` 目录运行 `.\.venv\Scripts\python.exe -m scripts.selection_review`，然后打开 `http://127.0.0.1:8765/`。每页 8 条，提供待复核的中文摘要和标签建议；单项修改即时保存，点击“确认本条”后计入已复核。建议稿与人工标签分开，原 40 条文件保留备份，已有部分标注也包含在新队列中。正式标注写入已忽略的 `data/selection-pilot-20.jsonl`；口径和完成后的检查命令见 `../docs/selection-annotation-guide.md`。此页面只监听本机，不是公开 API。
+`--new-only` 按本地归档的首次发现日排除更早已采 URL；逐日或滚动质量密度请保留此前基线文件。
 
-尚待补齐：更多实体别名与可靠消歧、更多站点的详情网页正文解析、带权限的运行状态管理 API、管理员登录与软删除操作、系统级自动化测试和 PostgreSQL 全文索引／实机验证。采集入口已有跨进程锁与显式中断恢复，但尚未覆盖历史重分析／翻译等维护命令。当前采集入口是受控配置同步与 worker 命令，没有匿名触发任意 URL 的接口。
+此密度分母为已标注的来源 × 不同 URL，不能当成全站或未来供稿密度；JSON 另列跨入口同 URL/同标题重叠。汇总 CSV 按自然日及来源记录所有运行；同日重试不覆盖首跑，`same_snapshot_duplicate` 为本次同一候选重放的机制检查。`database_modes=longitudinal` 时的 `duplicate` 才反映观察库既有 URL；11-01 早期文件标为 `isolated`，其多次 `new` 来自不同临时库，跨日基数以 `observation-seed.json` 的 30 条为准。每天检查失败阶段和原始发布日期，约 14 天后再按独立日期评审；无新稿与访问失败分开统计。`observation.db` 与旧的单轮 `baseline-*.db` 均在 `backend/data/`，不会写默认 `bluepulse.db`。本轮未调用模型；后续若做模型质量抽样须单独指定少量样本和明确调用上限。
+
+工作区根目录 `.env` 使用 `base_url`、`key`、`llm_id` 三个字段；密钥不得写入命令、日志、Git 或前端环境变量。试验命令：
+
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.live_pilot --execute
+```
+
+命令只读 [GOV.UK Search/Content API](https://docs.publishing.service.gov.uk/repos/search-api/using-the-search-api.html) 和 [NIST Public Safety RSS](https://www.nist.gov/coo/nist-rss-feeds)；NIST 从 RSS 发现后，再限量读取官方详情正文。每源最多两条，模型总调用最多两次。请求限制 HTTPS 主机、响应大小、超时、重定向和输入/输出 token 数。每次生成独立的 `backend/data/live-pilot-*.db`；两个试验来源均设置 `excerpt_allowed=false`，不会进入正式公开 API。脱敏结果写入工作区根目录的 `真实采集试验.md`。
+
+模型调用前通过只读 `/models` 核验配置 ID。若未列出，采集仍运行但模型调用上限自动降为零。`started/unknown` 的付费尝试不会自动重发。继续试验应在核对服务端模型和旧回执后，使用 `live_pilot_resume` 只处理此前未调用的材料。
+
+## 已有匿名接口
+
+| 路径 | 当前状态 |
+| --- | --- |
+| `GET /api/v1/health/live`、`health/ready` | 存活/迁移就绪 |
+| `GET /api/v1/sources`、`taxonomy` | 来源与七主题目录 |
+| `GET /api/v1/articles`、`articles/{uuid}`、`articles/availability` | 公开文章筛选、详情、收藏可用性；保留 UUID、游标、snake_case |
+| `GET /api/v1/home/recently-collected` | 最近收录的公开文章，最多六条 |
+| `GET /api/v1/home/featured` | 读取显式精选快照；未生成时 `generated_at=null, items=[]` |
+| `GET /api/v1/site/timeline` | 近 30 日已公开材料时间线，支持地区/主题筛选与分页；未精选、归组或生成热点时返回空值 |
+| `GET /api/v1/entities` | 当前真实空目录；实体抽取还未接入 |
+
+统一错误为 `{error:{code,message,request_id}}`，响应包含 `X-Request-ID`。`/openapi.json` 提供路径、参数和响应模型。`articles` 支持 `period/topic/region/source/source_type/entity/q/sort/cursor/limit`；`entity` 在实体链路建立前只会得到空结果。不存在、隐藏或撤回的详情统一为 404；历史材料仍可在 `period=all` 中阅读。默认只提供摘要和原站链接；来源许可明确允许时才返回全文。
+
+## 目前边界
+
+- 当前 15 个显式限量入口分布于 12 个主机；具体路径见台账。NPCC、江苏、PDS、StateScoop、Europol、采购网等有过本机连接阶段间歇故障；Police Science 有受控的 robots 自重定向处理。Government Technology 返回 WAF challenge，OpenAlex 按用户决定暂不考虑，NIJ 因当前专题入口少且旧文占比高暂停。各源尚无连续稳定结论。HTX、NPCC、PDS 等只有日期的页面已保存日期精度；定时触发命令已提供，但尚未注册系统任务或在正式库持续运行；站点条款自动核验仍未实现。试验适配器不绕过访问挑战。
+- 自动公开资格现在要求 `full_text` 正文至少 300 个非空白字符；原有 `min_body_status` 数据字段保留兼容，不再允许以薄摘要自动公开。
+- 模型调用器支持 `.env` 指定的 OpenAI 兼容 Chat Completions 端点。相关稿的分类与两次五轴评分分别写回执；`started` 或 `unknown` 尝试不会自动重发。来源精选门槛默认未校准，跨进程付费预算、五轴人工金标和模型评测仍待完善。
+- 精选快照要求公开、够格、非历史且归组完成。Fact/Story 归组尚未实现，所以正式运行不会自行生成精选；mock 测试通过显式标记验证门禁。热点、日报、Agent、反馈及管理员接口尚未实现，不返回伪造内容。
+- 本地 SQLite 便于离线测试；PostgreSQL 并发、游标、迁移和运行负载尚未验证。旧数据库未导入，也不能用这套新迁移直接升级旧库。
+
+后续工作按工作区根目录的《后端重构计划》推进。项目内其他历史文档所写“旧后端已实现”均是 2026-10-27 删除前的状态。

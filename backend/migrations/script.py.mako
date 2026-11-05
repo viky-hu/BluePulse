@@ -2,10 +2,7 @@
 
 Revision ID: ${up_revision}
 Revises: ${down_revision | comma,n}
-Create Date: ${create_date}
 """
-from __future__ import annotations
-
 from typing import Sequence, Union
 
 from alembic import op

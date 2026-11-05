@@ -1,237 +1,170 @@
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID, uuid4
+from datetime import UTC, date, datetime
+from uuid import uuid4
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    JSON,
-    String,
-    Text,
-    UniqueConstraint,
-    Uuid,
-    func,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .db import Base
 
 
-class Base(DeclarativeBase):
-    pass
+def uid() -> str:
+    return str(uuid4())
 
 
-class AdminAccount(Base):
-    __tablename__ = "admin_accounts"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    username: Mapped[str] = mapped_column(String(64), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+def now_utc() -> datetime:
+    return datetime.now(UTC)
 
 
 class Source(Base):
     __tablename__ = "sources"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    slug: Mapped[str] = mapped_column(String(100), unique=True)
     name: Mapped[str] = mapped_column(String(200))
-    base_url: Mapped[str] = mapped_column(String(1000))
-    adapter: Mapped[str] = mapped_column(String(32))
-    region: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
-    language: Mapped[str] = mapped_column(String(12), default="en")
-    source_type: Mapped[str] = mapped_column(String(32), default="media")
+    region: Mapped[str | None] = mapped_column(String(20))
+    country_code: Mapped[str | None] = mapped_column(String(8))
+    language: Mapped[str] = mapped_column(String(20), default="zh")
+    source_type: Mapped[str] = mapped_column(String(30), default="official")
     topics: Mapped[list[str]] = mapped_column(JSON, default=list)
-    config: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
-    trust_level: Mapped[int] = mapped_column(Integer, default=3)
+    allowed_hosts: Mapped[list[str]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_success_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
-    articles: Mapped[list[Article]] = relationship(back_populates="source")
+    excerpt_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    full_text_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    min_body_status: Mapped[str] = mapped_column(String(20), default="full_text", server_default="full_text")
+    selection_threshold: Mapped[int | None] = mapped_column(Integer)
 
 
 class Topic(Base):
     __tablename__ = "topics"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    slug: Mapped[str] = mapped_column(String(100), unique=True)
     name_zh: Mapped[str] = mapped_column(String(100))
     name_en: Mapped[str] = mapped_column(String(100))
-    parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("topics.id"))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-
-
-class Article(Base):
-    __tablename__ = "articles"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id"), index=True)
-    source_url: Mapped[str] = mapped_column(String(2000))
-    canonical_url: Mapped[str] = mapped_column(String(2000), unique=True)
-    source_title: Mapped[str] = mapped_column(Text)
-    zh_title: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    zh_body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    zh_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    language: Mapped[str] = mapped_column(String(12), default="en")
-    region: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
-    author: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    fetched_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    content_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    importance_score: Mapped[int] = mapped_column(Integer, default=0)
-    relevance: Mapped[float | None] = mapped_column(Float, nullable=True)
-    featured_candidate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    featured_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    editorial_relevance: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    editorial_select: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    editorial_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    editorial_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    editorial_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    processing_status: Mapped[str] = mapped_column(String(32), default="pending_model")
-    parse_status: Mapped[str] = mapped_column(String(32), default="metadata_only")
-    translation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    quality_status: Mapped[str] = mapped_column(String(32), default="unreviewed")
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    source: Mapped[Source] = relationship(back_populates="articles")
-    topics: Mapped[list[Topic]] = relationship(secondary="article_topics")
-    media: Mapped[list[ArticleMedia]] = relationship(back_populates="article")
-    entities: Mapped[list[Entity]] = relationship(secondary="article_entities", back_populates="articles")
-
-
-class ArticleTopic(Base):
-    __tablename__ = "article_topics"
-
-    article_id: Mapped[UUID] = mapped_column(
-        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
-    )
-    topic_id: Mapped[UUID] = mapped_column(
-        ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
-    )
-    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
-class Entity(Base):
-    __tablename__ = "entities"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    entity_type: Mapped[str] = mapped_column(String(24), index=True)
-    name: Mapped[str] = mapped_column(String(120))
-    aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
-    region: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    articles: Mapped[list[Article]] = relationship(secondary="article_entities", back_populates="entities")
-
-
-class ArticleEntity(Base):
-    __tablename__ = "article_entities"
-
-    article_id: Mapped[UUID] = mapped_column(
-        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
-    )
-    entity_id: Mapped[UUID] = mapped_column(
-        ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True
-    )
-    evidence_field: Mapped[str] = mapped_column(String(32))
-    matched_alias: Mapped[str] = mapped_column(String(120))
-
-
-class ArticleMedia(Base):
-    __tablename__ = "article_media"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    article_id: Mapped[UUID] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"))
-    kind: Mapped[str] = mapped_column(String(24))
-    url: Mapped[str] = mapped_column(String(2000))
-    thumbnail_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
-    alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    position: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(32), default="linked")
-
-    article: Mapped[Article] = relationship(back_populates="media")
-
-
-class IngestionRun(Base):
-    __tablename__ = "ingestion_runs"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    trigger_type: Mapped[str] = mapped_column(String(24), default="manual")
-    source_slug: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(24), default="running")
-    counts: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
-    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class IngestionLease(Base):
-    __tablename__ = "ingestion_lease"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    owner_token: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
-    run_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
-    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SourceRun(Base):
     __tablename__ = "source_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="running")
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    candidate_count: Mapped[int] = mapped_column(Integer, default=0)
+    fetch_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    run_id: Mapped[UUID] = mapped_column(ForeignKey("ingestion_runs.id", ondelete="CASCADE"))
-    source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id"))
-    status: Mapped[str] = mapped_column(String(24), default="running")
-    discovered_count: Mapped[int] = mapped_column(Integer, default=0)
-    inserted_count: Mapped[int] = mapped_column(Integer, default=0)
-    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
-    error_class: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class Material(Base):
+    __tablename__ = "materials"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    canonical_url: Mapped[str] = mapped_column(Text, unique=True)
+    source_url: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
+    source: Mapped[Source] = relationship()
+    source_title: Mapped[str] = mapped_column(Text)
+    title_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    source_body: Mapped[str | None] = mapped_column(Text)
+    body_source_url: Mapped[str | None] = mapped_column(Text)
+    source_summary: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(20))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_date: Mapped[date | None] = mapped_column(Date)
+    published_sort_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), default="analysis_pending")
+    timeline_kind: Mapped[str] = mapped_column(String(20), default="unknown")
+    body_status: Mapped[str] = mapped_column(String(20), default="metadata_only")
+    translation_status: Mapped[str] = mapped_column(String(24), default="not_required")
+    zh_title: Mapped[str | None] = mapped_column(Text)
+    zh_summary: Mapped[str | None] = mapped_column(Text)
+    zh_body: Mapped[str | None] = mapped_column(Text)
+    importance_score: Mapped[int] = mapped_column(Integer, default=0)
+    topics: Mapped[list[str]] = mapped_column(JSON, default=list)
+    relevant: Mapped[bool | None] = mapped_column(Boolean)
+    featured_candidate: Mapped[bool] = mapped_column(Boolean, default=False)
+    selection_status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending")
+    grouping_status: Mapped[str] = mapped_column(String(20), default="pending")
+    duplicate_of_id: Mapped[str | None] = mapped_column(ForeignKey("materials.id"), index=True)
+    duplicate_reason: Mapped[str | None] = mapped_column(String(60))
+    public: Mapped[bool] = mapped_column(Boolean, default=False)
+    withdrawn: Mapped[bool] = mapped_column(Boolean, default=False)
+    published_public_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    author: Mapped[str | None] = mapped_column(String(200))
+
+
+class MaterialRevision(Base):
+    __tablename__ = "material_revisions"
+    __table_args__ = (UniqueConstraint("material_id", "revision"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    source_title: Mapped[str] = mapped_column(Text)
+    source_body: Mapped[str | None] = mapped_column(Text)
+    body_source_url: Mapped[str | None] = mapped_column(Text)
+    source_summary: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_date: Mapped[date | None] = mapped_column(Date)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class MaterialTopic(Base):
+    __tablename__ = "material_topics"
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), primary_key=True)
+    topic_slug: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+
+class Discovery(Base):
+    __tablename__ = "discoveries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    run_id: Mapped[str] = mapped_column(ForeignKey("source_runs.id"), index=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
+    material_id: Mapped[str | None] = mapped_column(ForeignKey("materials.id"))
+    url: Mapped[str] = mapped_column(Text)
+    outcome: Mapped[str] = mapped_column(String(30))
+    reason_code: Mapped[str | None] = mapped_column(String(60))
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class AnalysisAttempt(Base):
+    __tablename__ = "analysis_attempts"
+    __table_args__ = (UniqueConstraint("material_id", "revision", "input_version", "attempt"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    input_version: Mapped[str] = mapped_column(String(50))
+    attempt: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24))
+    result: Mapped[dict | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class FeaturedEdition(Base):
     __tablename__ = "featured_editions"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    window_policy: Mapped[str] = mapped_column(String(32), default="24h_then_7d")
-    slots: Mapped[list[FeaturedSlot]] = relationship(back_populates="edition")
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    window_policy: Mapped[str] = mapped_column(String(40), default="24h_then_7d")
+    slots: Mapped[list[FeaturedSlot]] = relationship(back_populates="edition", order_by="FeaturedSlot.slot")
 
 
 class FeaturedSlot(Base):
     __tablename__ = "featured_slots"
-    __table_args__ = (
-        UniqueConstraint("edition_id", "slot"),
-        UniqueConstraint("edition_id", "article_id"),
-    )
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    edition_id: Mapped[UUID] = mapped_column(ForeignKey("featured_editions.id", ondelete="CASCADE"))
-    article_id: Mapped[UUID] = mapped_column(ForeignKey("articles.id"))
-    slot: Mapped[str] = mapped_column(String(2))
-    importance_score: Mapped[int] = mapped_column(Integer, default=0)
-
+    __table_args__ = (UniqueConstraint("edition_id", "slot"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    edition_id: Mapped[str] = mapped_column(ForeignKey("featured_editions.id"))
+    article_id: Mapped[str] = mapped_column(ForeignKey("materials.id"))
+    slot: Mapped[str] = mapped_column(String(3))
+    importance_score: Mapped[int] = mapped_column(Integer)
+    featured_reason: Mapped[str | None] = mapped_column(Text)
     edition: Mapped[FeaturedEdition] = relationship(back_populates="slots")
-    article: Mapped[Article] = relationship()
+    article: Mapped[Material] = relationship()
+
+
+Index("ix_materials_public_date", Material.public, Material.published_at)

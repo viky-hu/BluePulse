@@ -1,12 +1,14 @@
 # Blue Pulse
 
-Windows 本地启动、网页使用、采集、标注与故障排查见[使用说明](docs/使用说明.md)。
+Windows 本地启动与网页使用见[使用说明](docs/使用说明.md)。新后端骨架的运行和离线检查见[后端说明](backend/README.md)。历史采集、标注与故障排查记录仍可从 Git 历史查阅。
 
 单条新闻阅读页已按AIHOT真实阅读组件适配，见本文末尾2026-11-02记录；真实后端扩展的状态以DOCK-009为准。
 
 截至 2026-10-06 的功能、验证结果与待办见[开发进度记录](docs/development-progress-2026-10-06.md)。
 
-Blue Pulse 是一个面向国内外警务科技情报展示的前端项目。当前技术栈为 Next.js 16.3.5、React 19、TypeScript、Tailwind CSS 4 与 GSAP 3.15。
+Blue Pulse 是一个面向国内外警务科技情报展示的项目。前端技术栈为 Next.js 16.3.5、React 19、TypeScript、Tailwind CSS 4 与 GSAP 3.15；后端基础链路使用 Python/FastAPI/SQLAlchemy。
+
+旧 Python 后端已删除，当前 `backend/` 已重新建立基础链路。匿名阅读 API、离线 mock、15 个显式限量真实来源入口及有上限的模型分类与双评分可运行；自动采集命令已提供，尚未注册定时任务或向正式业务库导入真实资讯。未启动后端时页面显示不可用；启动后的空库显示真实空态。`?mock=1` 仅用于显式前端演示，不是采集结果。
 
 当前主线是尽可能完整地复用 AIHOT 已选模块的真实代码与成熟行为，完成警务领域改造，并映射到 Pulse 的菜单和右侧 p0 白纸。新模块会话先遵守 [AGENTS.md](AGENTS.md) 的共通约定；栏目范围以本文末尾的具体清单为准，前文早期构思仅作背景，不据此扩充菜单。
 

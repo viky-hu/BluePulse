@@ -1,91 +1,64 @@
 from __future__ import annotations
 
 import argparse
-import re
-import sys
-from getpass import getpass
+from pathlib import Path
 
-from argon2 import PasswordHasher
-from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import select
 
-from bluepulse_backend.db import create_database_engine
-from bluepulse_backend.models import AdminAccount
-
-USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
-PASSWORD_HASHER = PasswordHasher()
+from .db import make_engine, make_session_factory
+from .models import Topic
+from .pipeline import LEGACY_TOPIC_SLUGS
 
 
-def bootstrap_admin() -> int:
-    username = input("管理员用户名（3–64 位字母、数字、点、下划线或连字符）: ").strip()
-    if not USERNAME_PATTERN.fullmatch(username):
-        print("用户名格式无效。", file=sys.stderr)
-        return 2
+TOPICS = (
+    ("product", "产品", "Product"),
+    ("practice", "实战", "Practice"),
+    ("paper", "论文", "Paper"),
+    ("law", "法制", "Law"),
+    ("embodied", "具身", "Embodied"),
+    ("public-opinion", "舆情", "Public Opinion"),
+    ("low-altitude", "低空", "Low Altitude"),
+)
 
-    password = getpass("管理员密码（至少 12 个字符）: ")
-    confirmation = getpass("再次输入密码: ")
-    if len(password) < 12:
-        print("密码至少需要 12 个字符。", file=sys.stderr)
-        return 2
-    if password != confirmation:
-        print("两次输入的密码不一致。", file=sys.stderr)
-        return 2
 
+def migrate() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    command.upgrade(config, "head")
+
+
+def sync_taxonomy(database_url: str | None = None) -> None:
+    engine = make_engine(database_url)
     try:
-        engine = create_database_engine()
-        try:
-            with Session(engine) as session:
-                with session.begin():
-                    if session.get_bind().dialect.name == "postgresql":
-                        session.execute(
-                            text("SELECT pg_advisory_xact_lock(:lock_key)"),
-                            {"lock_key": 7310042101},
-                        )
-                    existing = session.scalar(select(AdminAccount.id).limit(1))
-                    if existing is not None:
-                        print(
-                            "管理员账户已存在；首次建号命令不会覆盖或新增账户。",
-                            file=sys.stderr,
-                        )
-                        return 3
-
-                    session.add(
-                        AdminAccount(
-                            username=username,
-                            password_hash=PASSWORD_HASHER.hash(password),
-                            is_active=True,
-                        )
-                    )
-        finally:
-            engine.dispose()
-    except SQLAlchemyError as exc:
-        print(
-            "数据库操作失败。请确认 PostgreSQL 可连接且已执行 alembic upgrade head。",
-            file=sys.stderr,
-        )
-        print(f"错误类型：{type(exc).__name__}", file=sys.stderr)
-        return 1
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    print(f"管理员账户 {username} 已创建。密码仅以 Argon2id 哈希形式保存。")
-    return 0
+        factory = make_session_factory(engine)
+        with factory() as session:
+            for slug, zh, en in TOPICS:
+                topic = session.scalar(select(Topic).where(Topic.slug == slug))
+                if topic is None:
+                    session.add(Topic(slug=slug, name_zh=zh, name_en=en))
+                else:
+                    topic.name_zh, topic.name_en, topic.enabled = zh, en, True
+            # Preserve legacy classifications for exact old links, but keep them out
+            # of the seven current frontend category choices.
+            for topic in session.scalars(select(Topic).where(Topic.slug.in_(sorted(LEGACY_TOPIC_SLUGS)))):
+                topic.enabled = False
+            session.commit()
+    finally:
+        engine.dispose()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="bluepulse-backend")
-    parser.add_argument(
-        "command",
-        choices=("bootstrap-admin",),
-        help="bootstrap-admin：在空管理员表中创建首个管理员",
-    )
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Blue Pulse backend local setup")
+    parser.add_argument("command", choices=["migrate", "sync-taxonomy"])
     args = parser.parse_args()
-    if args.command == "bootstrap-admin":
-        return bootstrap_admin()
-    return 2
+    if args.command == "migrate":
+        migrate()
+    else:
+        sync_taxonomy()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

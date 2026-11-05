@@ -1,0 +1,25 @@
+# 15 个采集入口台账（2026-11-01）
+
+本台账以 `backend/bluepulse_backend/source_collection.py` 的 `SOURCES` 和 `build_adapter` 为活跃目录。它包含 **15 个入口、12 个主机**；NIST 的 4 个栏目都在 `www.nist.gov`。NIJ 已退出活跃目录，未计入。这里的“成功”只指限量采集，不表示定时稳定运行或可公开发布。历史事实来源为 [后端 README](../backend/README.md)、工作区[《信源采集障碍与攻关顺序》](../../信源采集障碍与攻关顺序.md)、[前五源](../../前五信源采集探针-2026-10-29.md)、[NPCC 与江苏](../../新增信源试验-2026-10-29.md)、[第 6–9 项](../../信源6到9试验-2026-10-29.md)、[HTX 与 Police Science 复查](../../三个信源提取路径复查-2026-10-30.md)、[Police Science 复测](<../../Police Science自动采集复测-2026-10-31.md>)、[推荐三源](../../新增三信源试验-2026-10-31.md)和[Europol/SPF](../../新增两信源试验-2026-10-31.md)。较早的“未接入/不可达”状态已按后续复测更新。
+
+**后续更新（2026-11-04）：** GOV.UK 英文 HTML 文字附件已限量提取并保存正文来源 URL；部署记录本轮取得 2,073 字符表格文本。英文 CSV 经单独 robots 检查后成功读取，18 行与 HTML 逐项一致；首轮资产主机传输错误仍保留。见[专项复测](govuk-text-attachment-2026-11-04.md)。
+
+| 入口与主机 | 发现 → 详情；正文和日期 | 已证实的历史成功、失败与当前缺口 | 代码位置 |
+| --- | --- | --- | --- |
+| `govuk` · `www.gov.uk` | Home Office 限定的 Search API → Content API；`details.body` 清洗为文字，`first_published_at` 为时间；短附件落地页降摘要级。 | 10-29 3/3 详情，HTML 附件另由探针取到约 1,825 字；正式适配器**未补附件正文和附件 URL**，PDF/CSV 也未取。11-01 搜索 4 项、2/2 详情，1 全文/1 摘要；collection 页 609 字只介绍内容，另一页 4 个附件仅有 120 字导语。 | `source_collection.py`、`live_sources.py:GovUkAdapter`、`top5_probe.py` |
+| `ccgp-policing-tech` · `www.ccgp.gov.cn` | 中央公开招标列表 → 同域公告；限定公告容器，页面中文年月日时分。 | 10-29 列表 20、3/3 正文；11-01 有 2/2 成功和一次 robots 传输失败。仅覆盖中央公开招标，标题/全文关键词可误收非警务采购；附件及地方公告未验证。robots 404 按现有策略记录为 unavailable。 | `source_collection.py`、`ccgp_source.py:CcgpAdapter` |
+| `nist-public-safety` · `www.nist.gov` | Public Safety RSS → 同域新闻；`.text-with-summary`，RSS `pubDate`。 | 10-29 3/3 正文，但样本含未来日期活动；11-01 2/2 正文，首条新闻的 RSS 日期是 **11-05**，未来日期会被入库管线置为 unknown。历史 TLS EOF；须持续区分活动、未来日期及跨栏目重复。 | `source_collection.py`、`live_sources.py:NistRssAdapter` |
+| `nist-forensic-science` · 同上 | Forensic Science RSS → 同域新闻；同一正文/时间解析器。 | 10-30 3/3、正式 preview 2/2；11-01 2/2。栏目含与警务无关的过敏原研究和简短 Spotlight；技术正文与选稿适配需分开判断。 | 同上，使用 forensic feed |
+| `nist-information-technology` · 同上 | Information Technology RSS → 同域新闻；同一正文/时间解析器，跳过 `/news-events/events/`。 | 10-31 前 5 项跳过 2 活动、3/3 新闻正文；11-01 RSS 40 项，2/2 正文。题材宽，联邦学习、O-RAN 也未必有警务场景；同站栏目有 URL 交叉。 | 同上，使用 IT feed |
+| `nist-standards` · 同上 | Standards RSS → 同域新闻；同一正文/时间解析器。 | 10-31 3/3，11-01 2/2；天线校准、泛标准新闻偏离选稿，标准原文若在附件尚未取。 | 同上，使用 standards feed |
+| `htx-news` · `www.htx.gov.sg` | 官网页面公开使用的 JSON 列表端点 → 新闻 HTML；`.detail__content .rte`；`.date-author .date` 只给日期。 | 10-30 2/2 正文，早期 TLS/连接故障后恢复；11-01 2/2。现已修正为 `published_date`，不再把新加坡零点写成精确发布时间。多版式、图片/外链证据仍待观察。 | `source_collection.py`、`htx_source.py:HtxNewsAdapter` |
+| `police-science` · `science.police.uk` | 官网 sitemap 的 `/news-and-events/news/{slug}/` → 新闻 HTML；`.article_copy`、`.article_title`、`.event_date`（日期）。 | 10-30 robots 自重定向，10-31 正常 200 且 sitemap 63、preview 5/5；11-01 robots 又为自重定向，现有适配器按受控超过 5 次同 URL 重定向规则继续，2/2 正文。部分页为杂志/基金入口，详情文字不足以替代外链报告。 | `source_collection.py`、`police_science_source.py:PoliceScienceAdapter` |
+| `npcc` · `news.npcc.police.uk` | `/releases` 列表 → `/releases/{slug}`；`.content-body`，详情日期。 | 10-29 一次 robots `transport_error`、另一次 3/3 入库；11-01 一次 robots 失败、其余限量运行成功。日期现存 `published_date`；栏目大量一般警务新闻，转载/更新和分页尚未验证。 | `source_collection.py`、`top5_probe.py:HtmlEvidenceProbe` |
+| `jiangsu-police` · `gat.jiangsu.gov.cn` | 警务动态列表的 `<record>` → 同域 `/art/...`；`.wzzw-article`、`PubDate` 元数据。 | 10-29 早期 robots/HTTPS 传输失败，后续 3/3 入库；11-01 2/2 成功。原页 `ContentSource=人民公安报`，为转载；适配器现将该元数据写入逐项诊断，**Material 尚无原始供稿机构字段**。栏目一般警务占比高。 | `source_collection.py`、`top5_probe.py:HtmlEvidenceProbe` |
+| `police-digital-service` · `pds.police.uk` | `/welcome/blog/` 标题列表 → 同域文章；`.entry-content`、`time[datetime]`。 | 10-29 49 链接、2/2 入库；11-01 一次 robots 传输失败、两次成功。原页 `datetime=YYYY-MM-DD` 只给日期，11-02 已修正为 `published_date`，隔离库两篇形成修订。峰会、奖项和报告回应需人工筛，报告原文未展开。 | `source_collection.py`、`source_expansion.py:BoundedHtmlSourceAdapter` |
+| `biometric-update-law-enforcement` · `www.biometricupdate.com` | 执法栏目 → `/YYYYMM/slug`；`.thecontent`、`article:published_time`。 | 10-29 10 链接、2/2，另一次列表前超时；“相关文章”曾混入正文，已修复并形成修订；11-01 2/2 无该混入。媒体报道中的厂商、合同、诉讼需回一手出处，摘录许可仍关闭。 | `source_collection.py`、`source_expansion.py:BoundedHtmlSourceAdapter` |
+| `statescoop-law-enforcement-tech` · `statescoop.com` | 执法技术标签 RSS → 同域文章；`.single-article__content-inner`、`article:published_time` 或 RSS 时间。 | 10-31 标签仅 4 篇、2/2 正文，最新 2026-06；11-01 一次 robots 传输失败、成功运行仍为同两篇旧稿。**供稿稀疏不是采集失败**；媒体二手事实需回源。 | `source_collection.py`、`statescoop_source.py:StateScoopAdapter` |
+| `europol-news` · `www.europol.europa.eu` | 官网 RSS → 同域新闻；`window.SERVER_DATA.NodeLoader.node` 的 alias、body、published 时间。 | 10-31 3/3、2/2 隔离入库；11-01 首次 robots 传输失败，随后多次 2/2。RSS 无发布时间；数字取证报告正文是概述，PDF 未展开。 | `source_collection.py`、`europol_source.py:EuropolNewsAdapter` |
+| `spf-police-life` · `www.police.gov.sg` | Police Life 列表技术词筛选 → 同域详情；多个 `.rte` 合并，`.published-date` 只给日期。 | 10-31 16 链接中 3 技术词、3/3 正文；11-01 17 链接中 4 技术词、2/2 正文。已剔除相关系列链接，人物报道仍需选稿过滤。 | `source_collection.py`、`spf_source.py:SpfPoliceLifeAdapter` |
+
+所有入口由 `source_collection.py:ensure_source` 建立默认 `excerpt_allowed=false`、`full_text_allowed=false` 和 `min_body_status=full_text`，并要求显式 `--execute`。本轮未改动许可门禁。

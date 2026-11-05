@@ -3,524 +3,337 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
-import uuid
-from datetime import UTC, datetime, timedelta
-from functools import lru_cache
-from typing import Annotated, Any
-from uuid import UUID
+from datetime import UTC, datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, func, inspect, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session
 
-from bluepulse_backend.db import create_database_engine
-from bluepulse_backend.editorial import (
-    featured_article_condition, featured_reason, public_article_conditions,
+from .db import make_engine, make_session_factory
+from .models import FeaturedEdition, Material, MaterialTopic, Source, Topic
+from .publication import visible
+from .schemas import (
+    ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
+    FeaturedOut, HealthOut, ItemsOut, SourceOut, TimelineOut, TopicOut,
 )
-from bluepulse_backend.ingestion.llm import MAX_TRANSLATION_CHARS
-from bluepulse_backend.models import Article, ArticleEntity, Entity, FeaturedEdition, FeaturedSlot, Source, Topic
-
-router = APIRouter(prefix="/api/v1")
 
 
 class ApiError(Exception):
     def __init__(self, status: int, code: str, message: str):
-        self.status = status
-        self.code = code
-        self.message = message
+        self.status, self.code, self.message = status, code, message
 
 
-@lru_cache(maxsize=1)
-def _get_engine():
-    return create_database_engine()
-
-
-def get_session():
-    engine = _get_engine()
-    with Session(engine) as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def _error(code: str, message: str, request_id: str, status: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={"error": {"code": code, "message": message, "request_id": request_id}},
-    )
-
-
-def _filter_key(
-    period: str,
-    topic: str | None,
-    region: str | None,
-    source: UUID | None,
-    source_type: str | None,
-    entity: str | None,
-    q: str | None,
-) -> str:
-    payload = json.dumps(
-        [period, topic, region, str(source) if source else None, source_type, entity, q],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-
-
-def _iso_utc(value: datetime | None) -> str | None:
+def iso(value: datetime | None) -> str | None:
     if value is None:
         return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    else:
-        value = value.astimezone(UTC)
-    return value.isoformat().replace("+00:00", "Z")
+    return value.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z") if value.tzinfo is None else value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _encode_cursor(sort: str, filter_key: str, article: Article) -> str:
-    effective = article.published_at or article.first_seen_at
-    if effective.tzinfo is None:
-        effective = effective.replace(tzinfo=UTC)
-    else:
-        effective = effective.astimezone(UTC)
-    payload: dict[str, object] = {
-        "sort": sort,
-        "filters": filter_key,
-        "published_at": _iso_utc(effective),
-        "id": str(article.id),
+def _error(status: int, code: str, message: str, request_id: str) -> JSONResponse:
+    return JSONResponse(status_code=status, content={"error": {
+        "code": code, "message": message, "request_id": request_id,
+    }}, headers={"X-Request-ID": request_id, "Cache-Control": "no-store"})
+
+
+def _source(source: Source) -> dict:
+    return {"id": source.id, "name": source.name, "slug": source.slug,
+            "region": source.region, "country_code": source.country_code,
+            "language": source.language, "source_type": source.source_type,
+            "topics": source.topics}
+
+
+def _card(article: Material) -> dict:
+    return {
+        "id": article.id, "title": article.zh_title or article.source_title,
+        "source_title": article.source_title, "published_at": iso(article.published_at),
+        "published_date": article.published_date.isoformat() if article.published_date else None,
+        "timeline_kind": article.timeline_kind,
+        "first_seen_at": iso(article.first_seen_at), "language": article.language,
+        "region": article.source.region, "country_code": article.source.country_code,
+        "url": article.source_url, "source": _source(article.source),
+        "importance_score": article.importance_score,
+        "processing_status": "completed" if article.state == "publication_pool" else article.state,
+        "parse_status": article.body_status, "body_status": article.body_status,
+        "translation_status": article.translation_status,
+        "topics": article.topics, "summary": article.zh_summary,
+        "media_preview": None, "entities": [],
     }
-    if sort == "importance":
-        payload["importance_score"] = article.importance_score
-    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _decode_cursor(cursor: str, sort: str, filter_key: str) -> dict[str, Any]:
+def _detail(article: Material) -> dict:
+    return {
+        **_card(article),
+        "source_body": article.source_body if article.source.full_text_allowed else None,
+        "body_source_url": article.body_source_url,
+        "zh_body": article.zh_body if article.source.full_text_allowed else None,
+        "author": article.author, "fetched_at": iso(article.fetched_at),
+        "quality_status": "model_processed" if article.state == "publication_pool" else article.state,
+        "media": [], "comments": {"available": False, "count": 0, "items": []},
+    }
+
+
+def _filter_hash(filters: list[object]) -> str:
+    return hashlib.sha256(json.dumps(filters, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()[:16]
+
+
+def _cursor_for(article: Material, sort: str, key: str) -> str:
+    data = {"v": 1, "sort": sort, "filter": key,
+            "date": iso(article.published_sort_at or article.published_at or article.first_seen_at),
+            "id": article.id, "score": article.importance_score}
+    return base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
+def _read_cursor(value: str, sort: str, key: str) -> tuple[datetime, str, int]:
     try:
-        padding = "=" * (-len(cursor) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(cursor + padding))
-        if payload.get("sort") != sort or payload.get("filters") != filter_key:
+        data = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        if data["v"] != 1 or data["sort"] != sort or data["filter"] != key:
             raise ValueError
-        payload["published_at"] = datetime.fromisoformat(payload["published_at"])
-        payload["id"] = UUID(payload["id"])
-        return payload
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        date = datetime.fromisoformat(data["date"].replace("Z", "+00:00"))
+        article_id = str(UUID(data["id"]))
+        score = int(data["score"])
+        if not 0 <= score <= 100:
+            raise ValueError
+        return date, article_id, score
+    except (KeyError, ValueError, TypeError, UnicodeError, json.JSONDecodeError):
         raise ApiError(400, "invalid_cursor", "游标无效，或与当前筛选条件不匹配。") from None
 
 
-def _source_out(source: Source) -> dict[str, object]:
-    return {
-        "id": str(source.id),
-        "name": source.name,
-        "slug": source.slug,
-        "region": source.region,
-        "country_code": source.country_code,
-        "language": source.language,
-        "source_type": source.source_type,
-        "topics": source.topics,
-    }
+def create_app(database: str | None = None) -> FastAPI:
+    engine = make_engine(database)
+    session_factory = make_session_factory(engine)
+    app = FastAPI(title="Blue Pulse API", version="0.2.0")
+    router = APIRouter(prefix="/api/v1")
 
-
-def _content_status(article: Article) -> tuple[str, str]:
-    body = (article.source_body or "").strip()
-    if body:
-        body_status = (article.parse_status if article.parse_status in
-                       {"full_text", "abstract_only", "summary_only"} else "partial_text")
-    else:
-        body_status = "summary_only" if (article.zh_summary or "").strip() else "metadata_only"
-    if not article.language.lower().startswith("en"):
-        translation_status = "not_required"
-    elif (article.zh_body or "").strip():
-        translation_status = "available"
-    elif article.translation_status == "failed":
-        translation_status = "failed"
-    elif body_status != "full_text":
-        translation_status = "source_unavailable"
-    elif len(body) > MAX_TRANSLATION_CHARS:
-        translation_status = "too_long"
-    else:
-        translation_status = "pending"
-    return body_status, translation_status
-
-
-def _card_out(article: Article) -> dict[str, object]:
-    body_status, translation_status = _content_status(article)
-    preview = next((media for media in sorted(article.media, key=lambda item: item.position)
-                    if media.kind == "image" and media.status == "linked"), None)
-    return {
-        "id": str(article.id),
-        "title": article.zh_title or article.source_title,
-        "source_title": article.source_title,
-        "published_at": _iso_utc(article.published_at),
-        "first_seen_at": _iso_utc(article.first_seen_at),
-        "language": article.language,
-        "region": article.region,
-        "country_code": article.country_code,
-        "url": article.source_url,
-        "source": _source_out(article.source),
-        "importance_score": article.importance_score,
-        "processing_status": article.processing_status,
-        "parse_status": article.parse_status,
-        "body_status": body_status,
-        "translation_status": translation_status,
-        "media_preview": ({
-            "kind": preview.kind,
-            "url": preview.url,
-            "thumbnail_url": preview.thumbnail_url,
-            "caption": preview.caption,
-            "alt_text": preview.alt_text,
-        } if preview else None),
-        "entities": [
-            {"slug": entity.slug, "name": entity.name, "entity_type": entity.entity_type}
-            for entity in article.entities if entity.enabled
-        ],
-    }
-
-
-@router.get("/health/live")
-def health_live() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@router.get("/health/ready")
-def health_ready(session: SessionDep) -> dict[str, str]:
-    session.execute(text("SELECT 1"))
-    return {"status": "ready"}
-
-
-@router.get("/sources")
-def list_sources(session: SessionDep) -> dict[str, object]:
-    sources = session.scalars(
-        select(Source).where(Source.enabled.is_(True)).order_by(Source.name.asc())
-    )
-    return {"items": [_source_out(source) for source in sources]}
-
-
-@router.get("/taxonomy")
-def list_taxonomy(session: SessionDep) -> dict[str, object]:
-    topics = session.scalars(
-        select(Topic).where(Topic.enabled.is_(True)).order_by(Topic.slug.asc())
-    )
-    return {
-        "items": [
-            {
-                "id": str(topic.id),
-                "slug": topic.slug,
-                "name_zh": topic.name_zh,
-                "name_en": topic.name_en,
-                "parent_id": str(topic.parent_id) if topic.parent_id else None,
-            }
-            for topic in topics
-        ]
-    }
-
-
-@router.get("/entities")
-def list_entities(
-    session: SessionDep,
-    entity_type: str | None = Query(None, alias="type", pattern="^(vendor|model|organization)$"),
-    region: str | None = Query(None, pattern="^(domestic|foreign)$"),
-    q: str | None = Query(None, max_length=120),
-    cursor: str | None = Query(None, max_length=100),
-    limit: int = Query(20, ge=1, le=100),
-) -> dict[str, object]:
-    query = (
-        select(Entity, func.count(Article.id).label("article_count"))
-        .join(ArticleEntity, ArticleEntity.entity_id == Entity.id)
-        .join(Article, Article.id == ArticleEntity.article_id)
-        .where(Entity.enabled.is_(True), *public_article_conditions())
-    )
-    if entity_type:
-        query = query.where(Entity.entity_type == entity_type)
-    if region:
-        query = query.where(Entity.region == region)
-    if q:
-        escaped = q.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        query = query.where(func.lower(Entity.name).like(f"%{escaped}%", escape="\\"))
-    if cursor:
-        query = query.where(Entity.slug > cursor)
-    rows = session.execute(query.group_by(Entity.id).order_by(Entity.slug.asc()).limit(limit + 1)).all()
-    items = rows[:limit]
-    return {
-        "items": [{"slug": entity.slug, "name": entity.name, "entity_type": entity.entity_type,
-                   "region": entity.region, "article_count": count}
-                  for entity, count in items],
-        "next_cursor": items[-1][0].slug if len(rows) > limit else None,
-        "limit": limit,
-    }
-
-
-@router.get("/home/featured")
-def featured(session: SessionDep) -> dict[str, object]:
-    edition = session.scalar(
-        select(FeaturedEdition).order_by(FeaturedEdition.generated_at.desc()).limit(1)
-    )
-    if edition is None:
-        return {"generated_at": None, "window_policy": "24h_then_7d", "items": []}
-    rows = session.execute(
-        select(FeaturedSlot, Article)
-        .join(Article, FeaturedSlot.article_id == Article.id)
-        .where(
-            FeaturedSlot.edition_id == edition.id,
-            *public_article_conditions(),
-            featured_article_condition(),
-        )
-        .options(joinedload(Article.source))
-        .options(selectinload(Article.entities))
-        .options(selectinload(Article.media))
-        .order_by(FeaturedSlot.slot.asc())
-    ).all()
-    return {
-        "generated_at": edition.generated_at.isoformat(),
-        "window_policy": edition.window_policy,
-        "items": [
-            {
-                "slot": slot.slot,
-                "article": _card_out(article),
-                "importance_score": slot.importance_score,
-                "featured_reason": featured_reason(article),
-            }
-            for slot, article in rows
-        ],
-    }
-
-
-@router.get("/home/recently-collected")
-def recently_collected(session: SessionDep) -> dict[str, object]:
-    """Previously published public articles, ordered by when BluePulse collected them."""
-    articles = session.scalars(
-        select(Article)
-        .where(*public_article_conditions())
-        .options(joinedload(Article.source), selectinload(Article.topics),
-                 selectinload(Article.entities), selectinload(Article.media))
-        .order_by(Article.first_seen_at.desc(), Article.id.asc())
-        .limit(6)
-    ).all()
-    return {
-        "items": [{
-            **_card_out(article),
-            "topics": [topic.slug for topic in article.topics],
-            "summary": article.zh_summary,
-        } for article in articles],
-    }
-
-
-@router.get("/articles")
-def list_articles(
-    session: SessionDep,
-    period: str = Query("30d", pattern="^(24h|7d|30d|all)$"),
-    topic: str | None = None,
-    region: str | None = Query(None, pattern="^(domestic|foreign)$"),
-    source: UUID | None = None,
-    source_type: str | None = None,
-    entity: str | None = Query(None, pattern="^[a-z0-9-]{1,100}$"),
-    q: str | None = Query(None, max_length=200),
-    cursor: str | None = None,
-    limit: int = Query(20, ge=1, le=100),
-    sort: str = Query("recent", pattern="^(recent|importance)$"),
-) -> dict[str, object]:
-    now = datetime.now(UTC)
-    period_window = {
-        "24h": timedelta(hours=24),
-        "7d": timedelta(days=7),
-        "30d": timedelta(days=30),
-    }.get(period)
-    period_start = now - period_window if period_window is not None else None
-    effective_date = func.coalesce(Article.published_at, Article.first_seen_at)
-    query = (
-        select(Article)
-        .join(Source)
-        .options(joinedload(Article.source), selectinload(Article.topics),
-                 selectinload(Article.entities), selectinload(Article.media))
-        .where(
-            *public_article_conditions(),
-        )
-    )
-    if period_start is not None:
-        query = query.where(effective_date >= period_start)
-    if topic:
-        query = query.where(Article.topics.any(Topic.slug == topic))
-    if region:
-        query = query.where(Article.region == region)
-    if source:
-        query = query.where(Article.source_id == source)
-    if source_type:
-        query = query.where(Source.source_type == source_type)
-    if entity:
-        query = query.where(Article.entities.any(Entity.slug == entity))
-    if q:
-        search = q.strip()
-        if search:
-            if (session.bind is not None and session.bind.dialect.name == "sqlite"
-                    and len(search) >= 3 and inspect(session.bind).has_table("article_search")):
-                phrase = '"' + search.replace('"', '""') + '"'
-                query = query.where(text(
-                    "articles.rowid IN (SELECT rowid FROM article_search "
-                    "WHERE article_search MATCH :search_phrase)"
-                ).bindparams(search_phrase=phrase))
-            else:
-                escaped = search.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                term = f"%{escaped}%"
-                query = query.where(or_(
-                    func.lower(Article.source_title).like(term, escape="\\"),
-                    func.lower(Article.zh_title).like(term, escape="\\"),
-                    func.lower(Article.source_body).like(term, escape="\\"),
-                    func.lower(Article.zh_body).like(term, escape="\\"),
-                    func.lower(Article.zh_summary).like(term, escape="\\"),
-                ))
-
-    filter_key = _filter_key(period, topic, region, source, source_type, entity, q)
-    if cursor:
-        decoded = _decode_cursor(cursor, sort, filter_key)
-        cursor_date = decoded["published_at"]
-        cursor_id = decoded["id"]
-        date_boundary = or_(
-            effective_date < cursor_date,
-            and_(effective_date == cursor_date, Article.id > cursor_id),
-        )
-        if sort == "importance":
-            score = decoded.get("importance_score", 0)
-            query = query.where(
-                or_(
-                    Article.importance_score < score,
-                    and_(Article.importance_score == score, date_boundary),
-                )
-            )
-            query = query.order_by(Article.importance_score.desc(), effective_date.desc(), Article.id.asc())
-        else:
-            query = query.where(date_boundary).order_by(effective_date.desc(), Article.id.asc())
-    elif sort == "importance":
-        query = query.order_by(Article.importance_score.desc(), effective_date.desc(), Article.id.asc())
-    else:
-        query = query.order_by(effective_date.desc(), Article.id.asc())
-
-    rows = list(session.scalars(query.limit(limit + 1)).unique())
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = _encode_cursor(sort, filter_key, items[-1]) if has_more and items else None
-    return {
-        "items": [
-            {
-                **_card_out(article),
-                "topics": [topic.slug for topic in article.topics],
-                "summary": article.zh_summary,
-            }
-            for article in items
-        ],
-        "next_cursor": next_cursor,
-        "limit": limit,
-    }
-
-
-@router.get("/articles/availability")
-def article_availability(
-    session: SessionDep,
-    ids: str = Query(""),
-) -> dict[str, object]:
-    if not ids:
-        return {"items": []}
-    raw_ids = ids.split(",")
-    if len(raw_ids) > 100:
-        raise ApiError(422, "invalid_request", "请求参数无效。")
-    try:
-        article_ids = list(dict.fromkeys(UUID(value) for value in raw_ids))
-    except ValueError:
-        raise ApiError(422, "invalid_request", "请求参数无效。") from None
-    available = set(session.scalars(
-        select(Article.id).where(Article.id.in_(article_ids), *public_article_conditions())
-    ))
-    return {"items": [{"id": str(article_id), "available": article_id in available}
-                      for article_id in article_ids]}
-
-
-@router.get("/articles/{article_id}")
-def article_detail(article_id: UUID, session: SessionDep) -> dict[str, object]:
-    article = session.scalar(
-        select(Article)
-        .where(
-            Article.id == article_id,
-            *public_article_conditions(),
-        )
-        .options(
-            joinedload(Article.source),
-            selectinload(Article.topics),
-            selectinload(Article.media),
-            selectinload(Article.entities),
-        )
-    )
-    if article is None:
-        raise ApiError(404, "article_not_found", "文章不存在。")
-    return {
-        **_card_out(article),
-        "source_body": article.source_body,
-        "zh_body": article.zh_body,
-        "summary": article.zh_summary,
-        "author": article.author,
-        "first_seen_at": _iso_utc(article.first_seen_at),
-        "fetched_at": _iso_utc(article.fetched_at),
-        "quality_status": article.quality_status,
-        "topics": [topic.slug for topic in article.topics],
-        "media": [
-            {
-                "kind": media.kind,
-                "url": media.url,
-                "thumbnail_url": media.thumbnail_url,
-                "caption": media.caption,
-                "alt_text": media.alt_text,
-                "position": media.position,
-                "status": media.status,
-            }
-            for media in article.media
-        ],
-        "comments": {"available": False, "count": 0, "items": []},
-    }
-
-
-def create_app() -> FastAPI:
-    app = FastAPI(title="Blue Pulse API", version="1.0.0")
-    origins = [
-        origin.strip()
-        for origin in os.environ.get(
-            "BLUEPULSE_CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000",
-        ).split(",")
-        if origin.strip()
-    ]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_methods=["GET"],
-        allow_headers=["Accept", "Content-Type"],
-    )
+    def session_dep():
+        with session_factory() as session:
+            yield session
 
     @app.middleware("http")
-    async def add_request_id(request: Request, call_next):
-        request.state.request_id = str(uuid.uuid4())
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        if request.url.path == "/api/v1/articles/availability":
-            response.headers["Cache-Control"] = "no-store"
+    async def request_context(request: Request, call_next):
+        supplied = request.headers.get("X-Request-ID")
+        request_id = supplied if supplied and len(supplied) <= 128 else str(uuid4())
+        request.state.request_id = request_id
+        try:
+            response = await call_next(request)
+        except SQLAlchemyError:
+            response = _error(503, "database_unavailable", "数据服务暂时不可用。", request_id)
+        response.headers["X-Request-ID"] = request_id
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ApiError)
-    async def api_error_handler(request: Request, exc: ApiError):
-        return _error(exc.code, exc.message, request.state.request_id, exc.status)
+    async def api_error(request: Request, exc: ApiError):
+        return _error(exc.status, exc.code, exc.message, request.state.request_id)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError):
-        return _error("invalid_request", "请求参数无效。", request.state.request_id, 422)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        return _error(422, "invalid_request", "请求参数无效。", request.state.request_id)
 
-    @app.exception_handler(SQLAlchemyError)
-    async def database_error_handler(request: Request, exc: SQLAlchemyError):
-        return _error("database_unavailable", "数据服务暂不可用。", request.state.request_id, 503)
+    @router.get("/health/live", response_model=HealthOut)
+    def live():
+        return {"status": "ok"}
+
+    @router.get("/health/ready", response_model=HealthOut)
+    def ready(session: Session = Depends(session_dep)):
+        session.execute(text("SELECT 1"))
+        session.execute(select(Source.id).limit(1))
+        return {"status": "ready"}
+
+    @router.get("/sources", response_model=ItemsOut[SourceOut])
+    def sources(session: Session = Depends(session_dep)):
+        rows = session.scalars(select(Source).where(Source.enabled.is_(True)).order_by(Source.name)).all()
+        return {"items": [_source(row) for row in rows]}
+
+    @router.get("/taxonomy", response_model=ItemsOut[TopicOut])
+    def taxonomy(session: Session = Depends(session_dep)):
+        rows = session.scalars(select(Topic).where(Topic.enabled.is_(True)).order_by(Topic.slug)).all()
+        return {"items": [{"id": row.id, "slug": row.slug, "name_zh": row.name_zh,
+                           "name_en": row.name_en, "parent_id": row.parent_id} for row in rows]}
+
+    @router.get("/entities", response_model=EntityListOut)
+    def entities(session: Session = Depends(session_dep), type: str | None = Query(None, pattern="^(vendor|model|organization)$"),
+                 region: str | None = Query(None, pattern="^(domestic|foreign)$"),
+                 q: str | None = Query(None, max_length=120), cursor: str | None = None,
+                 limit: int = Query(20, ge=1, le=100)):
+        # Entity extraction is outside the current M0-M2 backbone. Empty is factual.
+        return {"items": [], "next_cursor": None, "limit": limit}
+
+    @router.get("/home/featured", response_model=FeaturedOut)
+    def featured(session: Session = Depends(session_dep)):
+        edition = session.scalar(select(FeaturedEdition).order_by(FeaturedEdition.generated_at.desc(), FeaturedEdition.id.desc()).limit(1))
+        if edition is None:
+            return {"generated_at": None, "window_policy": "24h_then_7d", "items": []}
+        items = []
+        for slot in edition.slots:
+            if visible(slot.article) and slot.article.featured_candidate and slot.article.grouping_status == "complete":
+                items.append({"slot": slot.slot, "article": _card(slot.article),
+                              "importance_score": slot.importance_score,
+                              "featured_reason": slot.featured_reason})
+        return {"generated_at": iso(edition.generated_at), "window_policy": edition.window_policy, "items": items}
+
+    @router.get("/home/recently-collected", response_model=ItemsOut[ArticleCardOut])
+    def recently_collected(session: Session = Depends(session_dep)):
+        rows = session.scalars(select(Material).join(Source).where(
+            Material.public.is_(True), Material.duplicate_of_id.is_(None),
+            Material.withdrawn.is_(False), Material.relevant.is_(True),
+            Source.excerpt_allowed.is_(True),
+            or_(Material.body_status == "full_text",
+                and_(Source.min_body_status == "abstract_only",
+                     Material.body_status.in_(["abstract_only", "summary_only"]))),
+        ).order_by(Material.first_seen_at.desc(), Material.id).limit(6)).all()
+        return {"items": [_card(row) for row in rows]}
+
+    @router.get("/site/timeline", response_model=TimelineOut)
+    def site_timeline(
+        session: Session = Depends(session_dep),
+        region: str = Query("", pattern="^(|domestic|foreign)$"),
+        topic: str = Query("", max_length=100),
+        cursor: str | None = Query(None, max_length=2000),
+        limit: int = Query(20, ge=1, le=40),
+    ):
+        """Recent public materials only; grouping, selection and hot remain unavailable."""
+        filters = {"region": region, "topic": topic}
+        key = _filter_hash(["site-timeline", region, topic])
+        effective = func.coalesce(Material.published_sort_at, Material.published_at)
+        query = select(Material).join(Source).where(
+            Material.public.is_(True), Material.duplicate_of_id.is_(None),
+            Material.withdrawn.is_(False), Material.relevant.is_(True),
+            Source.excerpt_allowed.is_(True), Material.timeline_kind != "unknown",
+            effective >= datetime.now(UTC) - timedelta(days=30),
+            or_(Material.body_status == "full_text",
+                and_(Source.min_body_status == "abstract_only",
+                     Material.body_status.in_(["abstract_only", "summary_only"]))),
+        )
+        if region:
+            query = query.where(Source.region == region)
+        if topic:
+            query = query.where(Material.id.in_(
+                select(MaterialTopic.material_id).where(MaterialTopic.topic_slug == topic)))
+        if cursor:
+            boundary_at, article_id, _ = _read_cursor(cursor, "recent", key)
+            query = query.where(or_(effective < boundary_at,
+                                    and_(effective == boundary_at, Material.id > article_id)))
+        rows = session.scalars(query.order_by(effective.desc(), Material.id).limit(limit + 1)).all()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        day_counts: dict[str, int] = {}
+        shanghai = timezone(timedelta(hours=8))  # Current publication dates; no Windows tzdata dependency.
+        cards = []
+        for row in rows:
+            anchor = row.published_sort_at or row.published_at
+            if anchor is None:
+                continue
+            aware = anchor if anchor.tzinfo else anchor.replace(tzinfo=UTC)
+            day = aware.astimezone(shanghai).date().isoformat()
+            day_counts[day] = day_counts.get(day, 0) + 1
+            cards.append({"key": row.id, "anchorAt": iso(anchor), "item": {**_card(row), "selected": False},
+                          "group": None})
+        return {"filters": filters, "cards": cards,
+                "nextCursor": _cursor_for(rows[-1], "recent", key) if more else None,
+                "hot": None, "dayCounts": day_counts}
+
+    @router.get("/articles", response_model=ArticleListOut)
+    def articles(
+        session: Session = Depends(session_dep),
+        period: str = Query("30d", pattern="^(24h|7d|30d|all)$"),
+        topic: str | None = None,
+        region: str | None = Query(None, pattern="^(domestic|foreign)$"),
+        source: UUID | None = None,
+        source_type: str | None = None,
+        entity: str | None = Query(None, pattern="^[a-z0-9-]{1,100}$"),
+        q: str | None = Query(None, max_length=200),
+        cursor: str | None = Query(None, max_length=2000),
+        limit: int = Query(20, ge=1, le=100),
+        sort: str = Query("recent", pattern="^(recent|importance)$"),
+    ):
+        search = (q or "").strip()
+        key = _filter_hash([period, topic, region, str(source) if source else None, source_type, entity, search])
+        effective = func.coalesce(Material.published_sort_at, Material.published_at, Material.first_seen_at)
+        query = select(Material).join(Source).where(
+            Material.public.is_(True), Material.duplicate_of_id.is_(None),
+            Material.withdrawn.is_(False), Material.relevant.is_(True),
+            Source.excerpt_allowed.is_(True),
+        )
+        windows = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+        if period in windows:
+            query = query.where(Material.timeline_kind != "unknown",
+                                func.coalesce(Material.published_sort_at, Material.published_at)
+                                >= datetime.now(UTC) - windows[period])
+            if period == "24h":
+                query = query.where(Material.published_at.is_not(None))
+        if topic:
+            query = query.where(Material.id.in_(
+                select(MaterialTopic.material_id).where(MaterialTopic.topic_slug == topic)
+            ))
+        if region:
+            query = query.where(Source.region == region)
+        if source:
+            query = query.where(Material.source_id == str(source))
+        if source_type:
+            query = query.where(Source.source_type == source_type)
+        if entity:
+            return {"items": [], "next_cursor": None, "limit": limit}
+        if search:
+            escaped = search.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            term = f"%{escaped}%"
+            query = query.where(or_(
+                func.lower(Material.source_title).like(term, escape="\\"),
+                func.lower(Material.zh_title).like(term, escape="\\"),
+                func.lower(Material.zh_summary).like(term, escape="\\"),
+                func.lower(Material.source_body).like(term, escape="\\"),
+            ))
+        boundary = None
+        if cursor:
+            date, article_id, score = _read_cursor(cursor, sort, key)
+            date_boundary = or_(effective < date, and_(effective == date, Material.id > article_id))
+            boundary = (or_(Material.importance_score < score,
+                            and_(Material.importance_score == score, date_boundary))
+                        if sort == "importance" else date_boundary)
+        if boundary is not None:
+            query = query.where(boundary)
+        if sort == "importance":
+            query = query.order_by(Material.importance_score.desc(), effective.desc(), Material.id)
+        else:
+            query = query.order_by(effective.desc(), Material.id)
+        query = query.where(or_(Material.body_status == "full_text",
+                                and_(Source.min_body_status == "abstract_only",
+                                     Material.body_status.in_(["abstract_only", "summary_only"]))))
+        rows = session.scalars(query.limit(limit + 1)).all()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return {"items": [_card(row) for row in rows],
+                "next_cursor": _cursor_for(rows[-1], sort, key) if more else None,
+                "limit": limit}
+
+    @router.get("/articles/availability", response_model=AvailabilityOut)
+    def availability(session: Session = Depends(session_dep), ids: str = ""):
+        if not ids:
+            return {"items": []}
+        raw = ids.split(",")
+        if len(raw) > 100:
+            raise ApiError(422, "invalid_request", "请求参数无效。")
+        try:
+            article_ids = list(dict.fromkeys(str(UUID(item)) for item in raw))
+        except ValueError:
+            raise ApiError(422, "invalid_request", "请求参数无效。") from None
+        rows = session.scalars(select(Material).where(Material.id.in_(article_ids))).all()
+        available = {row.id for row in rows if visible(row)}
+        return {"items": [{"id": item, "available": item in available} for item in article_ids]}
+
+    @router.get("/articles/{article_id}", response_model=ArticleDetailOut)
+    def detail(article_id: UUID, session: Session = Depends(session_dep)):
+        article = session.get(Material, str(article_id))
+        if article is None or not visible(article):
+            raise ApiError(404, "article_not_found", "文章不存在。")
+        return _detail(article)
 
     app.include_router(router)
+    app.state.engine = engine
+    app.state.session_factory = session_factory
     return app
 
 

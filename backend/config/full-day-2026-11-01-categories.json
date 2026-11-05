@@ -1,0 +1,22 @@
+{
+  "sample_day": "2026-11-01",
+  "label_version": "manual-topic-v1",
+  "note": "仅给已人工初筛为 direct 的样本指定当前前端七类之一；类别是试验标签，不是正式发布决定。",
+  "items": [
+    {"source": "govuk", "url": "https://www.gov.uk/government/collections/live-facial-recognition-in-immigration-enforcement", "primary_topic": "practice", "reason": "执法机构人脸识别应用入口；关键实施证据在下级文件。"},
+    {"source": "govuk", "url": "https://www.gov.uk/government/publications/live-facial-recognition-deployment-records", "primary_topic": "practice", "reason": "部署记录入口；附件尚未进入正文证据。"},
+    {"source": "nist-public-safety", "url": "https://www.nist.gov/news-events/news/2026/11/building-intelligence-first-responders-foundation-models-interoperable", "primary_topic": "paper", "reason": "公共安全 AI 研究；原始日期晚于样本日。"},
+    {"source": "nist-public-safety", "url": "https://www.nist.gov/news-events/news/2026/09/enhancing-public-safety-communication-reliability-through-5g-sidelink", "primary_topic": "paper", "reason": "公共安全通信技术研究。"},
+    {"source": "nist-forensic-science", "url": "https://www.nist.gov/news-events/news/2026/09/spotlight-closer-look-fingerprint-landscape", "primary_topic": "paper", "reason": "指纹取证研究短稿；当日选稿价值不足。"},
+    {"source": "htx-news", "url": "https://www.htx.gov.sg/whats-happening/all-news---events/all-news/2026/leveraging-ai-to-reimagine-day-2-ops", "primary_topic": "product", "reason": "Home Team AI 运维工具概念验证。"},
+    {"source": "htx-news", "url": "https://www.htx.gov.sg/whats-happening/all-news---events/all-news/2026/htxplains-how-common-architecture-will-help-enhance-the-home-team", "primary_topic": "product", "reason": "Home Team 船舶/车辆通用平台架构。"},
+    {"source": "police-digital-service", "url": "https://pds.police.uk/police-digital-service-welcomes-hmicfrs-cyber-report/", "primary_topic": "law", "reason": "警务网络安全监督报告回应；关键证据在报告外链。"},
+    {"source": "biometric-update-law-enforcement", "url": "https://www.biometricupdate.com/202610/uk-facial-recognition-rollout-widens-as-police-oversight-rules-take-shape", "primary_topic": "practice", "reason": "警方人脸识别部署报道；一手材料仍须核对。"},
+    {"source": "biometric-update-law-enforcement", "url": "https://www.biometricupdate.com/202610/ice-expansion-deepens-dependence-on-proprietary-digital-identity-network-infrastructure", "primary_topic": "practice", "reason": "执法机构数字身份基础设施；合同原件尚未核对。"},
+    {"source": "statescoop-law-enforcement-tech", "url": "https://statescoop.com/florida-man-aclu-sue-police-after-wrongful-arrest-using-facial-recognition-tech/", "primary_topic": "law", "reason": "警方人脸识别相关诉讼；属于旧稿。"},
+    {"source": "statescoop-law-enforcement-tech", "url": "https://statescoop.com/can-ai-help-solve-cold-cases/", "primary_topic": "practice", "reason": "AI 破积案应用报道；一手证据不足。"},
+    {"source": "europol-news", "url": "https://www.europol.europa.eu/media-press/newsroom/news/5th-empact-hackathon-leads-to-detection-of-51-potential-victims", "primary_topic": "practice", "reason": "官方数字侦查行动结果。"},
+    {"source": "europol-news", "url": "https://www.europol.europa.eu/media-press/newsroom/news/keeping-pace-e-evidence-new-report-examines-europes-digital-forensic-capabilities", "primary_topic": "paper", "reason": "数字取证能力报告概述；报告本体未进入材料。"},
+    {"source": "spf-police-life", "url": "https://www.police.gov.sg/Media-Hub/Police-Life/2026/11/Know-Whos-Calling-SPF-Launches-Single-Caller-ID-to-Combat-Scams", "primary_topic": "practice", "reason": "警方统一来电显示防诈实践。"}
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "source": "spf-police-life",
+      "url": "https://www.police.gov.sg/Media-Hub/Police-Life/2026/11/Know-Whos-Calling-SPF-Launches-Single-Caller-ID-to-Combat-Scams",
+      "claims": [
+        {"id": "start", "claim": "新加坡警方宣布自 2026-11-02 起统一外拨来电显示。", "anchor": "From 2 November 2026"},
+        {"id": "sms", "claim": "每通电话后还会从官方 gov.sg 短信发送联系信息。", "anchor": "Following each call"},
+        {"id": "scope", "claim": "所公布来电显示仅用于外拨电话，不能据此认定即时防诈效果。", "anchor": "strictly be used for outgoing phone calls"}
+      ]
+    },
+    {
+      "source": "htx-news",
+      "url": "https://www.htx.gov.sg/whats-happening/all-news---events/all-news/2026/leveraging-ai-to-reimagine-day-2-ops",
+      "claims": [
+        {"id": "function", "claim": "VendorPulse 使用 AI 读取供应商报告中的图表、表格和文字，比较不同报告期的指标。", "anchor": "read charts, tables and text"},
+        {"id": "stage", "claim": "VendorPulse 在原稿发表时仍处于概念验证阶段。", "anchor": "Proof of Concept (POC) stage"}
+      ]
+    },
+    {
+      "source": "htx-news",
+      "url": "https://www.htx.gov.sg/whats-happening/all-news---events/all-news/2026/htxplains-how-common-architecture-will-help-enhance-the-home-team",
+      "claims": [
+        {"id": "maritime", "claim": "HTX 正在开发海事平台的通用船舶架构。", "anchor": "Common Vessel Architecture"},
+        {"id": "land", "claim": "陆上车辆方向涉及通用车载电子架构与通用车辆平台。", "anchor": "Common Vetronics Architecture (CVA) and Common Vehicle Platform (CVP)"}
+      ]
+    },
+    {
+      "source": "npcc",
+      "url": "https://news.npcc.police.uk/releases/policings-first-ai-online-crime-reporting-test-goes-live",
+      "claims": [
+        {"id": "location", "claim": "Citizen Assist 在剑桥郡警方启动在线非紧急犯罪报案试点。", "anchor": "gone live at Cambridgeshire Constabulary"},
+        {"id": "output", "claim": "该工具采集报案信息并生成结构化记录，接入既有警方系统。", "anchor": "building a structured crime report"},
+        {"id": "scope", "claim": "初期测试限定若干报案路径，不能写成全面部署。", "anchor": "assaults, threats, damage, and theft"}
+      ]
+    }
+  ]
+}

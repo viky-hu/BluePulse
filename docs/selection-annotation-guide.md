@@ -1,5 +1,7 @@
 # BluePulse 选稿标注指南 v1
 
+> 2026-10-28：旧后端删除后的样本已恢复至 `backend/data/legacy-selection/`；本页后续旧脚本命令依赖删除前的后端，当前新后端不能直接运行。文件清单和校验结果见[恢复记录](./selection-recovery-2026-10-28.md)。
+
 本指南配合 [`bluepulse-execution-roadmap.md`](./bluepulse-execution-roadmap.md) 的 P1 使用。它是人工标注和评测的首版口径；当前采集模型提示已按下述边界收紧，并输出独立的精选候选判断。20 条样本的只读回放已可运行，结果见 [`selection-calibration-2026-10-01.md`](./selection-calibration-2026-10-01.md)；长期稳定的精选门槛与更大样本评测尚未完成。示例数据见 [`selection-gold.example.jsonl`](./selection-gold.example.jsonl)。
 
 ## 1. 两个判断分开做
