@@ -61,3 +61,13 @@
 1. 先补齐真实数据交付/本机新库初始化，并验证前端列表、详情、来源筛选与六槽内容；旧库迁移单独处理。
 2. 上无人值守前补持久预算、来源互斥租约、任务恢复与告警，再验证跨日期真实运行。
 3. 恢复评分推进时做警务金标与门槛校准；随后补完整 Fact/Story 与人工纠错，支撑真实热点和日报。管理员权限与审计应随管理操作同步建设。
+
+## 后续确认：本机改用新开发库
+
+用户确认改用新库后，已完成以下操作，更新上文“本机尚无新库、旧库保持原样”的检查时状态：
+
+- 旧库只读核验为 0 篇文章、0 个管理员账号、3 个来源及 7 个分类；先通过 SQLite backup API 备份至 `backend/data/backups/legacy-bluepulse-dev-20261106T063219Z.db`，完整性检查为 `ok`，再移除原 `backend/data/bluepulse-dev.db`。
+- 新建默认库 `backend/data/bluepulse.db`，通过现有 CLI 完成迁移与七类同步：revision=`f6b1c732d900`，7 topics、0 sources、0 materials；完整性检查通过，`alembic check` 无新操作。
+- 核对进程、用户、系统环境与项目环境文件，均无数据库地址覆盖；当前默认连接已指向新库，无需修改数据库代码或启动脚本。
+- 使用默认 `create_app()` 连接新库验证：`health/ready`、`taxonomy`、`sources`、`articles?period=all`、`home/featured`、`site/timeline` 全部 HTTP 200；目录为七类，内容为真实空态。
+- 未导入队友的新闻、来源配置或模型回执，没有运行真实采集、模型或自动任务。新库及旧库备份均在 Git 忽略目录。
