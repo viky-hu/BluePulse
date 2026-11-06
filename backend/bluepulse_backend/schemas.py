@@ -98,11 +98,30 @@ class TimelineArticleOut(ArticleCardOut):
     selected: bool = False
 
 
+class GroupInfoOut(Contract):
+    factId: str
+    additionalSourceCount: int
+    reportCount: int
+
+
 class TimelineCardOut(Contract):
     key: str
     anchorAt: str
     item: TimelineArticleOut
-    group: None = None
+    group: GroupInfoOut | None = None
+
+
+class GroupReportOut(Contract):
+    id: str
+    title: str
+    source: dict[str, str]
+    timelineAt: str
+    originalUrl: str
+
+
+class GroupReportsOut(Contract):
+    factId: str
+    reports: list[GroupReportOut]
 
 
 class TimelineOut(Contract):
@@ -156,3 +175,23 @@ class ItemsOut(Contract, Generic[T]):
 
 class HealthOut(Contract):
     status: str
+
+
+class AutoPublicationRequest(Contract):
+    idempotency_key: str = Field(min_length=1, max_length=100)
+    source_slugs: list[str] | None = None
+    max_items: int = Field(default=2, ge=1, le=2)
+    max_model_calls: int = Field(default=0, ge=0, le=50)
+
+
+class AutoPublicationJobOut(Contract):
+    id: str
+    status: str
+    source_slugs: list[str]
+    max_items: int
+    max_model_calls: int
+    created_at: str
+    started_at: str | None
+    finished_at: str | None
+    error_code: str | None
+    report: dict | None

@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import hmac
+import os
 from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_, func, or_, select, text
@@ -14,11 +16,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .db import make_engine, make_session_factory
-from .models import FeaturedEdition, Material, MaterialTopic, Source, Topic
+from .models import AutoPublicationJob, FactGroup, FactReport, FeaturedEdition, FeaturedSlot, Material, MaterialTopic, Source, Topic
+from .auto_publication import enqueue_job
+from .fact_grouping import AUTO_WINDOW
 from .publication import visible
 from .schemas import (
     ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
-    FeaturedOut, HealthOut, ItemsOut, SourceOut, TimelineOut, TopicOut,
+    AutoPublicationJobOut, AutoPublicationRequest, FeaturedOut, GroupReportsOut,
+    HealthOut, ItemsOut, SourceOut, TimelineOut, TopicOut,
 )
 
 
@@ -31,6 +36,10 @@ def iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z") if value.tzinfo is None else value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _utc_seconds(value: datetime) -> float:
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).timestamp()
 
 
 def _error(status: int, code: str, message: str, request_id: str) -> JSONResponse:
@@ -76,6 +85,14 @@ def _detail(article: Material) -> dict:
     }
 
 
+def _job(row: AutoPublicationJob) -> dict:
+    return {"id": row.id, "status": row.status, "source_slugs": row.source_slugs,
+            "max_items": row.max_items, "max_model_calls": row.max_model_calls,
+            "created_at": iso(row.created_at), "started_at": iso(row.started_at),
+            "finished_at": iso(row.finished_at), "error_code": row.error_code,
+            "report": row.report}
+
+
 def _filter_hash(filters: list[object]) -> str:
     return hashlib.sha256(json.dumps(filters, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()[:16]
 
@@ -102,10 +119,16 @@ def _read_cursor(value: str, sort: str, key: str) -> tuple[datetime, str, int]:
         raise ApiError(400, "invalid_cursor", "游标无效，或与当前筛选条件不匹配。") from None
 
 
+def _timeline_cursor(anchor: datetime, group_id: str, key: str) -> str:
+    value = {"v": 1, "sort": "timeline_group", "filter": key,
+             "date": iso(anchor), "id": group_id, "score": 0}
+    return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
 def create_app(database: str | None = None) -> FastAPI:
     engine = make_engine(database)
     session_factory = make_session_factory(engine)
-    app = FastAPI(title="Blue Pulse API", version="0.2.0")
+    app = FastAPI(title="Blue Pulse API", version="0.3.0")
     router = APIRouter(prefix="/api/v1")
 
     def session_dep():
@@ -143,6 +166,34 @@ def create_app(database: str | None = None) -> FastAPI:
         session.execute(select(Source.id).limit(1))
         return {"status": "ready"}
 
+    def internal_token(x_bluepulse_worker_token: str | None = Header(None)) -> None:
+        configured = os.environ.get("BLUEPULSE_INTERNAL_TOKEN", "")
+        if not configured:
+            raise ApiError(503, "internal_trigger_disabled", "自动出稿触发接口尚未启用。")
+        if not x_bluepulse_worker_token or not hmac.compare_digest(x_bluepulse_worker_token, configured):
+            raise ApiError(403, "forbidden", "无权操作自动出稿任务。")
+
+    @router.post("/internal/auto-publication/jobs", response_model=AutoPublicationJobOut,
+                 status_code=202, dependencies=[Depends(internal_token)])
+    def create_auto_publication_job(body: AutoPublicationRequest,
+                                    session: Session = Depends(session_dep)):
+        try:
+            job = enqueue_job(session, idempotency_key=body.idempotency_key,
+                              source_slugs=body.source_slugs, max_items=body.max_items,
+                              max_model_calls=body.max_model_calls)
+        except ValueError as exc:
+            raise ApiError(409 if str(exc) == "idempotency_key_reused" else 422,
+                           str(exc), "自动出稿请求无效。") from None
+        return _job(job)
+
+    @router.get("/internal/auto-publication/jobs/{job_id}", response_model=AutoPublicationJobOut,
+                dependencies=[Depends(internal_token)])
+    def read_auto_publication_job(job_id: UUID, session: Session = Depends(session_dep)):
+        job = session.get(AutoPublicationJob, str(job_id))
+        if job is None:
+            raise ApiError(404, "job_not_found", "任务不存在。")
+        return _job(job)
+
     @router.get("/sources", response_model=ItemsOut[SourceOut])
     def sources(session: Session = Depends(session_dep)):
         rows = session.scalars(select(Source).where(Source.enabled.is_(True)).order_by(Source.name)).all()
@@ -169,7 +220,12 @@ def create_app(database: str | None = None) -> FastAPI:
             return {"generated_at": None, "window_policy": "24h_then_7d", "items": []}
         items = []
         for slot in edition.slots:
-            if visible(slot.article) and slot.article.featured_candidate and slot.article.grouping_status == "complete":
+            candidate_ok = (edition.window_policy == AUTO_WINDOW or slot.article.featured_candidate)
+            recent_ok = (edition.window_policy != AUTO_WINDOW or
+                         bool(slot.article.published_sort_at and
+                              _utc_seconds(slot.article.published_sort_at) >=
+                              (datetime.now(UTC) - timedelta(days=7)).timestamp()))
+            if visible(slot.article) and candidate_ok and recent_ok and slot.article.grouping_status == "complete":
                 items.append({"slot": slot.slot, "article": _card(slot.article),
                               "importance_score": slot.importance_score,
                               "featured_reason": slot.featured_reason})
@@ -195,9 +251,15 @@ def create_app(database: str | None = None) -> FastAPI:
         cursor: str | None = Query(None, max_length=2000),
         limit: int = Query(20, ge=1, le=40),
     ):
-        """Recent public materials only; grouping, selection and hot remain unavailable."""
+        """Recent public facts, grouped conservatively by exact title and source date."""
         filters = {"region": region, "topic": topic}
         key = _filter_hash(["site-timeline", region, topic])
+        slots = session.scalars(select(FeaturedSlot).join(FeaturedEdition)).all()
+        selected_ids = {slot.article_id for slot in slots if
+                        slot.edition.window_policy == AUTO_WINDOW or slot.article.featured_candidate}
+        if not selected_ids:
+            return {"filters": filters, "cards": [], "nextCursor": None,
+                    "hot": None, "dayCounts": {}}
         effective = func.coalesce(Material.published_sort_at, Material.published_at)
         query = select(Material).join(Source).where(
             Material.public.is_(True), Material.duplicate_of_id.is_(None),
@@ -213,28 +275,81 @@ def create_app(database: str | None = None) -> FastAPI:
         if topic:
             query = query.where(Material.id.in_(
                 select(MaterialTopic.material_id).where(MaterialTopic.topic_slug == topic)))
+        rows = [row for row in session.scalars(query.order_by(effective.desc(), Material.id)).all()
+                if visible(row)]
+        memberships = {item.material_id: item for item in session.scalars(select(FactReport).where(
+            FactReport.material_id.in_([row.id for row in rows]))).all()} if rows else {}
+        fact_ids = {item.fact_id for item in memberships.values()}
+        facts = {item.id: item for item in session.scalars(select(FactGroup).where(
+            FactGroup.id.in_(fact_ids))).all()} if fact_ids else {}
+        grouped: dict[str, list[Material]] = {}
+        for row in rows:
+            member = memberships.get(row.id)
+            group_id = member.fact_id if member and member.fact_id in facts else row.id
+            grouped.setdefault(group_id, []).append(row)
+        cards_data = []
+        for group_id, members in grouped.items():
+            selected_members = [item for item in members if item.id in selected_ids]
+            if not selected_members:
+                continue
+            representative = min(selected_members, key=lambda item: (
+                item.source.source_type != "official", not item.source.full_text_allowed,
+                -_utc_seconds(item.published_sort_at or item.published_at or item.first_seen_at), item.id))
+            anchor = (facts[group_id].anchor_at if group_id in facts else
+                      representative.published_sort_at or representative.published_at or representative.first_seen_at)
+            cards_data.append((anchor, group_id, representative, members))
+        cards_data.sort(key=lambda item: (-_utc_seconds(item[0]), item[1]))
+        all_cards_data = cards_data
         if cursor:
-            boundary_at, article_id, _ = _read_cursor(cursor, "recent", key)
-            query = query.where(or_(effective < boundary_at,
-                                    and_(effective == boundary_at, Material.id > article_id)))
-        rows = session.scalars(query.order_by(effective.desc(), Material.id).limit(limit + 1)).all()
-        more = len(rows) > limit
-        rows = rows[:limit]
+            boundary_at, group_id, _ = _read_cursor(cursor, "timeline_group", key)
+            boundary = _utc_seconds(boundary_at)
+            cards_data = [item for item in cards_data if
+                          _utc_seconds(item[0]) < boundary or
+                          (_utc_seconds(item[0]) == boundary and item[1] > group_id)]
+        more = len(cards_data) > limit
+        page = cards_data[:limit]
         day_counts: dict[str, int] = {}
         shanghai = timezone(timedelta(hours=8))  # Current publication dates; no Windows tzdata dependency.
         cards = []
-        for row in rows:
-            anchor = row.published_sort_at or row.published_at
-            if anchor is None:
-                continue
+        for anchor, _, _, _ in all_cards_data:
             aware = anchor if anchor.tzinfo else anchor.replace(tzinfo=UTC)
             day = aware.astimezone(shanghai).date().isoformat()
             day_counts[day] = day_counts.get(day, 0) + 1
-            cards.append({"key": row.id, "anchorAt": iso(anchor), "item": {**_card(row), "selected": False},
-                          "group": None})
+        for anchor, group_id, row, members in page:
+            additional = len({item.source_id for item in members if item.source_id != row.source_id})
+            cards.append({"key": group_id, "anchorAt": iso(anchor),
+                          "item": {**_card(row), "selected": row.id in selected_ids},
+                          "group": ({"factId": group_id, "additionalSourceCount": additional,
+                                     "reportCount": len(members)} if len(members) > 1 else None)})
         return {"filters": filters, "cards": cards,
-                "nextCursor": _cursor_for(rows[-1], "recent", key) if more else None,
+                "nextCursor": _timeline_cursor(page[-1][0], page[-1][1], key) if more else None,
                 "hot": None, "dayCounts": day_counts}
+
+    @router.get("/site/groups/{fact_id}/reports", response_model=GroupReportsOut)
+    def group_reports(fact_id: UUID, session: Session = Depends(session_dep),
+                      region: str = Query("", pattern="^(|domestic|foreign)$"),
+                      topic: str = Query("", max_length=100)):
+        fact = session.get(FactGroup, str(fact_id))
+        if fact is None:
+            raise ApiError(404, "group_not_found", "阅读组不存在。")
+        query = select(Material).join(FactReport, FactReport.material_id == Material.id).join(Source).where(
+            FactReport.fact_id == fact.id, Material.public.is_(True),
+            Material.duplicate_of_id.is_(None), Material.withdrawn.is_(False),
+            Material.relevant.is_(True), Source.excerpt_allowed.is_(True))
+        if region:
+            query = query.where(Source.region == region)
+        if topic:
+            query = query.where(Material.id.in_(select(MaterialTopic.material_id).where(
+                MaterialTopic.topic_slug == topic)))
+        rows = [row for row in session.scalars(query.order_by(
+            Material.published_sort_at.desc(), Material.id).limit(100)).all() if visible(row)]
+        if not rows:
+            raise ApiError(404, "group_not_found", "阅读组不存在。")
+        return {"factId": fact.id, "reports": [{"id": row.id,
+                "title": row.zh_title or row.source_title,
+                "source": {"name": row.source.name},
+                "timelineAt": iso(row.published_sort_at or row.published_at or row.first_seen_at),
+                "originalUrl": row.source_url} for row in rows]}
 
     @router.get("/articles", response_model=ArticleListOut)
     def articles(

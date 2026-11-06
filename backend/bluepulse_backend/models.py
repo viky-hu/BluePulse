@@ -167,4 +167,37 @@ class FeaturedSlot(Base):
     article: Mapped[Material] = relationship()
 
 
+class FactGroup(Base):
+    __tablename__ = "fact_groups"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    identity_key: Mapped[str] = mapped_column(String(64), unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class FactReport(Base):
+    __tablename__ = "fact_reports"
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), primary_key=True)
+    fact_id: Mapped[str] = mapped_column(ForeignKey("fact_groups.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    relation: Mapped[str] = mapped_column(String(20), default="primary")
+    grouped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class AutoPublicationJob(Base):
+    __tablename__ = "auto_publication_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    idempotency_key: Mapped[str] = mapped_column(String(100), unique=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    source_slugs: Mapped[list[str]] = mapped_column(JSON)
+    max_items: Mapped[int] = mapped_column(Integer)
+    max_model_calls: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    report: Mapped[dict | None] = mapped_column(JSON)
+
+
 Index("ix_materials_public_date", Material.public, Material.published_at)

@@ -10,7 +10,9 @@ from bluepulse_backend.db import Base, make_engine
 from bluepulse_backend.models import Source
 from bluepulse_backend.pipeline import AnalysisResult, Candidate, MockAnalyzer, MockSourceAdapter, ingest
 from bluepulse_backend.source_collection import SOURCES
-from bluepulse_backend.source_permissions import allow_excerpts_for_active_sources
+from bluepulse_backend.source_permissions import (
+    allow_excerpts_for_active_sources, allow_full_text_for_active_sources,
+)
 
 
 def test_all_source_excerpt_decision_and_classification_only_public_flow(tmp_path):
@@ -46,4 +48,13 @@ def test_all_source_excerpt_decision_and_classification_only_public_flow(tmp_pat
         assert detail.status_code == 200
         assert detail.json()["source_body"] is None
         assert detail.json()["summary"] == "原文记载了警务技术实践。"
+    with Session(engine) as session:
+        permission = allow_full_text_for_active_sources(session)
+        assert len(permission["full_text_enabled"]) == 15
+        assert permission["excerpt_enabled"] == []
+    with TestClient(create_app(address)) as client:
+        detail = client.get(f"/api/v1/articles/{items[0]['id']}")
+        assert detail.status_code == 200
+        assert "Police radio" not in (detail.json()["source_body"] or "")
+        assert "Detailed public safety evidence" in detail.json()["source_body"]
     engine.dispose()

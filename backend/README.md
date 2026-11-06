@@ -6,6 +6,8 @@
 
 **2026-11-05 本地真实稿进度：** 用户明确允许现有 15 源的摘录展示后，在备份原空库的前提下，默认 `data/bluepulse.db` 已装入 35 篇有原文链接的真实材料，35/35 完成真实模型分类，26 篇可由公开 API 阅读；15 源各至少有 1 篇公开详情。全文许可仍关闭，只展示摘要、分类和原站链接。该库来自 11-03 限量实采并追加 11-05 的受控采集，尚非持续生产部署。逐源结果、运行命令和备份位置见[真实分类与展示记录](../docs/real-public-flow-2026-11-05.md)。
 
+**2026-11-06 更新：** 上句的全文许可状态是 11-05 的历史记录。用户随后明确打开当前 15 源的站内全文许可；默认本地库已备份并更新，详情 API 会返回采集正文。已新增保守 Fact 归组、未评分的近期精选快照、受保护的自动出稿排队与后台执行命令；定时任务及内部令牌未启用。实际结果、接口与限制见[自动出稿及归组记录](../docs/auto-publication-2026-11-06.md)。
+
 旧后端的人工选稿标注已从删除前备份恢复到忽略目录 `data/legacy-selection/`。20 条已确认金标准、40 条试标池和两份 95 条候选池的校验和与使用限制见[恢复记录](../docs/selection-recovery-2026-10-28.md)。这些数据未导入新数据库；旧标注脚本依赖旧模型，不能直接用于当前后端。
 
 ## 本地运行
@@ -146,7 +148,8 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 | `GET /api/v1/articles`、`articles/{uuid}`、`articles/availability` | 公开文章筛选、详情、收藏可用性；保留 UUID、游标、snake_case |
 | `GET /api/v1/home/recently-collected` | 最近收录的公开文章，最多六条 |
 | `GET /api/v1/home/featured` | 读取显式精选快照；未生成时 `generated_at=null, items=[]` |
-| `GET /api/v1/site/timeline` | 近 30 日已公开材料时间线，支持地区/主题筛选与分页；未精选、归组或生成热点时返回空值 |
+| `GET /api/v1/site/timeline`、`site/groups/{fact_id}/reports` | 近 30 日已入选材料的保守 Fact 归组时间线及同事实公开报道；热点仍为空 |
+| `POST /api/v1/internal/auto-publication/jobs`、`GET /api/v1/internal/auto-publication/jobs/{uuid}` | 内部令牌保护的自动出稿任务排队与状态读取；未配置令牌时为 503，HTTP 请求不执行采集或模型 |
 | `GET /api/v1/entities` | 当前真实空目录；实体抽取还未接入 |
 
 统一错误为 `{error:{code,message,request_id}}`，响应包含 `X-Request-ID`。`/openapi.json` 提供路径、参数和响应模型。`articles` 支持 `period/topic/region/source/source_type/entity/q/sort/cursor/limit`；`entity` 在实体链路建立前只会得到空结果。不存在、隐藏或撤回的详情统一为 404；历史材料仍可在 `period=all` 中阅读。默认只提供摘要和原站链接；来源许可明确允许时才返回全文。
@@ -156,7 +159,7 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 - 当前 15 个显式限量入口分布于 12 个主机；具体路径见台账。NPCC、江苏、PDS、StateScoop、Europol、采购网等有过本机连接阶段间歇故障；Police Science 有受控的 robots 自重定向处理。Government Technology 返回 WAF challenge，OpenAlex 按用户决定暂不考虑，NIJ 因当前专题入口少且旧文占比高暂停。各源尚无连续稳定结论。HTX、NPCC、PDS 等只有日期的页面已保存日期精度；定时触发命令已提供，但尚未注册系统任务或在正式库持续运行；站点条款自动核验仍未实现。试验适配器不绕过访问挑战。
 - 自动公开资格现在要求 `full_text` 正文至少 300 个非空白字符；原有 `min_body_status` 数据字段保留兼容，不再允许以薄摘要自动公开。
 - 模型调用器支持 `.env` 指定的 OpenAI 兼容 Chat Completions 端点。相关稿的分类与两次五轴评分分别写回执；`started` 或 `unknown` 尝试不会自动重发。来源精选门槛默认未校准，跨进程付费预算、五轴人工金标和模型评测仍待完善。
-- 精选快照要求公开、够格、非历史且归组完成。Fact/Story 归组尚未实现，所以正式运行不会自行生成精选；mock 测试通过显式标记验证门禁。热点、日报、Agent、反馈及管理员接口尚未实现，不返回伪造内容。
+- 已实现同日同规范标题的保守 Fact 归组及每组一篇的近期自动精选；该模式不使用五轴评分，理由明确标注“未进行五轴评分”。同事件不同标题、Story 后续进展与模型复核仍未实现。热点、日报、Agent、反馈及管理员接口尚未实现，不返回伪造内容。
 - 本地 SQLite 便于离线测试；PostgreSQL 并发、游标、迁移和运行负载尚未验证。旧数据库未导入，也不能用这套新迁移直接升级旧库。
 
 后续工作按工作区根目录的《后端重构计划》推进。项目内其他历史文档所写“旧后端已实现”均是 2026-10-27 删除前的状态。
