@@ -53,5 +53,6 @@ Thumbs.db
 /backend/.tmp/
 /backend/data/
 /backend/.pytest_cache/
+*.egg-info/
 **/__pycache__/
 *.py[cod]
