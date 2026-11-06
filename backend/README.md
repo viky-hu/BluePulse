@@ -151,17 +151,20 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 | `GET /api/v1/home/recently-collected` | 最近收录的公开文章，最多六条 |
 | `GET /api/v1/home/featured` | 读取显式精选快照；未生成时 `generated_at=null, items=[]` |
 | `GET /api/v1/site/timeline`、`site/groups/{fact_id}/reports` | 近 30 日已入选材料的保守 Fact 归组时间线及同事实公开报道；热点仍为空 |
+| `GET /api/v1/agent`、`agent/latest`、`agent/search` | Markdown 接入说明与只读 JSON 最新/关键词查询；需配置 `BLUEPULSE_SITE_ORIGIN`，不返回正文或模型内部信息 |
 | `POST /api/v1/internal/auto-publication/jobs`、`GET /api/v1/internal/auto-publication/jobs/{uuid}` | 内部令牌保护的自动出稿任务排队与状态读取；未配置令牌时为 503，HTTP 请求不执行采集或模型 |
 | `GET /api/v1/entities` | 当前真实空目录；实体抽取还未接入 |
 
 统一错误为 `{error:{code,message,request_id}}`，响应包含 `X-Request-ID`。`/openapi.json` 提供路径、参数和响应模型。`articles` 支持 `period/topic/region/source/source_type/entity/q/sort/cursor/limit`；`entity` 在实体链路建立前只会得到空结果。不存在、隐藏或撤回的详情统一为 404；历史材料仍可在 `period=all` 中阅读。默认只提供摘要和原站链接；来源许可明确允许时才返回全文。
+
+Agent JSON 与文章列表复用当前公开资格查询；先过滤再分页。`agent/latest` 默认原发布日近 7 天、10 条，另可选 `24h/30d`；24 小时只含精确发布时间。`agent/search` 默认全库、10 条，只查公开标题与摘要，`q` 去空格后为 2–200 字符；两接口 `limit` 为 1–30。返回 `schema_version/query/items`，每篇含日期精度、首次收录时间、固定站点地址生成的站内链接及原文链接。未配置 `BLUEPULSE_SITE_ORIGIN` 时返回 503；本机可显式设置如 `http://127.0.0.1:3000`，部署时使用实际公开站点地址。MCP 不在本轮范围，字段与验收见[Agent 后端指南](../docs/agent-access-backend-guide.md)。
 
 ## 目前边界
 
 - 当前 15 个显式限量入口分布于 12 个主机；具体路径见台账。NPCC、江苏、PDS、StateScoop、Europol、采购网等有过本机连接阶段间歇故障；Police Science 有受控的 robots 自重定向处理。Government Technology 返回 WAF challenge，OpenAlex 按用户决定暂不考虑，NIJ 因当前专题入口少且旧文占比高暂停。各源尚无连续稳定结论。HTX、NPCC、PDS 等只有日期的页面已保存日期精度；定时触发命令已提供，但尚未注册系统任务或在正式库持续运行；站点条款自动核验仍未实现。试验适配器不绕过访问挑战。
 - 自动公开资格现在要求 `full_text` 正文至少 300 个非空白字符；原有 `min_body_status` 数据字段保留兼容，不再允许以薄摘要自动公开。
 - 模型调用器支持 `.env` 指定的 OpenAI 兼容 Chat Completions 端点。相关稿的分类与两次五轴评分分别写回执；`started` 或 `unknown` 尝试不会自动重发。来源精选门槛默认未校准，跨进程付费预算、五轴人工金标和模型评测仍待完善。
-- 已实现同日同规范标题的保守 Fact 归组及每组一篇的近期自动精选；该模式不使用五轴评分，理由明确标注“未进行五轴评分”。同事件不同标题、Story 后续进展与模型复核仍未实现。热点、日报、Agent、反馈及管理员接口尚未实现，不返回伪造内容。
+- 已实现同日同规范标题的保守 Fact 归组及每组一篇的近期自动精选；该模式不使用五轴评分，理由明确标注“未进行五轴评分”。同事件不同标题、Story 后续进展与模型复核仍未实现。Agent 的只读 HTTP 查询已实现，接入页面及外部部署联调尚未完成；热点、日报、反馈及管理员接口仍未实现，不返回伪造内容。
 - 本地 SQLite 便于离线测试；PostgreSQL 并发、游标、迁移和运行负载尚未验证。旧数据库未导入，也不能用这套新迁移直接升级旧库。
 
 后续工作按工作区根目录的《后端重构计划》推进。项目内其他历史文档所写“旧后端已实现”均是 2026-10-27 删除前的状态。

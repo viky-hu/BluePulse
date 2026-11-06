@@ -1,7 +1,7 @@
 """Public v1 response contract consumed by the existing Next.js frontend."""
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -195,3 +195,35 @@ class AutoPublicationJobOut(Contract):
     finished_at: str | None
     error_code: str | None
     report: dict | None
+
+
+class AgentSourceOut(Contract):
+    name: str
+    slug: str
+
+
+class AgentItemOut(Contract):
+    id: str
+    title: str
+    summary: str
+    source: AgentSourceOut
+    published_at: str | None
+    published_date: str | None
+    date_precision: Literal["datetime", "date", "unknown"]
+    first_seen_at: str
+    site_url: str
+    original_url: str
+
+
+class AgentQueryOut(Contract):
+    kind: Literal["latest", "search"]
+    window: Literal["24h", "7d", "30d", "all"]
+    limit: int
+    q: str | None
+    sort_basis: Literal["source_publication_then_first_seen"]
+
+
+class AgentListOut(Contract):
+    schema_version: int
+    query: AgentQueryOut
+    items: list[AgentItemOut]

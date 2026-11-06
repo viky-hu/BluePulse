@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -18,10 +18,12 @@ from sqlalchemy.orm import Session
 from .db import make_engine, make_session_factory
 from .models import AutoPublicationJob, FactGroup, FactReport, FeaturedEdition, FeaturedSlot, Material, MaterialTopic, Source, Topic
 from .auto_publication import enqueue_job
+from .agent_access import agent_guide, agent_item, site_origin
 from .fact_grouping import AUTO_WINDOW
 from .publication import visible
+from .public_reads import listed_query, visible_page, with_public_text_match, within_publication_window
 from .schemas import (
-    ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
+    AgentListOut, ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
     AutoPublicationJobOut, AutoPublicationRequest, FeaturedOut, GroupReportsOut,
     HealthOut, ItemsOut, SourceOut, TimelineOut, TopicOut,
 )
@@ -30,6 +32,10 @@ from .schemas import (
 class ApiError(Exception):
     def __init__(self, status: int, code: str, message: str):
         self.status, self.code, self.message = status, code, message
+
+
+class MarkdownResponse(PlainTextResponse):
+    media_type = "text/markdown"
 
 
 def iso(value: datetime | None) -> str | None:
@@ -173,6 +179,25 @@ def create_app(database: str | None = None) -> FastAPI:
         if not x_bluepulse_worker_token or not hmac.compare_digest(x_bluepulse_worker_token, configured):
             raise ApiError(403, "forbidden", "无权操作自动出稿任务。")
 
+    def agent_origin() -> str:
+        origin = site_origin(os.environ.get("BLUEPULSE_SITE_ORIGIN"))
+        if origin is None:
+            raise ApiError(503, "agent_origin_unconfigured", "Agent 公开站点地址尚未配置。")
+        return origin
+
+    def agent_results(session: Session, *, origin: str, kind: str, window: str,
+                      limit: int, q: str | None = None) -> dict:
+        effective = func.coalesce(Material.published_sort_at, Material.published_at,
+                                  Material.first_seen_at)
+        query = within_publication_window(listed_query(), window)
+        if q is not None:
+            query = with_public_text_match(query, q)
+        rows, _ = visible_page(session, query.order_by(effective.desc(), Material.id), limit)
+        return {"schema_version": 1,
+                "query": {"kind": kind, "window": window, "limit": limit, "q": q,
+                          "sort_basis": "source_publication_then_first_seen"},
+                "items": [agent_item(row, origin) for row in rows]}
+
     @router.post("/internal/auto-publication/jobs", response_model=AutoPublicationJobOut,
                  status_code=202, dependencies=[Depends(internal_token)])
     def create_auto_publication_job(body: AutoPublicationRequest,
@@ -193,6 +218,30 @@ def create_app(database: str | None = None) -> FastAPI:
         if job is None:
             raise ApiError(404, "job_not_found", "任务不存在。")
         return _job(job)
+
+    @router.get("/agent", response_class=MarkdownResponse)
+    def agent_markdown(origin: str = Depends(agent_origin)):
+        return agent_guide(origin)
+
+    @router.get("/agent/latest", response_model=AgentListOut)
+    def agent_latest(session: Session = Depends(session_dep),
+                     origin: str = Depends(agent_origin),
+                     window: str = Query("7d", pattern="^(24h|7d|30d)$"),
+                     limit: int = Query(10, ge=1, le=30)):
+        return agent_results(session, origin=origin, kind="latest", window=window,
+                             limit=limit)
+
+    @router.get("/agent/search", response_model=AgentListOut)
+    def agent_search(session: Session = Depends(session_dep),
+                     origin: str = Depends(agent_origin),
+                     q: str = Query(..., min_length=2, max_length=200),
+                     window: str = Query("all", pattern="^(24h|7d|30d|all)$"),
+                     limit: int = Query(10, ge=1, le=30)):
+        search = q.strip()
+        if len(search) < 2:
+            raise ApiError(422, "invalid_request", "搜索词至少需要两个字符。")
+        return agent_results(session, origin=origin, kind="search", window=window,
+                             limit=limit, q=search)
 
     @router.get("/sources", response_model=ItemsOut[SourceOut])
     def sources(session: Session = Depends(session_dep)):
@@ -233,14 +282,8 @@ def create_app(database: str | None = None) -> FastAPI:
 
     @router.get("/home/recently-collected", response_model=ItemsOut[ArticleCardOut])
     def recently_collected(session: Session = Depends(session_dep)):
-        rows = session.scalars(select(Material).join(Source).where(
-            Material.public.is_(True), Material.duplicate_of_id.is_(None),
-            Material.withdrawn.is_(False), Material.relevant.is_(True),
-            Source.excerpt_allowed.is_(True),
-            or_(Material.body_status == "full_text",
-                and_(Source.min_body_status == "abstract_only",
-                     Material.body_status.in_(["abstract_only", "summary_only"]))),
-        ).order_by(Material.first_seen_at.desc(), Material.id).limit(6)).all()
+        rows, _ = visible_page(session, listed_query().order_by(
+            Material.first_seen_at.desc(), Material.id), 6)
         return {"items": [_card(row) for row in rows]}
 
     @router.get("/site/timeline", response_model=TimelineOut)
@@ -368,18 +411,7 @@ def create_app(database: str | None = None) -> FastAPI:
         search = (q or "").strip()
         key = _filter_hash([period, topic, region, str(source) if source else None, source_type, entity, search])
         effective = func.coalesce(Material.published_sort_at, Material.published_at, Material.first_seen_at)
-        query = select(Material).join(Source).where(
-            Material.public.is_(True), Material.duplicate_of_id.is_(None),
-            Material.withdrawn.is_(False), Material.relevant.is_(True),
-            Source.excerpt_allowed.is_(True),
-        )
-        windows = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
-        if period in windows:
-            query = query.where(Material.timeline_kind != "unknown",
-                                func.coalesce(Material.published_sort_at, Material.published_at)
-                                >= datetime.now(UTC) - windows[period])
-            if period == "24h":
-                query = query.where(Material.published_at.is_not(None))
+        query = within_publication_window(listed_query(), period)
         if topic:
             query = query.where(Material.id.in_(
                 select(MaterialTopic.material_id).where(MaterialTopic.topic_slug == topic)
@@ -392,15 +424,7 @@ def create_app(database: str | None = None) -> FastAPI:
             query = query.where(Source.source_type == source_type)
         if entity:
             return {"items": [], "next_cursor": None, "limit": limit}
-        if search:
-            escaped = search.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            term = f"%{escaped}%"
-            query = query.where(or_(
-                func.lower(Material.source_title).like(term, escape="\\"),
-                func.lower(Material.zh_title).like(term, escape="\\"),
-                func.lower(Material.zh_summary).like(term, escape="\\"),
-                func.lower(Material.source_body).like(term, escape="\\"),
-            ))
+        query = with_public_text_match(query, search)
         boundary = None
         if cursor:
             date, article_id, score = _read_cursor(cursor, sort, key)
@@ -414,12 +438,7 @@ def create_app(database: str | None = None) -> FastAPI:
             query = query.order_by(Material.importance_score.desc(), effective.desc(), Material.id)
         else:
             query = query.order_by(effective.desc(), Material.id)
-        query = query.where(or_(Material.body_status == "full_text",
-                                and_(Source.min_body_status == "abstract_only",
-                                     Material.body_status.in_(["abstract_only", "summary_only"]))))
-        rows = session.scalars(query.limit(limit + 1)).all()
-        more = len(rows) > limit
-        rows = rows[:limit]
+        rows, more = visible_page(session, query, limit)
         return {"items": [_card(row) for row in rows],
                 "next_cursor": _cursor_for(rows[-1], sort, key) if more else None,
                 "limit": limit}

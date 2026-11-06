@@ -127,6 +127,8 @@ Pulse 落实已有账号密码设计、随机可撤销session+CSRF、限速/安�
 
 ### 阶段 H：代表席位、同步ledger、RSS/MCP/SEO/分享
 
+2026-11-06 增量：已提供只读 Agent Markdown 接入说明及 `latest/search` JSON 查询，复用当前公开列表门禁，只输出标题、摘要、时间精度和出处；MCP 按用户决定暂缓。此增量不等于本阶段的机器代表席位、同步 ledger、RSS、Markdown 文章导出或部署验收已完成，接口与限制见[Agent 后端指南](agent-access-backend-guide.md)。
+
 依赖统一发布层B、事件E、报告F；每增加公开出口都验证许可/撤回。AIHOT 原路径：`D:/AIHOT/packages/backend/src/publication/{scope,publish,representative,v1,feeds,agent,llms,sitemap,detail}.ts`；`apps/api/src/routes/{v1,feeds,mcp,agent,media,og}.ts`。
 
 网页多报道阅读组、机器每Fact一个代表席位，selected snapshot+epoch+watermark+changes及remove事件；分页签名/错误/字段版本正式记录。缓存响应、进程、磁盘、SSR与浏览器共用绝对截止，MCP no-store，503搜索忙与空结果区分。媒体后端签名/时效/上游限制；全文站内与再分发独立许可。品牌字体、share路径、站点绝对URL使用 Pulse 配置。

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,10 +17,22 @@ def evidence_allowed(material: Material) -> bool:
                 len("".join((material.source_body or "").split())) >= MIN_BODY_CHARS)
 
 
+def source_link_allowed(material: Material) -> bool:
+    try:
+        parts = urlsplit(material.source_url)
+        _ = parts.port
+        return bool(parts.scheme in {"http", "https"} and parts.hostname and
+                    not parts.username and not parts.password and
+                    not any(char.isspace() for char in parts.netloc))
+    except ValueError:
+        return False
+
+
 def visible(material: Material) -> bool:
     return bool(material.public and material.duplicate_of_id is None and
                 not material.withdrawn and material.relevant and
-                material.source.excerpt_allowed and evidence_allowed(material))
+                material.source.excerpt_allowed and evidence_allowed(material) and
+                (material.zh_summary or "").strip() and source_link_allowed(material))
 
 
 def refresh_source_publication(session: Session, source_id: str) -> dict[str, int]:
@@ -31,7 +45,8 @@ def refresh_source_publication(session: Session, source_id: str) -> dict[str, in
     for material in rows:
         eligible = bool(material.relevant and material.duplicate_of_id is None and
                         material.source.excerpt_allowed and evidence_allowed(material) and
-                        (material.zh_summary or "").strip() and not material.withdrawn)
+                        (material.zh_summary or "").strip() and
+                        source_link_allowed(material) and not material.withdrawn)
         if material.public == eligible:
             continue
         material.public = eligible
