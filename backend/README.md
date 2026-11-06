@@ -24,7 +24,7 @@ uv pip install --python .venv/Scripts/python.exe -e ".[test]"
 .\.venv\Scripts\python.exe -m uvicorn bluepulse_backend.api:app --host 127.0.0.1 --port 8000
 ```
 
-数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。新数据库只含七个主题，没有来源或文章；前端看到真实空态。`启动BluePulse.bat` 仍只启动前端，后端须单独启动。
+数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。新数据库只含七个主题，没有来源或文章；前端看到真实空态。`Pulse.bat` 仍只启动前端，后端须单独启动。
 
 ## 离线完整性检查
 
