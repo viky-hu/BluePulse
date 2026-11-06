@@ -21,7 +21,7 @@ export const MENU_SECTIONS: readonly { title: string; items: readonly MenuItem[]
 export const SECTION_PAGES = {
   "/hot": { title: "热点榜", description: "追踪国内外警务科技领域正在受到关注的事件。", status: "热点榜正在建设中，事件热度服务尚未接入。" },
   "/daily": { title: "AI日报", description: "按刊期阅读警务科技资讯与重要进展。", status: "日报正在建设中，暂未发布正式刊期。" },
-  "/agent": { title: "Agent 接入", description: "为智能体提供警务科技资讯的阅读入口。", status: "Agent 接入正在建设中，MCP、RSS 与 API 接入说明将在相应服务就绪后提供。" },
+  "/agent": { title: "Agent 接入", description: "通过匿名只读 HTTP 查询公开警务科技资讯。", status: "HTTP 接入说明与 JSON 查询已提供；可用性以实际接口响应为准。" },
   "/about": { title: "关于 Pulse", description: "国内外警务科技情报系统。", status: "" },
   "/changelog": { title: "更新日志", description: "记录 Pulse 的功能改进与更新。", status: "" },
   "/feedback": { title: "反馈", description: "帮助 Pulse 改进内容与阅读体验。", status: "反馈渠道正在建设中。" },

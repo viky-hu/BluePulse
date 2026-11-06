@@ -23,7 +23,7 @@ function SearchField({ filters, base }: { filters: HomeFilters; base: "/" | "/al
     return () => window.removeEventListener("keydown", focus);
   }, [shell.active]);
   return <form className={styles.search} role="search" aria-label="搜索全部动态" onSubmit={event => { event.preventDefault(); if (!composing.current) shell.navigate(buildHomeHref("/all", { ...filters, period: base === "/" ? "all" : filters.period, q: value.trim().slice(0, 200), sort: "recent" }, { mock: shell.mock })); }}>
-    <label htmlFor="all-search" className={styles.srOnly}>搜索标题、摘要与正文</label>
+    <label htmlFor="all-search" className={styles.srOnly}>搜索公开标题与摘要</label>
     <span className={styles.searchIcon}><FeedIcon name="search" /></span>
     <input ref={input} id="all-search" name="q" value={value} onChange={event => setValue(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={event => { if (event.key === "Enter" && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault(); }} placeholder="搜索标题、摘要…" maxLength={200} autoComplete="off" enterKeyHint="search" />
     {value ? <button type="button" aria-label="清空" onClick={() => { setValue(""); input.current?.focus(); }}><FeedIcon name="close" /></button> : <kbd aria-hidden="true">/</kbd>}
@@ -36,6 +36,6 @@ export function FeedToolbar({ filters, base }: { filters: HomeFilters; base: "/"
       <PillTabs label="筛选" active={activeAllFilter(filters)} items={ALL_FILTERS.map(item => ({ ...item, to: buildHomeHref(base, selectAllFilter(filters, item.key), { mock: shell.mock }), prefetch: "intent" }))} />
       <SearchField key={`${base}:${filters.q}`} filters={filters} base={base} />
     </div>
-    {base === "/all" && filters.q && <div className={styles.searchModes}><PillTabs size="xs" label="搜索排序" active="time" items={[{ key: "time", label: "最新" }, { key: "relevance", label: "全文相关", disabled: true, title: "全文相关排序暂不可用" }]} /></div>}
+    {base === "/all" && filters.q && <div className={styles.searchModes}><PillTabs size="xs" label="搜索排序" active="time" items={[{ key: "time", label: "最新" }, { key: "relevance", label: "相关度", disabled: true, title: "相关度排序暂不可用" }]} /></div>}
   </>;
 }

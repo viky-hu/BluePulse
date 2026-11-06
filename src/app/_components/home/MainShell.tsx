@@ -135,7 +135,8 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     const feedQuery = ["/", "/all"].includes(currentPath) && new URL(destination, "https://pulse.local").pathname === currentPath;
     const articleBase = (path: string) => /^\/articles\/([0-9a-f-]+)(?:\/original)?$/i.exec(path)?.[1];
     const sameArticle = !!articleBase(currentPath) && articleBase(currentPath) === articleBase(new URL(destination, "https://pulse.local").pathname);
-    const preserveScroll = (feedQuery || sameArticle) && options.preserveScroll === true;
+    const agentQuery = currentPath === "/agent" && new URL(destination, "https://pulse.local").pathname === "/agent";
+    const preserveScroll = (feedQuery || sameArticle || agentQuery) && options.preserveScroll === true;
     if (preserveScroll && scroller.current) saveSessionSnapshot(`position:${targetKey}`, position(scroller.current), mock);
     const intent = navigationIntent(keyRef.current, targetKey, options.origin ?? "content");
     if (intent === "content") {
@@ -276,6 +277,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
     const url = new URL(anchor.href);
     const sameView = canonicalHref(`${url.pathname}${url.search}`) === keyRef.current;
+    if (sameView && url.pathname === "/agent" && (anchor.getAttribute("role") === "tab" || anchor.getAttribute("aria-current") === "true")) { event.preventDefault(); return; }
     if (url.origin !== location.origin || (url.hash && sameView) || !parseHomeRoute(url.pathname, url.searchParams).valid) return;
     // A cross-page anchor is a new owned navigation, not history restoration of the old page.
     event.preventDefault(); navigate(`${url.pathname}${url.search}${url.hash}`, {

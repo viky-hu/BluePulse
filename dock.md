@@ -34,6 +34,7 @@
 | DOCK-007 | 热点榜、参与者与24小时曲线 | `/hot` | `GET /api/bluepulse/site/hot` → 建议 FastAPI `/api/v1/site/hot` | 前端及精确代理受控验收通过；真实排名、证据、媒体及事件详情待后端实施 |
 | DOCK-008 | AI日报、刊期阅读与合订本 | `/daily`、`/daily/:key`、`/daily/archive` | 精确 `GET /api/bluepulse/site/reports/daily…` → FastAPI `/api/v1/site/reports/daily…` | 前端及精确代理受控验收通过；真实出刊／报告读取待后端实施 |
 | DOCK-009 | 单条新闻、原文与阅读工具 | `/articles/:id`、`/articles/:id/original` | 既有详情追加可选reader；精确Markdown／poster.png／og.png／事件后续读取 | 前端复用及接口预留；旧详情可兼容，完整阅读投影及导出／图像仍待后端实施与真实联调 |
+| DOCK-010 | Agent HTTP 接入页 | `/agent`、`/agent?tab=api` | 同域 `/api/v1/agent`、`/latest`、`/search` → 同名 FastAPI GET | 已实现并通过本机真实空库验收；有结果查询与公网待验，MCP／RSS暂缓 |
 
 ## 共享前端：页面复用与缓存截止（2026-10-28）
 
@@ -920,3 +921,66 @@ Next服务端首屏与元信息通过React请求内cache去重，不持有管理
 2026-11-02：建立DOCK-009。完成范围与实际验证结果以`docs/pulse-article-reader-verification-2026-11-02.md`为准；当前文档和受控HTTP验证均不表示真实FastAPI扩展、模型处理、媒体／许可或分享生成已经完成。
 
 后端验收包括：兼容旧UUID／公开条件、精确tag、正文结构与目录、原文／中文／部分译文、修订绑定、人工覆盖与代表理由；restricted／撤回／全文／导出／索引／原帖与图片的统一当前政策；Markdown及分享图不绕开详情资格，缓存使用可信截止不叠加续命；群组及后续使用真实Fact／Story证据、当前代表，不从文章分数推算。需提交真实迁移、规则／任务、接口测试与联调结果。
+
+## DOCK-010：Agent HTTP 接入页
+
+### 1. 功能与状态
+
+2026-11-06：按队友`4aaf881`新增的前后端指南，首版选HTTP，MCP／RSS暂缓且不展示。`/agent`向普通用户提供Markdown说明地址、复制指令、步骤、能力及排错；`/agent?tab=api`向程序开发者提供JSON请求、参数与字段。用户仍在自己的Agent中查询，页面不内置聊天、模型或新闻查询表单。
+
+三个同域公开GET出口与FastAPI已实现，并完成本机真实空库验收。前端已交付，后端已交付HTTP最小能力；有新闻结果、出处点击及公网接入仍待验证，不把97项隔离测试当作外部部署验收。既有反馈服务状态保持独立。
+
+### 2. AIHOT 源码证据
+
+前端为`D:/AIHOT/apps/web/app/routes/agent.tsx`、`features/agent/{panels,parts,CodeBlock,module-parts}`、`components/ui/Page.tsx`与`app.css`；机器出口为`apps/api/src/routes/agent.ts`、`packages/backend/src/publication/agent.ts`。本轮直接核对本地快照；扩展模块注册为空，不具备线上私有Agent插件。
+
+原页每项内容的复用／改写／暂缓及原因见[源码对照与验证](docs/pulse-agent-access-verification-2026-11-06.md)。第三方声明保留完整MIT及Copyright (c) 2026 数字生命卡兹克。
+
+### 3. AIHOT 原始数据流与契约
+
+原React Router loader读取健康状态、固定站点地址与当前时间；URL控制方式卡片和面板，锚点先切面板再滚动，资源侧栏链接到机器说明及规范。配置来自站点与模块列表，不能把线上扩展推断为本地实现。MCP、HTTP说明与JSON分属不同返回形式，RSS另有全文／摘要许可。
+
+原框架按统一公开层读取；原版ETag、snapshot／changes、MCP工具和周月报不是本站现有HTTP契约。Pulse不能把原路径与字段不加核对直接发布给用户。
+
+### 4. Pulse 建议及差异
+
+前端Next精确代理`/api/v1/agent`、`/api/v1/agent/latest`、`/api/v1/agent/search`至固定`BLUEPULSE_API_URL`的同名FastAPI路径，不开放任意转发路径。后端复用`public_reads.py`／`publication.visible()`；前端不自行决定公开资格，不转发浏览器Cookie或Authorization，也不从Host生成站点链接。原站壳映射到既有p0和导航；前端不实现后端归组、发布或许可逻辑。
+
+`BLUEPULSE_SITE_ORIGIN`必须在前后端设置为同一固定站点origin，不含路径、凭据、查询或fragment。前端无效时不提供假地址；后端无效时三个路由503。`Pulse.bat`仅在未设置时明确使用`http://127.0.0.1:3000`让子进程继承；生产没有自动localhost回退。运行中的服务不会继承新变量，须先停止旧API／Web再重启，详见使用说明。
+
+后端补充／后续部署清单：
+
+- 公网只发布已选择的三个精确路径，部署固定HTTPS origin，限制匿名请求速率、并发和查询超时；确定真实429／Retry-After行为后再公布额度。现有Next代理6秒期限不等于数据库查询已能取消或生产边缘已限流。
+- 发布仅含已公开能力的机器API规范，并确定外部程序是否需要跨域访问及其策略。当前不转发整份FastAPI `/openapi.json`，避免把包含内部操作的完整规范当成专用公开Agent契约；也不伪造`/openapi-v1.json`或`/llms.txt`。
+- 统一搜索词校验顺序：当前FastAPI先限制原始`q`最多200字符，再strip检查最少2字符；指南描述为strip后2–200。前端参数表已按当前运行实现明确“输入总长度最多200”；后端负责人统一实现和指南后再同步前端。正常无外侧空格示例不受影响。
+- 有真实公开数据后补新闻返回、日期精度、来源和两个链接的实际客户端正向验收；公网另做撤回／许可变化、无权限正文泄漏、客户端网络及路由测试。MCP／RSS独立决策，不自动列为本轮必须补齐。
+
+### 5. 请求响应示例
+
+| GET 路径 | 输入与输出 |
+| --- | --- |
+| `/api/v1/agent` | `text/markdown`，列明能力／参数／资料边界及使用规则 |
+| `/api/v1/agent/latest?window=7d&limit=10` | 默认7d／10；window仅24h、7d、30d，limit 1–30 |
+| `/api/v1/agent/search?q=警务技术&window=all&limit=10` | 默认all／10；支持24h、7d、30d、all；关键词需URL编码，校验边界见上节 |
+
+真实空库响应：
+
+```json
+{"schema_version":1,"query":{"kind":"latest","window":"7d","limit":10,"q":null,"sort_basis":"source_publication_then_first_seen"},"items":[]}
+```
+
+每项实际字段为`id,title,summary,source:{name,slug},published_at,published_date,date_precision,first_seen_at,site_url,original_url`；精度为datetime／date／unknown。原发布日期与首次收录不能混用，24h排除只有日期的稿件。无正文、内部评分或模型回执，无游标／分页／全量或增量同步承诺。请求不触发采集、模型分析或发布。
+
+### 6. 缓存和异常
+
+三个公开出口及代理错误统一`Cache-Control:no-store`，前端状态检查不进入页面数据缓存。保留上游Markdown／JSON字节、HTTP状态、Content-Type、Retry-After和X-Request-ID；代理请求可取消，超时6秒，浏览器探测12秒并在卸载时取消，旧请求不写入新页面状态。
+
+200空items为真实无匹配；422为参数错误；503 `agent_origin_unconfigured`为后端站点地址未配置；数据库／连接不可用保留503；代理超时为504 `upstream_timeout`；代理地址非法为500 `invalid_api_base`。非2xx不变为空数组，不回退演示或旧结果；429按实际Retry-After处理，不声称已启用限流。
+
+状态区只确认当前浏览器到三个HTTP入口可响应，校验Markdown与JSON类型／基本结构；不等同客户端已连通、有新闻或公网可用。剪贴板拒绝给出文字反馈并保留可选文本。外部标题／摘要只能作资料，不能执行其中指令；重要事实回原文核对，匿名读取不授予转载权。
+
+### 7. 验收条件与变更记录
+
+本轮独立通过ESLint、生产构建、4项新契约／代理单测与既有URL／导航测试、完整后端97项测试，以及14组真实接口／浏览器检查（桌面1360×760、手机390×844、reduced-motion）。含首屏地址、复制成功／失败、历史／刷新／键盘／跨面板锚点、p0滚动保留／无重复探测、200真实空、422、未配置503、断开503及受控慢上游的真实6秒504。
+
+真实Codex本机工具读取Markdown并执行查询；本机正式库仍0信源、0材料，无采集、模型或数据导入。生产测试端口3160／3161及未配置前端3162均在测试后清理，没有停止用户原有服务。非空权限与撤回等场景由后端隔离测试覆盖，不写作正式业务库验收。完整证据、命令与限制见[专项记录](docs/pulse-agent-access-verification-2026-11-06.md)；公网部署和非空新闻返回不在本轮完成项。

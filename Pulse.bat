@@ -6,6 +6,9 @@ set "BACKEND_DIR=%ROOT%backend"
 set "API_PYTHON=%BACKEND_DIR%\.venv\Scripts\python.exe"
 set "NEXT_CMD=%ROOT%node_modules\.bin\next.cmd"
 
+rem Local-only entry point: both child processes inherit the same explicit site origin.
+if not defined BLUEPULSE_SITE_ORIGIN set "BLUEPULSE_SITE_ORIGIN=http://127.0.0.1:3000"
+
 if not exist "%API_PYTHON%" (
   echo [ERROR] Backend Python environment not found:
   echo         %API_PYTHON%

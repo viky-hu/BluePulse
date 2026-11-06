@@ -4,6 +4,8 @@ Windows 本地启动与网页使用见[使用说明](docs/使用说明.md)。新
 
 单条新闻阅读页已按AIHOT真实阅读组件适配，见本文末尾2026-11-02记录；真实后端扩展的状态以DOCK-009为准。
 
+Agent 接入页已按 AIHOT 真实组件与队友 HTTP 契约适配（2026-11-06）：`/agent` 提供给 Agent 的说明与可复制指令，`/agent?tab=api` 提供近期资讯和公开标题／摘要搜索示例；三个同域 `/api/v1/agent*` GET 出口已接通。本轮通过真实空库、14组接口／浏览器检查，未验收有新闻结果或公网部署；MCP、RSS 暂不展示。详见 [Agent 验证及源码对照](docs/pulse-agent-access-verification-2026-11-06.md) 和 [DOCK-010](dock.md#dock-010agent-http-接入页)。已运行的旧前后端需停止后重新通过 `Pulse.bat` 启动，使新代码和站点地址配置生效。
+
 模型链路、自动精选、热点与日报的后续实施顺序及验收要求见 [2026-11-03实施交接](docs/aihot-model-pipeline-handoff-2026-11-03.md)。2026-11-06 已同步队友最新后端代码至本地 `main`；实际实现、测试与本机数据边界见 [主线同步与进度核对](docs/backend-mainline-review-2026-11-06.md)。
 
 截至 2026-10-06 的功能、验证结果与待办见[开发进度记录](docs/development-progress-2026-10-06.md)。

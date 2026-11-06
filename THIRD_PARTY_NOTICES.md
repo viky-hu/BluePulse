@@ -2,6 +2,8 @@
 
 ## AIHOT
 
+- 2026-11-06 Agent 接入：`D:/AIHOT/apps/web/app/routes/agent.tsx`、`features/agent/{panels,parts,CodeBlock,module-parts}` 与 `app.css` 的接入卡片、URL 标签、步骤连线、复制地址／指令／代码、表格、提示、折叠排错与资源侧栏，适配为 `src/app/agent/`。复用已有 ReadingLayout 和内联图标，沿用原卡片圆角、字号、间距及青色参数；以 Next.js、Pulse p0 容器和实际 HTTP 契约替换 React Router、原站品牌及未提供的能力。MCP、RSS 与扩展模块暂不展示，复制失败反馈及键盘行为作必要适配。Copyright (c) 2026 数字生命卡兹克；适用下方完整 MIT 许可，不授予新闻正文再分发或源站品牌使用权。
+
 2026-11-03文档交接：`docs/aihot-model-pipeline-handoff-2026-11-03.md` 与 `docs/selection-annotation-guide.md` 使用AIHOT源码的流程说明和评分权重，统一后续警务领域实施／标注口径；本次没有复制后端业务实现或改变既有许可。后续实质代码移植继续保留本文件的完整MIT声明及 `Copyright (c) 2026 数字生命卡兹克`。
 
 Pulse 的浏览器状态、会话恢复和菜单实现移植参考了 AIHOT 开源框架的以下文件：
