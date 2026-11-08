@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .api import create_app
 from .cli import sync_taxonomy
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import AnalysisAttempt, Material, Source
 from .pipeline import apply_saved_analysis, process_pending
 from .source_validation import _migrate, audit_source
@@ -22,7 +22,7 @@ from .source_validation import _migrate, audit_source
 
 BACKEND = Path(__file__).resolve().parents[1]
 TARGET_URL = "https://www.gov.uk/government/publications/live-facial-recognition-deployment-records"
-DEFAULT_ENV = BACKEND.parent.parent / ".env"
+DEFAULT_ENV = DEFAULT_MODEL_ENV
 
 
 def _api_check(address: str, material_id: str, *, visible: bool, topic: str | None = None) -> dict:

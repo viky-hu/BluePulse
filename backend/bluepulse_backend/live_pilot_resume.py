@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import AnalysisAttempt, Material, Source
 from .pipeline import process_pending
 
@@ -69,7 +69,7 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--model", help="optional explicit override; defaults to .env llm_id")
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--report", type=Path, default=Path(__file__).resolve().parents[3] / "真实采集试验.md")
     args = parser.parse_args()
     if not args.execute:

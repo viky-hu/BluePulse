@@ -8,10 +8,47 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from .models import FactGroup, FactReport, FeaturedEdition, FeaturedSlot, Material, now_utc
-from .publication import visible
+from .publication import selected, visible
 
 
 AUTO_WINDOW = "auto_recent_7d"
+CONFIRMED_WINDOW = "confirmed_recent_7d"
+
+
+def create_confirmed_featured(session: Session, *, now: datetime | None = None) -> dict:
+    from .reading import representative_key
+
+    moment = _aware(now or now_utc())
+    rows = session.execute(select(Material, FactGroup).join(
+        FactReport, FactReport.material_id == Material.id
+    ).join(FactGroup, FactGroup.id == FactReport.fact_id).where(
+        FactReport.revision == Material.revision, Material.selected_at.is_not(None),
+        FactGroup.anchor_at >= moment - timedelta(days=7),
+    )).all()
+    best: dict[str, tuple[Material, FactGroup]] = {}
+    for material, fact in rows:
+        if not selected(material, at=moment):
+            continue
+        if fact.id not in best or representative_key(material, fact) < representative_key(best[fact.id][0], fact):
+            best[fact.id] = (material, fact)
+    candidates = sorted(best.values(), key=lambda row: (
+        _aware(row[1].anchor_at) < moment - timedelta(hours=24),
+        -row[0].importance_score, -_aware(row[1].anchor_at).timestamp(), row[0].id))
+    picked = [row[0] for row in candidates[:6]]
+    latest = session.scalar(select(FeaturedEdition).order_by(
+        FeaturedEdition.generated_at.desc(), FeaturedEdition.id.desc()).limit(1))
+    if (latest and latest.window_policy == CONFIRMED_WINDOW and
+            [slot.article_id for slot in latest.slots] == [row.id for row in picked]):
+        return {"edition_id": latest.id, "created": False, "selected": len(picked)}
+    edition = FeaturedEdition(window_policy=CONFIRMED_WINDOW, generated_at=moment)
+    session.add(edition)
+    session.flush()
+    for index, article in enumerate(picked):
+        session.add(FeaturedSlot(edition_id=edition.id, article_id=article.id,
+                                 slot=f"p{index}", importance_score=article.importance_score,
+                                 featured_reason=(article.editorial_data or {}).get("reason")))
+    session.commit()
+    return {"edition_id": edition.id, "created": True, "selected": len(picked)}
 
 
 def _aware(value: datetime) -> datetime:
@@ -37,7 +74,9 @@ def group_public_materials(session: Session) -> dict[str, int]:
     ).order_by(Material.first_seen_at, Material.id)).all()
     created = assigned = revised = 0
     for material in rows:
-        if not visible(material):
+        existing = session.get(FactReport, material.id)
+        if (not visible(material) or material.editorial_revision or material.standalone or
+                existing and existing.manual):
             continue
         key = _identity(material)
         fact = session.scalar(select(FactGroup).where(FactGroup.identity_key == key))

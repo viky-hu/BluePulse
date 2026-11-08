@@ -11,6 +11,7 @@ from urllib.robotparser import RobotFileParser
 from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError
 from .pipeline import Candidate, canonical_url
+from .source_images import ArticleImages
 
 
 HOST = "www.police.gov.sg"
@@ -57,13 +58,14 @@ class _Links(HTMLParser):
 
 
 class _Article(HTMLParser):
-    def __init__(self):
+    def __init__(self, url):
         super().__init__(convert_charrefs=True)
         self.stack: list[tuple[str, set[str]]] = []
         self.title_parts: list[str] = []
         self.date_parts: list[str] = []
         self.body_parts: list[str] = []
         self.description: str | None = None
+        self.images = ArticleImages(url, HOST)
 
     def _in(self, name: str) -> bool:
         return any(name in classes for _, classes in self.stack)
@@ -78,6 +80,8 @@ class _Article(HTMLParser):
         values = dict(attrs)
         if tag == "meta" and values.get("name") == "description":
             self.description = values.get("content")
+        if tag == "img" and self._body():
+            self.images.add(values)
         if tag not in VOID:
             self.stack.append((tag, set((values.get("class") or "").split())))
         if self._body() and tag in TEXT_TAGS | {"br"}:
@@ -172,7 +176,7 @@ class SpfPoliceLifeAdapter:
                 continue
             self.diagnostics["detail_attempts"] += 1
             try:
-                detail = _Article()
+                detail = _Article(url)
                 detail.feed(fetch(url).decode("utf-8-sig", "replace"))
             except SourceFetchError as exc:
                 if exc.code in {"http_403", "http_429", "robots_disallowed"}:
@@ -191,7 +195,7 @@ class SpfPoliceLifeAdapter:
                                           "published_date": detail.published_date.isoformat()})
             candidates.append(Candidate(url=url, title=detail.title, body=detail.body,
                                         summary=detail.description, published_date=detail.published_date,
-                                        language="en"))
+                                        language="en", media=detail.images.permitted(policy, USER_AGENT)))
         if not candidates and self.diagnostics["detail_failed"]:
             raise SourceFetchError("all_details_failed")
         return candidates

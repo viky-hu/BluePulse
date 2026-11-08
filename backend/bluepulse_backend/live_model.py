@@ -24,16 +24,19 @@ SCORE_PROMPT = """你是警务科技资讯的精选价值评分员。只使用�
 先选择最贴近的一种内部内容类型：model_release、product_launch、tool_or_prompt、research_paper、industry_event、opinion_analysis、tutorial_explainer。它不是前端栏目。对五轴各给0到10的整数：sig=对警务技术能力/治理/工作方式的实质改变，nov=可辨的新能力/结果/规则/方法，cred=正文实际支持的证据强度，reson=警务科技读者关联面，act=方法、规模、成本与约束的可用性。上游技术要说明具体警务影响路径；普通采购、日常运维、奖项、会议和营销宣传不能仅因机构或厂商名气得高分。宣布、招标、实验、试点、部署和实地效果不能混为一谈。证据不足就降低相应轴，不要补造事实。
 内部类型权重依次按 sig/nov/cred/reson/act：model_release=3/2/2/2/1，product_launch=2/2/1/2/3，tool_or_prompt=1/2/1/2/4，research_paper=5/3/1/0/1，industry_event=3/1/2/4/0，opinion_analysis=1/3/1/4/1，tutorial_explainer=1/1/1/3/4。服务端依据五轴和权重计算0到100的总分。只输出 JSON 对象：content_type 和 sig、nov、cred、reson、act 六个字段；不要输出总分、理由或其他字段。"""
 SCORE_PROMPT_VERSION = hashlib.sha256(SCORE_PROMPT.encode()).hexdigest()[:12]
+DEFAULT_MODEL_ENV = Path(__file__).resolve().parents[1] / ".env"
+AUTODL_MODEL = "DeepSeek-V4.1-Flash-1017"
 
 
 class ProviderRejected(Exception):
-    def __init__(self, code: str, *, stop_batch: bool = False):
+    def __init__(self, code: str, *, stop_batch: bool = False, provider_meta: dict | None = None):
         super().__init__(code)
         self.code = code
         self.stop_batch = stop_batch
+        self.provider_meta = provider_meta or {}
 
 
-def load_local_credentials(path: Path) -> tuple[str, str, str]:
+def load_local_credentials(path: Path = DEFAULT_MODEL_ENV) -> tuple[str, str, str]:
     """Read only the three expected keys; do not echo or interpolate them into commands."""
     data: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8-sig").splitlines():
@@ -88,16 +91,113 @@ class LiveAnalyzer:
     api_key: str
     model: str
     max_input_chars: int = 4200
-    max_output_tokens: int = 450
+    max_output_tokens: int | None = None
+    max_score_tokens: int | None = None
     input_version: str = field(init=False)
     selection_input_version: str = field(init=False)
 
     def __post_init__(self) -> None:
+        self.base_url = self.base_url.rstrip("/")
+        if self.max_output_tokens is None:
+            self.max_output_tokens = 1024 if self.autodl_profile else 450
+        if self.max_score_tokens is None:
+            self.max_score_tokens = 512 if self.autodl_profile else 350
+        if min(self.max_input_chars, self.max_output_tokens, self.max_score_tokens) <= 0:
+            raise ValueError("invalid_model_limits")
         self.input_version = (PROMPT_VERSION + "-" + INPUT_FORMAT_VERSION + "-" +
                               hashlib.sha256(self.model.encode()).hexdigest()[:8])
         config_id = hashlib.sha256(json.dumps([self.base_url, self.model, self.max_input_chars,
                                                 350], separators=(",", ":")).encode()).hexdigest()[:8]
         self.selection_input_version = f"axis-{SCORE_PROMPT_VERSION}-{config_id}"
+
+        if self.autodl_profile:
+            # Bind the actual wire parameters without changing existing provider identities.
+            config = ["autodl-deepseek-v1", self.base_url, self.max_input_chars,
+                      self._options(self.max_output_tokens), self._options(self.max_score_tokens)]
+            digest = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:12]
+            self.input_version = f"{PROMPT_VERSION}-{INPUT_FORMAT_VERSION}-{digest}"
+            self.selection_input_version = f"axis-{SCORE_PROMPT_VERSION}-{digest}"
+
+    @property
+    def autodl_profile(self) -> bool:
+        return (urlsplit(self.base_url).hostname in {"www.autodl.art", "autodl.art"}
+                and self.model == AUTODL_MODEL)
+
+    def _options(self, max_tokens: int) -> dict:
+        options = {"model": self.model, "temperature": 0, "max_tokens": max_tokens}
+        if self.autodl_profile or urlsplit(self.base_url).hostname == "api.deepseek.com":
+            options.update(thinking={"type": "disabled"}, response_format={"type": "json_object"})
+        if self.autodl_profile:
+            options["stream"] = False
+        return options
+
+    def _redact(self, value):
+        if isinstance(value, str):
+            return value.replace(self.api_key, "[REDACTED]") if self.api_key else value
+        if isinstance(value, dict):
+            return {self._redact(key): self._redact(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._redact(item) for item in value]
+        return value
+
+    def _chat(self, prompt: str, user_data: str, max_tokens: int, *, request=None) -> tuple[dict, dict, str]:
+        """One request, no automatic retries; keep diagnostics separate from model content."""
+        payload = {**self._options(max_tokens), "messages": [
+            {"role": "system", "content": prompt}, {"role": "user", "content": user_data}]}
+        started = time.monotonic()
+        meta = {"http_status": None, "request_id": None, "model": self.model,
+                "finish_reason": None, "usage": {}}
+        try:
+            def send():
+                return self.client.post(self.base_url + "/chat/completions", json=payload,
+                                        headers={"Authorization": "Bearer " + self.api_key,
+                                                 "Content-Type": "application/json"}, follow_redirects=False)
+
+            response = request(payload, send) if request else send()
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            meta["duration_ms"] = round((time.monotonic() - started) * 1000)
+            code = "provider_timeout_unknown" if isinstance(exc, httpx.TimeoutException) else "provider_transport_unknown"
+            error = UnknownOutcome(code)
+            error.provider_meta = self._redact(meta)
+            raise error from exc
+        meta.update(http_status=response.status_code, duration_ms=round((time.monotonic() - started) * 1000),
+                    request_id=response.headers.get("x-request-id"))
+        try:
+            envelope = response.json()
+        except ValueError as exc:
+            code = "provider_invalid_json" if response.status_code == 200 else f"provider_http_{response.status_code}"
+            raise ProviderRejected(code, stop_batch=response.status_code in {401, 402, 403, 429},
+                                   provider_meta=self._redact(meta)) from exc
+        if isinstance(envelope, dict):
+            usage = envelope.get("usage")
+            meta.update(request_id=envelope.get("id") or meta["request_id"], model=envelope.get("model", self.model),
+                        usage=usage if isinstance(usage, dict) else {})
+        meta = self._redact(meta)
+        if response.status_code != 200:
+            raise ProviderRejected(f"provider_http_{response.status_code}",
+                                   stop_batch=response.status_code in {401, 402, 403, 429}, provider_meta=meta)
+        try:
+            choice = envelope["choices"][0]
+            meta["finish_reason"] = self._redact(choice.get("finish_reason"))
+            message = choice["message"]
+            content = message.get("content")
+            reasoning = message.get("reasoning_content")
+            meta["reasoning_chars"] = len(reasoning) if isinstance(reasoning, str) else message.get("_reasoning_chars", 0)
+            if choice.get("finish_reason") == "length":
+                raise ProviderRejected("provider_output_truncated", provider_meta=meta)
+            if content is None or isinstance(content, str) and not content.strip():
+                raise ProviderRejected("provider_empty_content", provider_meta=meta)
+            if not isinstance(content, str):
+                raise ValueError("invalid_content")
+            data = _extract_json(content)
+        except ProviderRejected as exc:
+            exc.provider_meta = meta
+            raise
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            raise ProviderRejected("provider_invalid_schema", provider_meta=meta) from exc
+        meta["prompt_tokens"] = meta["usage"].get("prompt_tokens")
+        meta["completion_tokens"] = meta["usage"].get("completion_tokens")
+        return data, meta, content
 
     def analyze(self, material: Material) -> AnalysisResult:
         excerpt = (material.source_body or material.source_summary or "")[:self.max_input_chars]
@@ -107,32 +207,8 @@ class LiveAnalyzer:
             "published_date": material.published_date.isoformat() if material.published_date else None,
             "body_status": material.body_status, "text": excerpt,
         }, ensure_ascii=False)
-        payload = {"model": self.model, "temperature": 0, "max_tokens": self.max_output_tokens,
-                   "messages": [{"role": "system", "content": PROMPT},
-                                {"role": "user", "content": user_data}]}
-        if urlsplit(self.base_url).hostname == "api.deepseek.com":
-            payload["thinking"] = {"type": "disabled"}
-            payload["response_format"] = {"type": "json_object"}
+        data, meta, _ = self._chat(PROMPT, user_data, self.max_output_tokens)
         try:
-            response = self.client.post(self.base_url + "/chat/completions", json=payload,
-                                        headers={"Authorization": "Bearer " + self.api_key,
-                                                 "Content-Type": "application/json"},
-                                        follow_redirects=False)
-        except httpx.TimeoutException as exc:
-            raise UnknownOutcome("provider_timeout_unknown") from exc
-        except httpx.TransportError as exc:
-            raise UnknownOutcome("provider_transport_unknown") from exc
-        if response.status_code != 200:
-            code = f"provider_http_{response.status_code}"
-            raise ProviderRejected(code, stop_batch=response.status_code in {401, 402, 403, 429})
-        try:
-            envelope = response.json()
-            if envelope["choices"][0].get("finish_reason") == "length":
-                raise ValueError("truncated_output")
-            message = envelope["choices"][0]["message"]["content"]
-            if not isinstance(message, str):
-                raise ValueError
-            data = _extract_json(message)
             relevant = data["relevant"]
             topics = data["topics"]
             if not isinstance(relevant, bool):
@@ -143,67 +219,32 @@ class LiveAnalyzer:
             summary = data.get("summary_zh")
             if title is not None and not isinstance(title, str) or summary is not None and not isinstance(summary, str):
                 raise ValueError
-            if relevant and not (summary or "").strip():
+            if relevant and (not (summary or "").strip() or not topics):
                 raise ValueError
-            usage = envelope.get("usage") or {}
             return AnalysisResult(
                 relevant=relevant, title_zh=title, summary_zh=summary,
                 topics=tuple(dict.fromkeys(topics)), importance_score=0,
                 featured_candidate=False,
-                provider_meta={"request_id": envelope.get("id"), "model": envelope.get("model"),
-                               "prompt_tokens": usage.get("prompt_tokens"),
-                               "completion_tokens": usage.get("completion_tokens"),
-                               "input_chars": len(excerpt),
+                provider_meta={**meta, "input_chars": len(excerpt),
                                "input_truncated": len(material.source_body or material.source_summary or "") > len(excerpt),
                                "scoring_required": True},
             )
-        except (KeyError, IndexError, TypeError, ValueError, ProviderRejected) as exc:
-            raise ProviderRejected("provider_invalid_schema") from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderRejected("provider_invalid_schema", provider_meta=meta) from exc
 
     def score(self, material: Material) -> SelectionScore:
         """One independent paid score call; the caller owns round identity and receipt."""
         excerpt = (material.source_body or "")[:self.max_input_chars]
         user_data = json.dumps({"title": material.source_title, "text": excerpt}, ensure_ascii=False)
-        payload = {"model": self.model, "temperature": 0, "max_tokens": 350,
-                   "messages": [{"role": "system", "content": SCORE_PROMPT},
-                                {"role": "user", "content": user_data}]}
-        if urlsplit(self.base_url).hostname == "api.deepseek.com":
-            payload["thinking"] = {"type": "disabled"}
-            payload["response_format"] = {"type": "json_object"}
-        started = time.monotonic()
+        data, meta, content = self._chat(SCORE_PROMPT, user_data, self.max_score_tokens)
         try:
-            response = self.client.post(self.base_url + "/chat/completions", json=payload,
-                                        headers={"Authorization": "Bearer " + self.api_key,
-                                                 "Content-Type": "application/json"},
-                                        follow_redirects=False)
-        except httpx.TimeoutException as exc:
-            raise UnknownOutcome("provider_timeout_unknown") from exc
-        except httpx.TransportError as exc:
-            raise UnknownOutcome("provider_transport_unknown") from exc
-        if response.status_code != 200:
-            raise ProviderRejected(f"provider_http_{response.status_code}",
-                                   stop_batch=response.status_code in {401, 402, 403, 429})
-        try:
-            envelope = response.json()
-            choice = envelope["choices"][0]
-            if choice.get("finish_reason") == "length":
-                raise ValueError("truncated_output")
-            message = choice["message"]["content"]
-            if not isinstance(message, str):
-                raise ValueError
-            data = _extract_json(message)
             score = SelectionScore(content_type=data["content_type"],
                                    **{axis: data[axis] for axis in AXES},
-                                   provider_meta={"request_id": envelope.get("id"),
-                                                  "model": envelope.get("model"),
-                                                  "prompt_tokens": (envelope.get("usage") or {}).get("prompt_tokens"),
-                                                  "completion_tokens": (envelope.get("usage") or {}).get("completion_tokens"),
-                                                  "duration_ms": round((time.monotonic() - started) * 1000),
-                                                  "input_chars": len(excerpt),
+                                   provider_meta={**meta, "input_chars": len(excerpt),
                                                   "input_truncated": len(material.source_body or "") > len(excerpt)},
-                                   raw_response={"id": envelope.get("id"), "model": envelope.get("model"),
-                                                 "usage": envelope.get("usage"), "content": message})
+                                   raw_response={"id": meta["request_id"], "model": meta["model"],
+                                                 "usage": meta["usage"], "content": self._redact(content)})
             score.attention_score
             return score
-        except (KeyError, IndexError, TypeError, ValueError, ProviderRejected) as exc:
-            raise ProviderRejected("provider_invalid_schema") from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderRejected("provider_invalid_schema", provider_meta=meta) from exc

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -28,11 +29,36 @@ def source_link_allowed(material: Material) -> bool:
         return False
 
 
-def visible(material: Material) -> bool:
-    return bool(material.public and material.duplicate_of_id is None and
+def visible(material: Material, *, at=None) -> bool:
+    return bool(material.public and _eligible(material) and (
+        material.visible_after is None or _utc(material.visible_after) <= _utc(at or now_utc())))
+
+
+def _utc(value):
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _eligible(material: Material) -> bool:
+    return bool(material.duplicate_of_id is None and
                 not material.withdrawn and material.relevant and
+                material.source.participation_mode == "editorial" and
                 material.source.excerpt_allowed and evidence_allowed(material) and
                 (material.zh_summary or "").strip() and source_link_allowed(material))
+
+
+def selected(material: Material, *, at=None) -> bool:
+    return bool(visible(material, at=at) and material.selected_at and
+                _utc(material.selected_at) <= _utc(at or now_utc()) and material.featured_candidate and
+                material.grouping_status == "complete" and material.grouping_value is not False and
+                material.editorial_revision == material.revision and material.timeline_kind == "fresh")
+
+
+def project_visibility(material: Material, now=None) -> bool:
+    material.public = _eligible(material)
+    material.state = "publication_pool" if material.public else "publication_hidden"
+    if material.public and not material.published_public_at:
+        material.published_public_at = now or now_utc()
+    return material.public
 
 
 def refresh_source_publication(session: Session, source_id: str) -> dict[str, int]:
@@ -43,16 +69,11 @@ def refresh_source_publication(session: Session, source_id: str) -> dict[str, in
         Material.state.in_(["publication_pool", "publication_hidden"]),
     )).all()
     for material in rows:
-        eligible = bool(material.relevant and material.duplicate_of_id is None and
-                        material.source.excerpt_allowed and evidence_allowed(material) and
-                        (material.zh_summary or "").strip() and
-                        source_link_allowed(material) and not material.withdrawn)
+        eligible = _eligible(material)
         if material.public == eligible:
             continue
-        material.public = eligible
-        material.state = "publication_pool" if eligible else "publication_hidden"
+        project_visibility(material)
         if eligible:
-            material.published_public_at = material.published_public_at or now_utc()
             changed["released"] += 1
         else:
             changed["hidden"] += 1

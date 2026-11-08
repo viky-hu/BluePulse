@@ -1,4 +1,4 @@
-# Blue Pulse 后端基础链路
+# Blue Pulse 后端运行手册
 
 本目录是 2026-10-27 从空后端重建的 **M0–M2 骨架**。当前可运行的链路是：`SourceAdapter → Candidate → URL/来源校验 → Material/Revision/Discovery → Analyzer → 已存结果恢复 → 公开资格 → /api/v1`。`MockSourceAdapter` 和 `MockAnalyzer` 用于离线检查；十五个限量真实来源入口和一个真实模型调用器只通过显式试验命令执行。正式数据库不自动填充测试资讯。
 
@@ -19,12 +19,65 @@
 ```powershell
 uv venv .venv
 uv pip install --python .venv/Scripts/python.exe -e ".[test]"
-.\.venv\Scripts\python.exe -m bluepulse_backend.cli migrate
-.\.venv\Scripts\python.exe -m bluepulse_backend.cli sync-taxonomy
-.\.venv\Scripts\python.exe -m uvicorn bluepulse_backend.api:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m bluepulse_backend.cli initialize
 ```
 
-数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。新数据库只含七个主题，没有来源或文章；前端看到真实空态。完成上述环境安装和数据库初始化后，双击根目录 `Pulse.bat` 即可依次启动后端、等待就绪、启动前端并打开浏览器；已有服务会复用。脚本仅启动 API 与网页，采集及模型任务仍需显式触发。
+数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。`initialize` 在已有库需要升级时先做 SQLite 备份，再迁移并幂等注册七类和 15 个信源。新来源的摘录、全文、媒体与全文再分发许可默认关闭。双击根目录 `Pulse.bat` 会初始化、启动 FastAPI 与独立 worker，等待 API 就绪后启动 Next.js 并打开浏览器。
+
+### 启用真实运行
+
+在启动终端中按需配置以下环境变量。Windows PowerShell 可设置这些变量后执行 `..\Pulse.bat`，API、worker 与 Next.js 继承该配置。
+
+| 变量 | 用途 |
+| --- | --- |
+| `BLUEPULSE_COLLECT_ENABLED=1` | 启用已登记来源的真实定时采集 |
+| `BLUEPULSE_MODEL_CALLS_ENABLED=1` | 启用正常 worker 的付费步骤，使用现有 `backend/.env` 中的模型 |
+| `BLUEPULSE_MODEL_BUDGET_MINUTE`、`_HOUR`、`_DAY` | 全名使用 `BLUEPULSE_MODEL_BUDGET_` 前缀。分别设置每分钟、小时和日的正整数请求上限 |
+| `BLUEPULSE_SITE_ORIGIN` | 本机默认 `http://127.0.0.1:3000`，部署时填写实际 HTTPS 站点地址 |
+| `BLUEPULSE_ADMIN_PASSWORD`、`BLUEPULSE_ADMIN_SESSION_SECRET` | 密码至少 12 字符，独立会话密钥至少 32 字符。配置后可进入 `/admin` |
+| `BLUEPULSE_FEEDBACK_ENABLED=1` | 同时启用 FastAPI 接收与 Next.js 反馈代理 |
+| `BLUEPULSE_MEDIA_SECRET` | 配置独立签名密钥并批准来源媒体许可后启用签名图片 |
+| `BLUEPULSE_MODEL_PRESETS`、`BLUEPULSE_MODELS` | 可选 JSON 对象。前者映射预设名到凭据文件绝对路径，后者映射能力到预设名。默认模型使用现有 `backend/.env` |
+
+正常 worker 在未显式启用采集或模型时仍可编排已确认的公开内容。管理员可在站内查看任务、恢复未知回执、调整来源许可和确认选稿门槛。模型预算统计已预留的真实请求尝试次数。
+
+### 一次性隔离联调
+
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.worker --live-test "$PWD\data\prelaunch-20261108"
+```
+
+该入口读取现有模型配置，先以 `/models` 预检，再在指定目录的独立 SQLite 库用选定的国内外信源运行。复用同一目录可以续跑，所有步骤和重试共享 30 次持久额度。统计写入 `report.json`，脱敏回执在隔离库。切换本地阅读服务时显式将 `BLUEPULSE_DATABASE_URL` 指到该库。信源许可与生产阈值按目标库管理。
+
+## 模型 API 配置与限量检查（2026-11-06）
+
+所有模型命令现在统一默认读取本目录的 `.env`（本工作区为 `D:/pulse/backend/.env`），显式 `--env` 优先；不再向项目外寻找或静默回退到旧配置文件。配置文件被 Git 忽略，密钥不放入前端或日志：
+
+```dotenv
+base_url=https://www.autodl.art/api/v1
+key=在本机填写AutoDL模型API令牌
+llm_id=DeepSeek-V4.1-Flash-1017
+```
+
+当前仅为 AutoDL 官方主机 `www.autodl.art` / `autodl.art` 上的 `DeepSeek-V4.1-Flash-1017` 增加专用参数：关闭思考、JSON 对象输出、非流式；分类上限 1024 token，评分上限 512 token，输入仍最多 4200 字符。DeepSeek 官方及其他提供方保持原有参数行为，不自动为其他 AutoDL 模型启用这一配置，也不自动降级参数、换模型或重试。切换模型后应重新验证兼容性。
+
+在本目录运行以下命令，默认只显示未启用，不读取凭证、不联网、不建库：
+
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.model_smoke_check
+```
+
+明确开启真实检查时，使用一个新的或为空的输出目录：
+
+```powershell
+.\.venv\Scripts\python.exe -m bluepulse_backend.model_smoke_check --execute --allow-paid-model --max-model-calls-total 3 --env "D:/pulse/backend/.env" --output-dir data/model-api-check/next-run-01
+```
+
+检查通过 `/models` 核验当前配置，再用明确标注的虚构警务测试材料执行一次分类和两次独立五轴评分；最多三次付费生成，任何一步失败立即停止。发送前持久化状态，收到响应后先保存脱敏回执再解析；不保存完整思考文本。输出目录中的 `report.json` 包含实际请求参数、回执、usage 和处理结果，`smoke.db` 为独立隔离库，来源摘录和全文许可均关闭，不写默认资讯库。非空目录拒绝重用，避免重复执行；未知结果不会自动重发，不应通过新建目录将其冒充续跑。该检查不是跨进程预算、完整生产回执系统或模型质量评测。
+
+错误区分 `provider_output_truncated`（输出截断）、`provider_empty_content`（答案为空）、`provider_invalid_json`（JSON 无效）、`provider_invalid_schema`（字段不合约）和 `provider_http_*`（HTTP 错误）；超时和传输中断仍记为 `unknown`。分类和评分的失败回执保留安全诊断信息，包括 HTTP 状态、结束原因、request ID、耗时及 usage。当前 AutoDL 的实际模型和参数绑定分析版本；同一材料修订的旧 `started/unknown` 回执不会因参数版本变化而自动重发。
+
+2026-11-06 已在本机完成一次真实三调用检查：中文标题／摘要／分类及两次评分全部通过，三个响应的思考 token 均为 0；正式数据库和密钥文件未变。测试材料未公开，来源精选门槛未校准，不将评分成功解释为可自动入选。调用用量、实测命令与边界见[模型 API 测试记录](../docs/model-api-smoke-2026-11-06.md)。
 
 ## 离线完整性检查
 
@@ -54,7 +107,7 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 .\.venv\Scripts\python.exe -m bluepulse_backend.source_collection --source ccgp-policing-tech --mode preview --max-items 2 --execute
 ```
 
-`--mode ingest` 需提供已迁移的 `--database-url`，材料保持待分析状态；`--mode ingest-analyze` 还需 `--allow-paid-model`，从工作区 `.env` 读取模型配置并在调用前核验 `/models`，通过 `--max-model-calls` 限制本次分析次数（1–5）。新建来源默认不允许对外摘录或全文展示；核对来源条款和内容质量后才可调整公开许可。入口不自动定时运行，也不导入旧标注。
+`--mode ingest` 需提供已迁移的 `--database-url`，材料保持待分析状态；`--mode ingest-analyze` 还需 `--allow-paid-model`，默认从 `backend/.env` 读取模型配置（可用 `--env` 显式指定），调用前核验 `/models`，通过 `--max-model-calls` 限制本次分析次数（1–5）。新建来源默认不允许对外摘录或全文展示；核对来源条款和内容质量后才可调整公开许可。入口不自动定时运行，也不导入旧标注。
 
 ### 自动触发与诊断（2026-11-04）
 
@@ -131,7 +184,7 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 
 此密度分母为已标注的来源 × 不同 URL，不能当成全站或未来供稿密度；JSON 另列跨入口同 URL/同标题重叠。汇总 CSV 按自然日及来源记录所有运行；同日重试不覆盖首跑，`same_snapshot_duplicate` 为本次同一候选重放的机制检查。`database_modes=longitudinal` 时的 `duplicate` 才反映观察库既有 URL；11-01 早期文件标为 `isolated`，其多次 `new` 来自不同临时库，跨日基数以 `observation-seed.json` 的 30 条为准。每天检查失败阶段和原始发布日期，约 14 天后再按独立日期评审；无新稿与访问失败分开统计。`observation.db` 与旧的单轮 `baseline-*.db` 均在 `backend/data/`，不会写默认 `bluepulse.db`。本轮未调用模型；后续若做模型质量抽样须单独指定少量样本和明确调用上限。
 
-工作区根目录 `.env` 使用 `base_url`、`key`、`llm_id` 三个字段；密钥不得写入命令、日志、Git 或前端环境变量。试验命令：
+`backend/.env` 使用 `base_url`、`key`、`llm_id` 三个字段；也可用 `--env` 显式指定。密钥不得写入命令、日志、Git 或前端环境变量。试验命令：
 
 ```powershell
 .\.venv\Scripts\python.exe -m bluepulse_backend.live_pilot --execute
@@ -153,18 +206,14 @@ GOV.UK publication 的英文 HTML 与 CSV 文字附件已接入限量提取；20
 | `GET /api/v1/site/timeline`、`site/groups/{fact_id}/reports` | 近 30 日已入选材料的保守 Fact 归组时间线及同事实公开报道；热点仍为空 |
 | `GET /api/v1/agent`、`agent/latest`、`agent/search` | Markdown 接入说明与只读 JSON 最新/关键词查询；需配置 `BLUEPULSE_SITE_ORIGIN`，不返回正文或模型内部信息 |
 | `POST /api/v1/internal/auto-publication/jobs`、`GET /api/v1/internal/auto-publication/jobs/{uuid}` | 内部令牌保护的自动出稿任务排队与状态读取；未配置令牌时为 503，HTTP 请求不执行采集或模型 |
-| `GET /api/v1/entities` | 当前真实空目录；实体抽取还未接入 |
+| `GET /api/v1/entities` | 已取得原文名称证据且符合当前公开政策的实体目录 |
 
-统一错误为 `{error:{code,message,request_id}}`，响应包含 `X-Request-ID`。`/openapi.json` 提供路径、参数和响应模型。`articles` 支持 `period/topic/region/source/source_type/entity/q/sort/cursor/limit`；`entity` 在实体链路建立前只会得到空结果。不存在、隐藏或撤回的详情统一为 404；历史材料仍可在 `period=all` 中阅读。默认只提供摘要和原站链接；来源许可明确允许时才返回全文。
+统一错误为 `{error:{code,message,request_id}}`，响应包含 `X-Request-ID`。`/openapi.json` 提供路径、参数和响应模型。`articles` 支持 `period/topic/region/source/source_type/entity/tag/q/sort/cursor/limit`。搜索可以匹配当前许可公开的正文和译文，Agent 搜索限标题及公开摘要。不公开的详情统一返回 404，历史材料仍可在 `period=all` 中阅读。阅读默认提供摘要和原站链接，来源许可决定全文和媒体。
 
 Agent JSON 与文章列表复用当前公开资格查询；先过滤再分页。`agent/latest` 默认原发布日近 7 天、10 条，另可选 `24h/30d`；24 小时只含精确发布时间。`agent/search` 默认全库、10 条，只查公开标题与摘要，`q` 去空格后为 2–200 字符；两接口 `limit` 为 1–30。返回 `schema_version/query/items`，每篇含日期精度、首次收录时间、固定站点地址生成的站内链接及原文链接。未配置 `BLUEPULSE_SITE_ORIGIN` 时返回 503；本机可显式设置如 `http://127.0.0.1:3000`，部署时使用实际公开站点地址。MCP 不在本轮范围，字段与验收见[Agent 后端指南](../docs/agent-access-backend-guide.md)。
 
-## 目前边界
+## 当前运行边界
 
-- 当前 15 个显式限量入口分布于 12 个主机；具体路径见台账。NPCC、江苏、PDS、StateScoop、Europol、采购网等有过本机连接阶段间歇故障；Police Science 有受控的 robots 自重定向处理。Government Technology 返回 WAF challenge，OpenAlex 按用户决定暂不考虑，NIJ 因当前专题入口少且旧文占比高暂停。各源尚无连续稳定结论。HTX、NPCC、PDS 等只有日期的页面已保存日期精度；定时触发命令已提供，但尚未注册系统任务或在正式库持续运行；站点条款自动核验仍未实现。试验适配器不绕过访问挑战。
-- 自动公开资格现在要求 `full_text` 正文至少 300 个非空白字符；原有 `min_body_status` 数据字段保留兼容，不再允许以薄摘要自动公开。
-- 模型调用器支持 `.env` 指定的 OpenAI 兼容 Chat Completions 端点。相关稿的分类与两次五轴评分分别写回执；`started` 或 `unknown` 尝试不会自动重发。来源精选门槛默认未校准，跨进程付费预算、五轴人工金标和模型评测仍待完善。
-- 已实现同日同规范标题的保守 Fact 归组及每组一篇的近期自动精选；该模式不使用五轴评分，理由明确标注“未进行五轴评分”。同事件不同标题、Story 后续进展与模型复核仍未实现。Agent 的只读 HTTP 查询已实现，接入页面及外部部署联调尚未完成；热点、日报、反馈及管理员接口仍未实现，不返回伪造内容。
-- 本地 SQLite 便于离线测试；PostgreSQL 并发、游标、迁移和运行负载尚未验证。旧数据库未导入，也不能用这套新迁移直接升级旧库。
-
-后续工作按工作区根目录的《后端重构计划》推进。项目内其他历史文档所写“旧后端已实现”均是 2026-10-27 删除前的状态。
+- 上述限量试验章节为历史记录。日常采集与模型处理使用持久 worker，内部任务 CLI 也走同一队列。历史探针及烟测用于隔离诊断。
+- 当前 15 个入口仍有间歇连接、robots、日期精度和当期供稿限制。正式运行按目标库内的来源许可与校准门槛发布。未校准的两次评分可以留档和人工查看。
+- 本轮验证面向 SQLite 和本机部署。持续运行可用率、警务金标校准与实验室公网部署属于上线前的独立验收条件。详见 [闭环验收记录](../docs/backend-prelaunch-2026-11-08.md)。

@@ -1,0 +1,54 @@
+.shell {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(1rem, 5vw, 3.5rem);
+  color: #242721;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #d5d9d1;
+}
+
+.header h1 { margin: .25rem 0 0; font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 400; }
+.kicker { margin: 0; color: #376347; letter-spacing: .1em; font-size: .75rem; }
+.nav { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: 1.25rem 2rem; }
+.nav a { color: #38473b; padding: .4rem 0; border-bottom: 1px solid transparent; text-decoration: none; }
+.nav a[aria-current] { color: #175830; border-bottom-color: currentColor; font-weight: 600; }
+.nav a:focus-visible, .shell :is(input, select, textarea, button, summary):focus-visible { outline: 2px solid #175830; outline-offset: 3px; }
+
+.shell :is(input, select, textarea, button) {
+  min-width: 0;
+  border: 1px solid #a7b1a6;
+  border-radius: .25rem;
+  padding: .55rem .65rem;
+  background: #fff;
+  color: inherit;
+}
+
+.shell button { cursor: pointer; }
+.shell button:disabled { opacity: .6; cursor: wait; }
+.shell :is(input, select, textarea) { width: 100%; }
+.shell input[type="checkbox"] { width: auto; margin-right: .35rem; }
+.shell .primary { background: #295e3e; border-color: #295e3e; color: #fff; }
+.shell .danger { color: #a02c24; }
+.login { display: grid; gap: 1rem; max-width: 22rem; margin-top: 2rem; }
+.form { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; margin-block: .8rem; }
+.form label, .login label { display: grid; gap: .35rem; min-width: min(100%, 10rem); }
+.form .wide { width: 100%; }
+.form textarea { min-height: 6rem; resize: vertical; }
+.shell h2 { margin-block: 1.5rem .65rem; font-size: 1.15rem; font-weight: 600; }
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { border-bottom: 1px solid #dce1d9; padding: .7rem 0; overflow-wrap: anywhere; }
+.rows summary { cursor: pointer; }
+.rows a { color: #235b3a; }
+.meta { color: #526254; font-size: .85rem; overflow-wrap: anywhere; }
+.error { color: #971f18; }
+.json { background: #edf1ea; padding: .75rem; max-height: 26rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-block: 1rem; }
+.toolbar input, .toolbar select { width: auto; max-width: 100%; }
+.toolbar label { display: grid; gap: .25rem; }

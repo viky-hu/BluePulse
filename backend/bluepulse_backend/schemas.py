@@ -92,6 +92,7 @@ class ArticleDetailOut(ArticleCardOut):
     quality_status: str
     media: list[MediaOut]
     comments: CommentsOut
+    reader: dict | None = None
 
 
 class TimelineArticleOut(ArticleCardOut):
@@ -128,7 +129,7 @@ class TimelineOut(Contract):
     filters: dict[str, str]
     cards: list[TimelineCardOut]
     nextCursor: str | None
-    hot: None = None
+    hot: list[dict] | None = None
     dayCounts: dict[str, int]
 
 
@@ -160,6 +161,8 @@ class EntityListOut(Contract):
 class AvailabilityItem(Contract):
     id: str
     available: bool
+    status: Literal["public", "summary-only", "unavailable"] | None = None
+    source_name: str | None = None
 
 
 class AvailabilityOut(Contract):

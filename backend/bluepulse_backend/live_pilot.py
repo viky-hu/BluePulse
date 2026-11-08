@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .cli import migrate, sync_taxonomy
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter
 from .models import AnalysisAttempt, Material, Source
 from .operations import source_funnel
@@ -125,7 +125,7 @@ def run(env_path: Path, report_path: Path, *, max_source_items: int = 2,
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bounded real-source/model pilot; writes isolated local DB")
     parser.add_argument("--execute", action="store_true", help="required to allow network and paid model calls")
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--report", type=Path, default=Path(__file__).resolve().parents[3] / "真实采集试验.md")
     parser.add_argument("--model", help="explicit model override; must appear in /models")
     args = parser.parse_args()

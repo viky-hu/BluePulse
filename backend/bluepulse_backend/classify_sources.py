@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .ccgp_source import USER_AGENT
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .model_processing import process_model_batch
 from .models import Material, Source
 from .source_collection import SOURCES
@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--database-url", required=True, help="already migrated target database")
     parser.add_argument("--allow-paid-model", action="store_true")
     parser.add_argument("--max-model-calls-total", type=int, default=0)
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     if not args.execute or not args.allow_paid_model or not 1 <= args.max_model_calls_total <= 50:

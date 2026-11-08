@@ -1,18 +1,16 @@
-"""Dormant queue entry point: collect, classify, group, then build a recent edition."""
+"""Enqueue and execute a bounded automatic-publication batch."""
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-import httpx
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from .ccgp_source import USER_AGENT
 from .db import make_engine
-from .fact_grouping import create_recent_featured, group_public_materials
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .fact_grouping import create_confirmed_featured, create_recent_featured, group_public_materials
+from .live_model import DEFAULT_MODEL_ENV, load_local_credentials, model_listed
 from .models import AutoPublicationJob, now_utc
 from .source_collection import SOURCES
 from .source_worker import run_cycle
@@ -84,12 +82,16 @@ def run_claimed_job(session: Session, job_id: str, client_factory, *, analyzer=N
 
 
 def main() -> None:
+    from .receipts import Budget, recover_receipts
+    from .worker import Worker, _client
+    from .work_queue import serialized
+
     parser = argparse.ArgumentParser(description="Run one queued auto-publication job")
     parser.add_argument("--execute", action="store_true", help="required for network access")
     parser.add_argument("--database-url", required=True, help="already migrated target database")
     parser.add_argument("--allow-paid-model", action="store_true")
     parser.add_argument("--max-model-calls-total", type=int, default=0)
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     args = parser.parse_args()
     if not args.execute or not 0 <= args.max_model_calls_total <= 50:
         parser.error("--execute and a 0-50 call cap are required")
@@ -98,47 +100,35 @@ def main() -> None:
     engine = make_engine(args.database_url)
     try:
         with Session(engine) as session:
-            job_id = claim_next_job(session)
-            if job_id is None:
+            job = session.scalar(select(AutoPublicationJob).where(
+                AutoPublicationJob.status.in_(("pending", "running"))).order_by(
+                AutoPublicationJob.created_at, AutoPublicationJob.id).limit(1))
+            if job is None:
                 print(json.dumps({"status": "idle"}))
                 return
-            job = session.get(AutoPublicationJob, job_id)
             if job.max_model_calls > args.max_model_calls_total:
-                job.status = "pending"
-                job.started_at = None
-                session.commit()
                 parser.error("worker model cap is lower than queued job cap")
-        def client_factory():
-            return httpx.Client(timeout=httpx.Timeout(35, connect=10),
-                                follow_redirects=False, headers={"User-Agent": USER_AGENT})
-        model_client = None
-        analyzer = None
-        try:
-            if args.allow_paid_model:
-                base_url, api_key, model = load_local_credentials(args.env)
-                model_client = client_factory()
+            job_id, cap = job.id, args.max_model_calls_total
+        budget = Budget(cap, cap, cap) if args.allow_paid_model else None
+        if budget:
+            base_url, api_key, model = load_local_credentials(args.env)
+            with _client() as model_client:
                 if not model_listed(model_client, base_url, api_key, model):
-                    raise ValueError("model_not_listed")
-                analyzer = LiveAnalyzer(model_client, base_url, api_key, model)
+                    parser.error("configured model could not be verified through /models")
+        worker = Worker(engine, _client, presets={"default": args.env}, budget=budget, collect_enabled=True)
+        recover_receipts(engine, now_utc())
+        with serialized(engine) as session:
+            worker.sync_requested_batches(session, now_utc(), job_id)
+        while worker.run_one(job_id):
+            pass
+        with serialized(engine) as session:
+            worker.sync_requested_batches(session, now_utc(), job_id)
+            job = session.get(AutoPublicationJob, job_id)
+            result = {"job_id": job.id, "status": job.status, "report": job.report}
+        if result["status"] == "completed":
             with Session(engine) as session:
-                result = run_claimed_job(session, job_id, client_factory,
-                                         analyzer=analyzer,
-                                         process_call_cap=args.max_model_calls_total)
-            print(json.dumps({"job_id": job_id, "status": "completed",
-                              "model_used": result["collection"]["model_used"],
-                              "featured": result["featured"]["selected"]}, ensure_ascii=False))
-        except Exception as exc:
-            with Session(engine) as session:
-                job = session.get(AutoPublicationJob, job_id)
-                if job is not None and job.status == "running":
-                    job.status = "failed"
-                    job.error_code = type(exc).__name__
-                    job.finished_at = now_utc()
-                    session.commit()
-            raise
-        finally:
-            if model_client is not None:
-                model_client.close()
+                result["featured"] = create_confirmed_featured(session)
+        print(json.dumps(result, ensure_ascii=True))
     finally:
         engine.dispose()
 

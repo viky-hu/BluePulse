@@ -25,6 +25,17 @@ if not exist "%NEXT_CMD%" (
   exit /b 1
 )
 
+echo Preparing BluePulse database and source registry...
+pushd "%BACKEND_DIR%"
+"%API_PYTHON%" -m bluepulse_backend.cli initialize
+if errorlevel 1 (
+  popd
+  echo [ERROR] BluePulse database initialization failed.
+  pause
+  exit /b 1
+)
+popd
+
 echo Checking BluePulse API...
 curl.exe --silent --fail --connect-timeout 1 --max-time 2 --output nul http://127.0.0.1:8000/api/v1/health/ready
 if not errorlevel 1 goto START_WEB
@@ -42,6 +53,9 @@ powershell.exe -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>&1
 goto WAIT_FOR_API
 
 :START_WEB
+echo Starting BluePulse background worker...
+start "BluePulse Worker" /D "%BACKEND_DIR%" "%API_PYTHON%" -m bluepulse_backend.worker
+
 echo Checking BluePulse Web...
 curl.exe --silent --fail --connect-timeout 1 --max-time 5 --output nul http://127.0.0.1:3000
 if errorlevel 1 start "BluePulse Web - 3000" /D "%ROOT%" "%NEXT_CMD%" dev --hostname 127.0.0.1 --port 3000
@@ -58,9 +72,9 @@ powershell.exe -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>&1
 goto WAIT_FOR_WEB
 
 :OPEN_BROWSER
-echo Both services are ready. Opening http://127.0.0.1:3000
+echo BluePulse API and Web are ready. Opening http://127.0.0.1:3000
 start "" "http://127.0.0.1:3000"
-echo You can close this window; keep the API and Web service windows running.
+echo You can close this window; keep the API, Web and Worker windows running.
 exit /b 0
 
 :API_TIMEOUT

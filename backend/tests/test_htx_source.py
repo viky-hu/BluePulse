@@ -24,7 +24,8 @@ def test_htx_public_listing_to_limited_article_body_and_date():
       <div class='detail__content'><span class='date-author'><span class='date'>Published on 29 October 2026</span></span>
       <div class='rte'><p>Police officers tested the AI pilot in a documented setting with safeguards.</p></div>
       <div class='rte'><p>Outcomes were measured against a manual baseline and reviewed by staff.</p></div>
-      <div class='rte'><p><strong>Photo Gallery</strong></p></div></div>
+      <div class='rte'><p><strong>Photo Gallery</strong></p><img src='/photos/field-trial.jpg' alt='Field trial'></div>
+      <div class='rte'><img src='/Sitefinity/private.jpg'><img src='https://outside.example/unsafe.jpg'></div></div>
       <footer><p>Unrelated site navigation</p></footer>"""
 
     def handler(request):
@@ -45,6 +46,8 @@ def test_htx_public_listing_to_limited_article_body_and_date():
     assert rows[0].published_at is None
     assert len(rows[0].body) >= 120 and "Unrelated" not in rows[0].body
     assert "Photo Gallery" not in rows[0].body
+    assert rows[0].media == [{"kind": "image", "url": "https://www.htx.gov.sg/photos/field-trial.jpg",
+                              "alt": "Field trial", "width": None, "height": None}]
     assert len(requests) == 3
     assert adapter.diagnostics == {"listing_items": 2, "detail_attempts": 1,
                                    "detail_full_text": 1, "detail_failed": 0}

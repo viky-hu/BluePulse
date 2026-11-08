@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .api import create_app
 from .cli import sync_taxonomy
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import AnalysisAttempt, Material, Source
 from .pipeline import process_pending
 from .source_collection import SOURCES, ensure_source
@@ -27,7 +27,7 @@ MODEL_PRIORITY = ("htx-news", "nist-public-safety", "ccgp-policing-tech", "govuk
 
 
 def run(output_dir: Path, *, max_items: int = 2, max_model_calls: int = 4,
-        allow_paid_model: bool = False, env: Path = BACKEND.parent.parent / ".env") -> dict:
+        allow_paid_model: bool = False, env: Path = DEFAULT_MODEL_ENV) -> dict:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError("output_directory_must_be_empty")
     if not 1 <= max_items <= 2 or not 0 <= max_model_calls <= 4:
@@ -169,7 +169,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--max-items", type=int, default=2)
     parser.add_argument("--max-model-calls", type=int, default=4)
-    parser.add_argument("--env", type=Path, default=BACKEND.parent.parent / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--allow-paid-model", action="store_true")
     parser.add_argument("--retry-source", choices=sorted(SOURCES))

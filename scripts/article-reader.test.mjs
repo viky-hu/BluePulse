@@ -30,6 +30,23 @@ test('proxy exact tools, conditional downloads and upstream failure status', asy
     globalThis.fetch = async () => { throw Error('offline'); };
     assert.equal((await GET(new Request('http://local/api'), { params: Promise.resolve({ path: ['articles', id, 'markdown'] }) })).status, 503);
 });
+test('public story and signed image proxy expose only exact read paths', async (t) => {
+    const { GET } = await import('../src/app/api/bluepulse/[...path]/route.ts');
+    const paths = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+        paths.push(new URL(url).pathname);
+        return new Response(null, {status: 200, headers: {'x-content-type-options': 'nosniff'}});
+    });
+    for (const path of [['site', 'stories', id], ['site', 'media', id, '0']]) {
+        const response = await GET(new Request('http://local/api?exp=1&sig=secret'), {params: Promise.resolve({path})});
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    }
+    for (const path of [['site', 'media', id, '9'], ['site', 'media', '../x', '0'], ['site', 'stories', id, 'admin']]) {
+        assert.equal((await GET(new Request('http://local/api'), {params: Promise.resolve({path})})).status, 404);
+    }
+    assert.deepEqual(paths, [`/api/v1/site/stories/${id}`, `/api/v1/site/media/${id}/0`]);
+});
 test('freshness uses both responses, canonical query and force cannot overwrite newer result', async (t) => {
     const { loadArticle, getCachedArticle, invalidateArticle } = await import('../src/app/articles/_reader/cache.ts');
     const { articleKey } = await import('../src/app/articles/_reader/data.ts');

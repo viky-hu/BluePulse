@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .ccgp_source import CcgpAdapter, HOST as CCGP_HOST, USER_AGENT
 from .db import make_engine
 from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter, SourceFetchError
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .model_processing import process_model_batch
 from .models import Source
 from .operations import source_funnel
@@ -181,7 +181,7 @@ def build_adapter(spec: SourceSpec, client: httpx.Client, *, max_items: int) -> 
     raise ValueError("unknown_source_kind")
 
 
-def ensure_source(session: Session, spec: SourceSpec) -> Source:
+def ensure_source(session: Session, spec: SourceSpec, *, commit: bool = True) -> Source:
     source = session.scalar(select(Source).where(Source.slug == spec.slug))
     if source is not None:
         if source.allowed_hosts != [spec.host]:
@@ -191,10 +191,15 @@ def ensure_source(session: Session, spec: SourceSpec) -> Source:
                     country_code=spec.country_code, language=spec.language,
                     source_type=spec.source_type, topics=list(spec.topics),
                     allowed_hosts=[spec.host], enabled=True,
+                    tier="T1" if spec.source_type == "official" else "T2",
+                    participant_key=spec.host,
                     excerpt_allowed=False, full_text_allowed=False,
                     min_body_status="full_text")
     session.add(source)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return source
 
 
@@ -210,7 +215,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=("preview", "ingest", "ingest-analyze"), default="preview")
     parser.add_argument("--max-items", type=int, default=2)
     parser.add_argument("--max-model-calls", type=int, default=2)
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--database-url", help="required for ingest; target database must already be migrated")
     parser.add_argument("--execute", action="store_true", help="required to enable public network requests")
     parser.add_argument("--allow-paid-model", action="store_true", help="required for ingest-analyze")

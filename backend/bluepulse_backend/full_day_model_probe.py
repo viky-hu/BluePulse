@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from .cli import sync_taxonomy
 from .db import make_engine
 from .full_day_pilot import BACKEND, DEFAULT_CATEGORIES, DEFAULT_INPUT, _candidate, _read, _sample, _write
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import AnalysisAttempt, Material
 from .pipeline import MockSourceAdapter, canonical_url, process_pending
 from .source_collection import SOURCES, collect
@@ -109,7 +109,7 @@ def main() -> None:
     parser.add_argument("--categories", type=Path, default=DEFAULT_CATEGORIES)
     parser.add_argument("--sample", type=Path, default=DEFAULT_SAMPLE)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--env", type=Path, default=BACKEND.parent.parent / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--max-model-calls", type=int, default=4)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--allow-paid-model", action="store_true")

@@ -12,6 +12,7 @@ from urllib.robotparser import RobotFileParser
 from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError
 from .pipeline import Candidate, canonical_url
+from .source_images import ArticleImages
 
 
 HOST = "www.htx.gov.sg"
@@ -23,18 +24,22 @@ SKIP = {"script", "style", "noscript", "nav", "footer", "form", "aside"}
 
 
 class _Article(HTMLParser):
-    def __init__(self):
+    def __init__(self, url):
         super().__init__(convert_charrefs=True)
         self.stack: list[tuple[str, set[str]]] = []
         self.title: list[str] = []
         self.body: list[str] = []
         self.description: str | None = None
         self.date: list[str] = []
+        self.images = ArticleImages(url, HOST)
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
         if tag == "meta" and values.get("property") == "og:description":
             self.description = values.get("content")
+        if (tag == "img" and self._in("detail__content") and self._in("rte") and
+                not any(parent in SKIP for parent, _ in self.stack)):
+            self.images.add(values)
         if tag not in VOID:
             self.stack.append((tag, set((values.get("class") or "").split())))
         if self._in("rte") and tag in {"p", "li", "h2", "h3", "br"}:
@@ -134,7 +139,7 @@ class HtxNewsAdapter:
                 continue
             self.diagnostics["detail_attempts"] += 1
             try:
-                detail = _Article()
+                detail = _Article(url)
                 detail.feed(fetch(url).decode("utf-8"))
             except (SourceFetchError, UnicodeDecodeError) as exc:
                 if isinstance(exc, SourceFetchError) and exc.code in {"http_403", "http_429", "robots_disallowed"}:
@@ -148,7 +153,8 @@ class HtxNewsAdapter:
             self.diagnostics["detail_full_text"] += 1
             candidates.append(Candidate(url=url, title=detail.clean_title or str(entry.get("title") or "").strip(),
                                         body=body, summary=detail.description,
-                                        published_date=detail.published_date, language="en"))
+                                        published_date=detail.published_date, language="en",
+                                        media=detail.images.permitted(policy, USER_AGENT)))
             if len(candidates) >= self.max_items:
                 break
         if not candidates and self.diagnostics["detail_failed"]:

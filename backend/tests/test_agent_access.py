@@ -93,8 +93,8 @@ def test_agent_queries_share_public_scope_without_exposing_body(tmp_path, monkey
         assert [item["id"] for item in client.get("/api/v1/articles",
             params={"q": "历史技术", "period": "all"}).json()["items"]] == [old_id]
         assert client.get("/api/v1/agent/search", params={"q": "hiddenphrase"}).json()["items"] == []
-        assert client.get("/api/v1/articles", params={
-            "period": "all", "q": "hiddenphrase"}).json()["items"] == []
+        assert [item["id"] for item in client.get("/api/v1/articles", params={
+            "period": "all", "q": "hiddenphrase"}).json()["items"]] == [current_id]
         assert client.get("/api/v1/agent/search", params={"q": "  "}).status_code == 422
         assert client.get("/api/v1/agent/latest", params={"limit": 31}).status_code == 422
         assert client.get("/api/v1/agent/latest", params={"window": "all"}).status_code == 422

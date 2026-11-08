@@ -15,6 +15,7 @@ import httpx
 from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError
 from .pipeline import Candidate
+from .source_images import ArticleImages
 
 
 HOST = "science.police.uk"
@@ -46,16 +47,18 @@ class PoliceScienceArticle:
     body: str
     published_date: str | None
     description: str | None
+    media: list[dict]
 
 
 class _News(HTMLParser):
-    def __init__(self):
+    def __init__(self, url):
         super().__init__(convert_charrefs=True)
         self.stack: list[tuple[str, set[str]]] = []
         self.title: list[str] = []
         self.body: list[str] = []
         self.date: list[str] = []
         self.description: str | None = None
+        self.images = ArticleImages(url, HOST)
 
     def _in(self, name: str) -> bool:
         return any(name in classes for _, classes in self.stack)
@@ -64,6 +67,8 @@ class _News(HTMLParser):
         values = dict(attrs)
         if tag == "meta" and values.get("name") == "description":
             self.description = values.get("content")
+        if tag == "img" and self._in("article_copy"):
+            self.images.add(values)
         if tag not in VOID:
             self.stack.append((tag, set((values.get("class") or "").split())))
         if self._in("article_copy") and tag in {"p", "li", "h2", "h3", "br"}:
@@ -88,8 +93,8 @@ class _News(HTMLParser):
             self.body.append(data)
 
 
-def parse_news_html(html: str) -> PoliceScienceArticle:
-    parser = _News()
+def parse_news_html(html: str, url: str = ROOT) -> PoliceScienceArticle:
+    parser = _News(url)
     parser.feed(html)
     raw_date = " ".join("".join(parser.date).replace("PUBLISHED:", "").split())
     try:
@@ -97,7 +102,8 @@ def parse_news_html(html: str) -> PoliceScienceArticle:
     except ValueError:
         date = None
     body = "\n".join(" ".join(line.split()) for line in "".join(parser.body).splitlines() if line.strip())[:100_000]
-    return PoliceScienceArticle(" ".join("".join(parser.title).split())[:500], body, date, parser.description)
+    return PoliceScienceArticle(" ".join("".join(parser.title).split())[:500], body, date, parser.description,
+                                list(parser.images.items.values()))
 
 
 class PoliceScienceAdapter:
@@ -173,7 +179,7 @@ class PoliceScienceAdapter:
         for url in urls[:self.max_items]:
             self.diagnostics["detail_attempts"] += 1
             try:
-                article = parse_news_html(fetch(url).decode("utf-8-sig"))
+                article = parse_news_html(fetch(url).decode("utf-8-sig"), url)
             except (SourceFetchError, UnicodeDecodeError) as exc:
                 if isinstance(exc, SourceFetchError) and exc.code in {"http_403", "http_429", "robots_disallowed"}:
                     raise
@@ -194,7 +200,9 @@ class PoliceScienceAdapter:
             candidates.append(Candidate(url=url, title=article.title, body=article.body,
                                         summary=article.description,
                                         published_date=date.fromisoformat(article.published_date),
-                                        language="en"))
+                                        language="en", media=[
+                                            image for image in article.media if policy.can_fetch(USER_AGENT, image["url"])
+                                        ] or None))
         if not candidates and self.diagnostics["detail_failed"]:
             raise SourceFetchError("all_details_failed")
         return candidates

@@ -39,6 +39,7 @@ class Candidate:
     language: str = "zh"
     author: str | None = None
     body_source_url: str | None = None
+    media: list[dict] | None = None
 
 
 class SourceAdapter(Protocol):
@@ -114,6 +115,8 @@ def _content_hash(candidate: Candidate) -> str:
         payload.append(candidate.published_date.isoformat())
     if candidate.body_source_url is not None:
         payload.append(candidate.body_source_url)
+    if candidate.media:
+        payload.append({"media": candidate.media})
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -125,17 +128,21 @@ def _body_status(candidate: Candidate) -> str:
     return "metadata_only"
 
 
-def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRun:
+def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=None, clock=now_utc) -> SourceRun:
     """Persist every discovery and revision. A failed source does not poison other sources."""
     if not source.enabled:
         raise ValueError("source_disabled")
-    run = SourceRun(source_id=source.id)
+    if guard:
+        guard(session)
+    run = SourceRun(source_id=source.id, started_at=clock())
     session.add(run)
     session.commit()
     try:
         candidates = adapter.candidates()
     except Exception as exc:
-        run.status, run.error_code, run.finished_at = "failed", getattr(exc, "code", "adapter_failed"), now_utc()
+        if guard:
+            guard(session)
+        run.status, run.error_code, run.finished_at = "failed", getattr(exc, "code", "adapter_failed"), clock()
         run.fetch_metrics = dict(getattr(adapter, "diagnostics", {}))
         session.commit()
         return run
@@ -143,13 +150,15 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
     run.fetch_metrics = dict(getattr(adapter, "diagnostics", {}))
     rejected = 0
     for candidate in candidates:
+        if guard:
+            guard(session)
         try:
             url = canonical_url(candidate.url, source.allowed_hosts)
             if candidate.body_source_url is not None:
                 canonical_url(candidate.body_source_url, source.allowed_hosts)
             if not _normalize(candidate.title):
                 raise ValueError("title_missing")
-            seen = now_utc()
+            seen = clock()
             timeline, sort_at, safe_published = publication_clock(
                 candidate.published_at, candidate.published_date, seen)
             digest = _content_hash(candidate)
@@ -161,6 +170,7 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
                     source_title=candidate.title, title_key=title_key(candidate.title),
                     source_body=candidate.body,
                     body_source_url=candidate.body_source_url,
+                    source_media=candidate.media,
                     source_summary=candidate.summary, language=candidate.language,
                     published_at=safe_published, published_date=candidate.published_date,
                     published_sort_at=sort_at,
@@ -180,7 +190,10 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
                 material.title_key = title_key(candidate.title)
                 material.source_body = candidate.body
                 material.body_source_url = candidate.body_source_url
+                material.source_media = candidate.media
                 material.source_summary = candidate.summary
+                material.language = candidate.language
+                material.author = candidate.author
                 material.published_at = safe_published
                 material.published_date = candidate.published_date
                 material.published_sort_at = sort_at
@@ -192,6 +205,10 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
                 material.featured_candidate = False
                 material.selection_status = "pending"
                 material.grouping_status = "pending"
+                material.grouping_value = None
+                material.selected_at = material.judged_at = None
+                material.translation_revision = None
+                material.translation_status = "pending" if candidate.language.startswith("en") else "not_required"
                 material.zh_title = material.zh_summary = material.zh_body = None
                 outcome = "revised"
             else:
@@ -201,6 +218,7 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
                     material_id=material.id, revision=material.revision, content_hash=digest,
                     source_title=candidate.title, source_body=candidate.body,
                     body_source_url=candidate.body_source_url,
+                    source_media=candidate.media,
                     source_summary=candidate.summary, published_at=candidate.published_at,
                     published_date=candidate.published_date,
                 ))
@@ -213,13 +231,17 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter) -> SourceRu
             session.commit()
         except ValueError as exc:
             session.rollback()
+            if guard:
+                guard(session)
             rejected += 1
             session.add(Discovery(run_id=run.id, source_id=source.id, url=candidate.url,
                                   outcome="rejected", reason_code=str(exc)))
             session.commit()
+    if guard:
+        guard(session)
     run.status = ("partial" if rejected or run.fetch_metrics.get("detail_failed", 0)
                   else "no_candidates" if not candidates else "completed")
-    run.finished_at = now_utc()
+    run.finished_at = clock()
     session.commit()
     return run
 
@@ -297,7 +319,6 @@ def process_pending(session: Session, analyzer: Analyzer, *, retry_failed: bool 
         previous_unknown = session.scalar(select(AnalysisAttempt.id).where(
             AnalysisAttempt.material_id == material.id,
             AnalysisAttempt.revision == material.revision,
-            AnalysisAttempt.input_version == input_version,
             AnalysisAttempt.status.in_(["unknown", "started"]),
         ).limit(1))
         if previous_unknown:
@@ -330,11 +351,15 @@ def process_pending(session: Session, analyzer: Analyzer, *, retry_failed: bool 
             counts["applied"] += 1
         except UnknownOutcome as exc:
             attempt.status, attempt.error_code = "unknown", exc.code
+            if getattr(exc, "provider_meta", None):
+                attempt.result = {"provider_meta": exc.provider_meta}
             material.state = "receipt_unknown"
             session.commit()
             counts["unknown"] += 1
         except Exception as exc:
             attempt.status, attempt.error_code = "failed", getattr(exc, "code", "analysis_failed")
+            if getattr(exc, "provider_meta", None):
+                attempt.result = {"provider_meta": exc.provider_meta}
             material.state = "analysis_failed"
             session.commit()
             counts["failed"] += 1

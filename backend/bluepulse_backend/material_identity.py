@@ -7,9 +7,9 @@ import unicodedata
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 
-from .models import Material
+from .models import Material, Source
 
 
 def title_key(title: str) -> str:
@@ -69,7 +69,13 @@ def reconcile_title(session: Session, key: str | None) -> None:
     """Recompute links after insert/revision; keep each source record and provenance."""
     if not key:
         return
-    rows = session.scalars(select(Material).where(Material.title_key == key)).all()
+    # The historical e31c8a41d2f0 migration calls this function on a populated database.
+    rows = session.scalars(select(Material).options(
+        load_only(Material.id, Material.title_key, Material.source_body, Material.published_at,
+                  Material.published_date, Material.first_seen_at, Material.duplicate_of_id,
+                  Material.duplicate_reason, Material.state, Material.public),
+        joinedload(Material.source).load_only(Source.id, Source.excerpt_allowed, Source.source_type),
+    ).where(Material.title_key == key)).all()
     def seen_utc(row: Material) -> datetime:
         value = row.first_seen_at
         return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)

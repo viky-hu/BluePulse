@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from bluepulse_backend.api import create_app
 from bluepulse_backend.db import Base, make_engine
-from bluepulse_backend.models import FeaturedEdition, FeaturedSlot, Material, Source, Topic
+from bluepulse_backend.models import Material, Source, Topic
 from bluepulse_backend.pipeline import AnalysisResult, Candidate, MockAnalyzer, MockSourceAdapter, ingest, process_pending
 
 
@@ -39,15 +39,13 @@ def test_timeline_lists_only_current_visible_materials_and_paginates(tmp_path):
                                             topics=("paper",), importance_score=50)
                    for item in candidates}
         assert process_pending(session, MockAnalyzer(answers))["applied"] == 3
-        edition = FeaturedEdition(window_policy="auto_recent_7d")
-        session.add(edition)
-        session.flush()
         recent = session.scalars(select(Material).where(Material.source_id == source.id,
             Material.timeline_kind == "fresh").order_by(Material.source_url)).all()
-        for index, article in enumerate(recent):
-            session.add(FeaturedSlot(edition_id=edition.id, article_id=article.id,
-                slot=f"p{index}", importance_score=0,
-                featured_reason="近期自动编排；未进行五轴评分"))
+        for article in recent:
+            article.featured_candidate = True
+            article.editorial_revision = article.revision
+            article.selected_at = now
+            article.grouping_status = "complete"
         session.commit()
     with TestClient(create_app(address)) as client:
         first = client.get("/api/v1/site/timeline", params={"region": "foreign", "topic": "paper", "limit": 1})

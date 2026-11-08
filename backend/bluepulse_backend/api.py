@@ -6,6 +6,7 @@ import json
 import hmac
 import os
 from datetime import UTC, datetime, timedelta, timezone
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
@@ -19,9 +20,14 @@ from .db import make_engine, make_session_factory
 from .models import AutoPublicationJob, FactGroup, FactReport, FeaturedEdition, FeaturedSlot, Material, MaterialTopic, Source, Topic
 from .auto_publication import enqueue_job
 from .agent_access import agent_guide, agent_item, site_origin
-from .fact_grouping import AUTO_WINDOW
-from .publication import visible
+from .admin import register_admin
+from .edition_routes import register_editions
+from .fact_grouping import AUTO_WINDOW, CONFIRMED_WINDOW
+from .hotspots import load_hot_strip
+from .publication import selected, visible
+from .public_metadata import entity_links, entity_page, with_metadata_match
 from .public_reads import listed_query, visible_page, with_public_text_match, within_publication_window
+from .reading import apply_reader, availability_item, register_reading, representative_key
 from .schemas import (
     AgentListOut, ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
     AutoPublicationJobOut, AutoPublicationRequest, FeaturedOut, GroupReportsOut,
@@ -75,7 +81,7 @@ def _card(article: Material) -> dict:
         "parse_status": article.body_status, "body_status": article.body_status,
         "translation_status": article.translation_status,
         "topics": article.topics, "summary": article.zh_summary,
-        "media_preview": None, "entities": [],
+        "media_preview": None, "entities": entity_links(article),
     }
 
 
@@ -259,22 +265,25 @@ def create_app(database: str | None = None) -> FastAPI:
                  region: str | None = Query(None, pattern="^(domestic|foreign)$"),
                  q: str | None = Query(None, max_length=120), cursor: str | None = None,
                  limit: int = Query(20, ge=1, le=100)):
-        # Entity extraction is outside the current M0-M2 backbone. Empty is factual.
-        return {"items": [], "next_cursor": None, "limit": limit}
+        try:
+            return entity_page(session, kind=type, region=region, q=q, cursor=cursor, limit=limit)
+        except ValueError:
+            raise ApiError(400, "invalid_cursor", "翻页位置无效，请返回第一页。") from None
 
     @router.get("/home/featured", response_model=FeaturedOut)
     def featured(session: Session = Depends(session_dep)):
-        edition = session.scalar(select(FeaturedEdition).order_by(FeaturedEdition.generated_at.desc(), FeaturedEdition.id.desc()).limit(1))
+        edition = session.scalar(select(FeaturedEdition).where(FeaturedEdition.window_policy != AUTO_WINDOW)
+                                 .order_by(FeaturedEdition.generated_at.desc(), FeaturedEdition.id.desc()).limit(1))
         if edition is None:
             return {"generated_at": None, "window_policy": "24h_then_7d", "items": []}
         items = []
         for slot in edition.slots:
-            candidate_ok = (edition.window_policy == AUTO_WINDOW or slot.article.featured_candidate)
-            recent_ok = (edition.window_policy != AUTO_WINDOW or
-                         bool(slot.article.published_sort_at and
-                              _utc_seconds(slot.article.published_sort_at) >=
-                              (datetime.now(UTC) - timedelta(days=7)).timestamp()))
-            if visible(slot.article) and candidate_ok and recent_ok and slot.article.grouping_status == "complete":
+            article = slot.article
+            if edition.window_policy == CONFIRMED_WINDOW or article.editorial_revision:
+                candidate_ok = selected(article)
+            else:
+                candidate_ok = article.featured_candidate and visible(article) and article.grouping_status == "complete"
+            if candidate_ok:
                 items.append({"slot": slot.slot, "article": _card(slot.article),
                               "importance_score": slot.importance_score,
                               "featured_reason": slot.featured_reason})
@@ -294,25 +303,11 @@ def create_app(database: str | None = None) -> FastAPI:
         cursor: str | None = Query(None, max_length=2000),
         limit: int = Query(20, ge=1, le=40),
     ):
-        """Recent public facts, grouped conservatively by exact title and source date."""
+        """Recent confirmed facts with public reports in the same filter scope."""
         filters = {"region": region, "topic": topic}
         key = _filter_hash(["site-timeline", region, topic])
-        slots = session.scalars(select(FeaturedSlot).join(FeaturedEdition)).all()
-        selected_ids = {slot.article_id for slot in slots if
-                        slot.edition.window_policy == AUTO_WINDOW or slot.article.featured_candidate}
-        if not selected_ids:
-            return {"filters": filters, "cards": [], "nextCursor": None,
-                    "hot": None, "dayCounts": {}}
-        effective = func.coalesce(Material.published_sort_at, Material.published_at)
-        query = select(Material).join(Source).where(
-            Material.public.is_(True), Material.duplicate_of_id.is_(None),
-            Material.withdrawn.is_(False), Material.relevant.is_(True),
-            Source.excerpt_allowed.is_(True), Material.timeline_kind != "unknown",
-            effective >= datetime.now(UTC) - timedelta(days=30),
-            or_(Material.body_status == "full_text",
-                and_(Source.min_body_status == "abstract_only",
-                     Material.body_status.in_(["abstract_only", "summary_only"]))),
-        )
+        effective = func.coalesce(Material.published_sort_at, Material.published_at, Material.first_seen_at)
+        query = within_publication_window(listed_query(), "30d")
         if region:
             query = query.where(Source.region == region)
         if topic:
@@ -320,8 +315,15 @@ def create_app(database: str | None = None) -> FastAPI:
                 select(MaterialTopic.material_id).where(MaterialTopic.topic_slug == topic)))
         rows = [row for row in session.scalars(query.order_by(effective.desc(), Material.id)).all()
                 if visible(row)]
-        memberships = {item.material_id: item for item in session.scalars(select(FactReport).where(
-            FactReport.material_id.in_([row.id for row in rows]))).all()} if rows else {}
+        selected_ids = {row.id for row in rows if selected(row)}
+        legacy = select(FeaturedSlot.article_id).join(FeaturedEdition).where(FeaturedEdition.window_policy != AUTO_WINDOW)
+        legacy_ids = set(session.scalars(legacy))
+        selected_ids.update(row.id for row in rows if row.id in legacy_ids and not row.editorial_revision and
+                            row.featured_candidate and row.grouping_status == "complete")
+        memberships = {item.material_id: item for item in session.scalars(select(FactReport).join(
+            Material, Material.id == FactReport.material_id).where(
+            FactReport.material_id.in_([row.id for row in rows]), FactReport.revision == Material.revision,
+            Material.grouping_status == "complete")).all()} if rows else {}
         fact_ids = {item.fact_id for item in memberships.values()}
         facts = {item.id: item for item in session.scalars(select(FactGroup).where(
             FactGroup.id.in_(fact_ids))).all()} if fact_ids else {}
@@ -335,9 +337,7 @@ def create_app(database: str | None = None) -> FastAPI:
             selected_members = [item for item in members if item.id in selected_ids]
             if not selected_members:
                 continue
-            representative = min(selected_members, key=lambda item: (
-                item.source.source_type != "official", not item.source.full_text_allowed,
-                -_utc_seconds(item.published_sort_at or item.published_at or item.first_seen_at), item.id))
+            representative = min(selected_members, key=lambda item: representative_key(item, facts.get(group_id)))
             anchor = (facts[group_id].anchor_at if group_id in facts else
                       representative.published_sort_at or representative.published_at or representative.first_seen_at)
             cards_data.append((anchor, group_id, representative, members))
@@ -366,7 +366,8 @@ def create_app(database: str | None = None) -> FastAPI:
                                      "reportCount": len(members)} if len(members) > 1 else None)})
         return {"filters": filters, "cards": cards,
                 "nextCursor": _timeline_cursor(page[-1][0], page[-1][1], key) if more else None,
-                "hot": None, "dayCounts": day_counts}
+                "hot": load_hot_strip(session) if not any((region, topic, cursor)) else None,
+                "dayCounts": day_counts}
 
     @router.get("/site/groups/{fact_id}/reports", response_model=GroupReportsOut)
     def group_reports(fact_id: UUID, session: Session = Depends(session_dep),
@@ -376,7 +377,8 @@ def create_app(database: str | None = None) -> FastAPI:
         if fact is None:
             raise ApiError(404, "group_not_found", "阅读组不存在。")
         query = select(Material).join(FactReport, FactReport.material_id == Material.id).join(Source).where(
-            FactReport.fact_id == fact.id, Material.public.is_(True),
+            FactReport.fact_id == fact.id, FactReport.revision == Material.revision,
+            Material.grouping_status == "complete", Material.public.is_(True),
             Material.duplicate_of_id.is_(None), Material.withdrawn.is_(False),
             Material.relevant.is_(True), Source.excerpt_allowed.is_(True))
         if region:
@@ -403,13 +405,14 @@ def create_app(database: str | None = None) -> FastAPI:
         source: UUID | None = None,
         source_type: str | None = None,
         entity: str | None = Query(None, pattern="^[a-z0-9-]{1,100}$"),
+        tag: str | None = Query(None, min_length=1, max_length=80),
         q: str | None = Query(None, max_length=200),
         cursor: str | None = Query(None, max_length=2000),
         limit: int = Query(20, ge=1, le=100),
         sort: str = Query("recent", pattern="^(recent|importance)$"),
     ):
         search = (q or "").strip()
-        key = _filter_hash([period, topic, region, str(source) if source else None, source_type, entity, search])
+        key = _filter_hash([period, topic, region, str(source) if source else None, source_type, entity, tag, search])
         effective = func.coalesce(Material.published_sort_at, Material.published_at, Material.first_seen_at)
         query = within_publication_window(listed_query(), period)
         if topic:
@@ -422,9 +425,8 @@ def create_app(database: str | None = None) -> FastAPI:
             query = query.where(Material.source_id == str(source))
         if source_type:
             query = query.where(Source.source_type == source_type)
-        if entity:
-            return {"items": [], "next_cursor": None, "limit": limit}
-        query = with_public_text_match(query, search)
+        query = with_metadata_match(query, tag=tag, entity=entity)
+        query = with_public_text_match(query, search, include_body=True)
         boundary = None
         if cursor:
             date, article_id, score = _read_cursor(cursor, sort, key)
@@ -443,7 +445,7 @@ def create_app(database: str | None = None) -> FastAPI:
                 "next_cursor": _cursor_for(rows[-1], sort, key) if more else None,
                 "limit": limit}
 
-    @router.get("/articles/availability", response_model=AvailabilityOut)
+    @router.get("/articles/availability", response_model=AvailabilityOut, response_model_exclude_none=True)
     def availability(session: Session = Depends(session_dep), ids: str = ""):
         if not ids:
             return {"items": []}
@@ -455,16 +457,20 @@ def create_app(database: str | None = None) -> FastAPI:
         except ValueError:
             raise ApiError(422, "invalid_request", "请求参数无效。") from None
         rows = session.scalars(select(Material).where(Material.id.in_(article_ids))).all()
-        available = {row.id for row in rows if visible(row)}
-        return {"items": [{"id": item, "available": item in available} for item in article_ids]}
+        by_id = {row.id: row for row in rows}
+        return {"items": [availability_item(by_id.get(item), item) for item in article_ids]}
 
     @router.get("/articles/{article_id}", response_model=ArticleDetailOut)
-    def detail(article_id: UUID, session: Session = Depends(session_dep)):
+    def detail(article_id: UUID, session: Session = Depends(session_dep),
+               body_language: Literal["zh", "original"] = "zh"):
         article = session.get(Material, str(article_id))
         if article is None or not visible(article):
             raise ApiError(404, "article_not_found", "文章不存在。")
-        return _detail(article)
+        return apply_reader(session, article, _detail(article), body_language)
 
+    register_admin(router, session_dep, ApiError)
+    register_editions(router, session_dep, ApiError)
+    register_reading(router, session_dep, ApiError)
     app.include_router(router)
     app.state.engine = engine
     app.state.session_factory = session_factory

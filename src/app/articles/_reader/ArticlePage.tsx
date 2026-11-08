@@ -169,6 +169,9 @@ function ItemView({ item, taxonomy }: { item: ReaderArticle; taxonomy: ArticlePa
         {summaryOnly && <p className={styles.contentNotice}>应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
         {item.bodyHtml && <section className={styles.bodySection}><div className={styles.bodyHeading}><span>{bodyLabel}</span>{item.hasTranslation && <PillTabs size="xs" label="正文语言" active={item.bodyLanguage} items={[{ key: "zh", label: "中文", prefetch: "intent", replace: true, to: shell.href(`/articles/${article.id}`) }, { key: "original", label: "原文", prefetch: "intent", replace: true, to: shell.href(`/articles/${article.id}/original`) }]} />}</div>{item.hasTranslation && item.bodyLanguage === "zh" && !item.complete && <p className={styles.partialNotice}>译文尚不完整，完整内容请切换到原文。</p>}<ArticleBody html={item.bodyHtml} /></section>}
         {isX && item.x!.media.length > 0 && <MediaGallery media={item.x!.media} postUrl={sourceUrl ?? ""} />}
+        {!isX && !summaryOnly && article.media.length > 0 && <MediaGallery postUrl={sourceUrl ?? ""}
+          media={article.media.filter(media => media.kind === "image" && media.url.startsWith("/api/bluepulse/site/media/"))
+            .map(media => ({ kind: "image", url: media.url, width: null, height: null, alt: media.alt_text, poster: null }))} />}
         {isX && item.x!.quoted?.text && <QuotedPost quoted={item.x!.quoted} original={item.bodyLanguage === "original"} />}
         <p className={styles.sourceFoot}>来源：{sourceUrl ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{isX ? item.x!.authorName : article.source.name}</a> : article.source.name}<span> · {hostOf(article.url)}</span></p>
         {(article.topics.length > 0 || item.tags.length > 0) && <div className={styles.mobileChips}>{chips(6)}</div>}

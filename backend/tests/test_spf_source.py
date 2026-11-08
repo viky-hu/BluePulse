@@ -23,7 +23,9 @@ def test_latest_listing_precedes_carousel_and_body_excludes_related_links():
                "<div class='lp-banner__text'><div class='h1'>New Cyber Police Story</div></div>"
                "<div class='published-date'>27 Oct 2026</div>"
                "<div class='content-block--custom-max-width'>"
-               "<div class='rte'><p>Officers investigated digital evidence and traced criminal infrastructure.</p></div>"
+               "<div class='rte'><p>Officers investigated digital evidence and traced criminal infrastructure.</p>"
+               "<img src='/Media-Hub/public-evidence.png' alt='Device' width='800' height='600'>"
+               "<img src='/sitecore/private.png'></div>"
                "<figure>Photo credit</figure>"
                "<div class='rte'>" + repeated +
                "<h3>Cyber Command Series</h3><p>Related article link</p></div></div>")
@@ -49,6 +51,8 @@ def test_latest_listing_precedes_carousel_and_body_excludes_related_links():
     assert len(rows) == 1 and rows[0].published_date == date(2026, 10, 27)
     assert rows[0].published_at is None and "technical findings" in rows[0].body
     assert "Related article link" not in rows[0].body and "Photo credit" not in rows[0].body
+    assert rows[0].media == [{"kind": "image", "url": f"https://{HOST}/Media-Hub/public-evidence.png",
+                              "alt": "Device", "width": 800, "height": 600}]
 
 
 def test_robots_disallow_stops_before_listing():

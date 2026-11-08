@@ -33,6 +33,14 @@ class Source(Base):
     full_text_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     min_body_status: Mapped[str] = mapped_column(String(20), default="full_text", server_default="full_text")
     selection_threshold: Mapped[int | None] = mapped_column(Integer)
+    tier: Mapped[str | None] = mapped_column(String(10))
+    participant_key: Mapped[str | None] = mapped_column(String(120))
+    owner_entity: Mapped[str | None] = mapped_column(String(120))
+    publisher_role: Mapped[str | None] = mapped_column(String(20))
+    participation_mode: Mapped[str] = mapped_column(String(20), default="editorial", server_default="editorial")
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
+    media_allowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    syndicate_full_text_allowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class Topic(Base):
@@ -96,6 +104,16 @@ class Material(Base):
     withdrawn: Mapped[bool] = mapped_column(Boolean, default=False)
     published_public_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     author: Mapped[str | None] = mapped_column(String(200))
+    source_media: Mapped[list | None] = mapped_column(JSON)
+    editorial_revision: Mapped[int | None] = mapped_column(Integer)
+    editorial_scope: Mapped[str | None] = mapped_column(String(16))
+    editorial_data: Mapped[dict | None] = mapped_column(JSON)
+    judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    translation_revision: Mapped[int | None] = mapped_column(Integer)
+    grouping_value: Mapped[bool | None] = mapped_column(Boolean)
+    selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    visible_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    standalone: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class MaterialRevision(Base):
@@ -112,6 +130,7 @@ class MaterialRevision(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_date: Mapped[date | None] = mapped_column(Date)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    source_media: Mapped[list | None] = mapped_column(JSON)
 
 
 class MaterialTopic(Base):
@@ -174,6 +193,8 @@ class FactGroup(Base):
     title: Mapped[str] = mapped_column(Text)
     anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    story_id: Mapped[str | None] = mapped_column(ForeignKey("stories.id"), index=True)
+    subject: Mapped[str | None] = mapped_column(Text)
 
 
 class FactReport(Base):
@@ -183,6 +204,7 @@ class FactReport(Base):
     revision: Mapped[int] = mapped_column(Integer)
     relation: Mapped[str] = mapped_column(String(20), default="primary")
     grouped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    manual: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class AutoPublicationJob(Base):
@@ -201,3 +223,6 @@ class AutoPublicationJob(Base):
 
 
 Index("ix_materials_public_date", Material.public, Material.published_at)
+
+# Register the related metadata for callers that build an isolated database from Base.
+from . import editorial_models  # noqa: E402, F401

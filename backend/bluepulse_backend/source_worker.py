@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .ccgp_source import USER_AGENT
 from .db import make_engine
-from .live_model import LiveAnalyzer, load_local_credentials, model_listed
+from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import Source
 from .model_processing import process_model_batch
 from .operations import source_funnel
@@ -102,7 +102,7 @@ def main() -> None:
     parser.add_argument("--classification-only", action="store_true",
                         help="classify and publish eligible articles without five-axis scoring")
     parser.add_argument("--max-model-calls-total", type=int, default=0)
-    parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[3] / ".env")
+    parser.add_argument("--env", type=Path, default=DEFAULT_MODEL_ENV)
     parser.add_argument("--report-dir", type=Path, default=Path("data/source-worker"))
     args = parser.parse_args()
     if not args.execute or not 1 <= args.max_items <= 5 or not 0 <= args.retry_attempts <= 3:

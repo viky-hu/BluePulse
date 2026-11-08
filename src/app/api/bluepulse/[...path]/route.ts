@@ -16,6 +16,8 @@ function isAllowedPath(path: string[]): boolean {
     return path.length === 3 || (path.length === 4 && (path[3] === "latest-page" || isDailyDate(path[3]))) || (path.length === 5 && ((path[3] === "navigation" && isDailyDate(path[4])) || (path[3] === "months" && isDailyMonth(path[4]))));
   }
   if (path.length === 3 && path[0] === "articles" && ARTICLE_ID_PATTERN.test(path[1]) && ["markdown", "poster.png", "og.png"].includes(path[2])) return true;
+  if (path.length === 3 && path[0] === "site" && path[1] === "stories" && ARTICLE_ID_PATTERN.test(path[2])) return true;
+  if (path.length === 4 && path[0] === "site" && path[1] === "media" && ARTICLE_ID_PATTERN.test(path[2]) && /^[0-8]$/.test(path[3])) return true;
   if (path.length === 4 && path[0] === "site" && path[1] === "stories" && /^[a-zA-Z0-9_-]{1,80}$/.test(path[2]) && path[3] === "followups") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "hot") return true;
   if (path.length === 2 && path[0] === "site" && path[1] === "timeline") return true;
@@ -93,6 +95,7 @@ export async function GET(request: Request, context: RouteContext) {
     for (const name of [
       "content-type",
       "content-disposition",
+      "x-content-type-options",
       "etag",
       "x-robots-tag",
       "cache-control",

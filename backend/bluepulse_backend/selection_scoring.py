@@ -82,6 +82,17 @@ def process_selection(session: Session, material: Material, scorer, *, max_calls
         session.commit()
         report["status"] = "ineligible"
         return report
+    # Changing provider parameters is not permission to resend an unresolved paid round.
+    unresolved = session.scalar(select(AnalysisAttempt.id).where(
+        AnalysisAttempt.material_id == material.id,
+        AnalysisAttempt.revision == material.revision,
+        AnalysisAttempt.status.in_(["started", "unknown"]),
+    ).limit(1))
+    if unresolved:
+        material.selection_status = "unknown"
+        session.commit()
+        report["status"] = "unknown"
+        return report
     for round_number in (1, 2):
         version = f"{scorer.selection_input_version}-r{round_number}"
         attempt = _latest(session, material, version)
@@ -128,12 +139,16 @@ def process_selection(session: Session, material: Material, scorer, *, max_calls
             report["scores"].append(score.attention_score)
         except UnknownOutcome as exc:
             attempt.status, attempt.error_code = "unknown", exc.code
+            if getattr(exc, "provider_meta", None):
+                attempt.result = {"provider_meta": exc.provider_meta}
             material.selection_status = "unknown"
             session.commit()
             report["status"] = "unknown"
             return report
         except Exception as exc:
             attempt.status, attempt.error_code = "failed", getattr(exc, "code", "selection_failed")
+            if getattr(exc, "provider_meta", None):
+                attempt.result = {"provider_meta": exc.provider_meta}
             material.selection_status = "failed"
             session.commit()
             report["status"] = "failed"

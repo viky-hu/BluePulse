@@ -4,7 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from bluepulse_backend.db import Base, database_url, ensure_sqlite_parent
-from bluepulse_backend import models  # noqa: F401: register metadata
+from bluepulse_backend import admin_models, edition_models, models  # noqa: F401: register metadata
 
 config = context.config
 ensure_sqlite_parent(database_url())

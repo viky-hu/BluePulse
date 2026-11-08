@@ -64,12 +64,9 @@ def test_conservative_fact_grouping_unscored_featured_and_internal_job(tmp_path,
 
     with TestClient(create_app(address)) as client:
         featured = client.get("/api/v1/home/featured")
-        assert featured.status_code == 200 and len(featured.json()["items"]) == 2
-        assert all("未进行五轴评分" in item["featured_reason"] for item in featured.json()["items"])
+        assert featured.status_code == 200 and featured.json()["items"] == []
         timeline = client.get("/api/v1/site/timeline")
-        assert timeline.status_code == 200 and len(timeline.json()["cards"]) == 2
-        card = next(item for item in timeline.json()["cards"] if item["group"])
-        assert card["group"]["reportCount"] == 2
+        assert timeline.status_code == 200 and timeline.json()["cards"] == []
         reports = client.get(f"/api/v1/site/groups/{fact}/reports")
         assert reports.status_code == 200 and len(reports.json()["reports"]) == 2
         assert client.post("/api/v1/internal/auto-publication/jobs", json={

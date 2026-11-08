@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from .models import Material, Source
@@ -19,7 +19,11 @@ def listed_query():
     return select(Material).options(joinedload(Material.source)).join(Source).where(
         Material.public.is_(True), Material.duplicate_of_id.is_(None),
         Material.withdrawn.is_(False), Material.relevant.is_(True),
-        Source.excerpt_allowed.is_(True), Material.body_status == "full_text",
+        Source.excerpt_allowed.is_(True), or_(
+            Material.body_status == "full_text",
+            and_(Source.min_body_status == "abstract_only",
+                 Material.body_status.in_(["abstract_only", "summary_only"])),
+        ),
     )
 
 
@@ -38,18 +42,25 @@ def within_publication_window(query, window: str, *, now: datetime | None = None
     return query
 
 
-def with_public_text_match(query, search: str):
-    """Search only title and published summary; private body text is not a match key."""
+def with_public_text_match(query, search: str, *, include_body=False):
+    """Search the fields that the corresponding public reader is entitled to see."""
     term = search.strip().casefold()
     if not term:
         return query
     escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = f"%{escaped}%"
-    return query.where(or_(
+    terms = [
         func.lower(Material.source_title).like(pattern, escape="\\"),
         func.lower(Material.zh_title).like(pattern, escape="\\"),
         func.lower(Material.zh_summary).like(pattern, escape="\\"),
-    ))
+    ]
+    if include_body:
+        terms.append(and_(Source.full_text_allowed.is_(True), or_(
+            func.lower(Material.source_body).like(pattern, escape="\\"),
+            and_(Material.translation_revision == Material.revision,
+                 func.lower(Material.zh_body).like(pattern, escape="\\")),
+        )))
+    return query.where(or_(*terms))
 
 
 def visible_page(session: Session, query, limit: int) -> tuple[list[Material], bool]:
