@@ -2,11 +2,13 @@
 import argparse
 from contextlib import contextmanager
 from datetime import timedelta
+from io import BytesIO
 import json
 import os
 from pathlib import Path
 import signal
 from threading import Event, Thread
+import time
 
 import httpx
 from sqlalchemy import String, and_, cast, exists, func, or_, select, update
@@ -420,26 +422,28 @@ def _client():
 def _budget_from_env():
     if os.environ.get("BLUEPULSE_MODEL_CALLS_ENABLED") != "1":
         return None
-    values = [int(os.environ[f"BLUEPULSE_MODEL_BUDGET_{name}"]) for name in ("MINUTE", "HOUR", "DAY")]
+    values = [int(os.environ.get(f"BLUEPULSE_MODEL_BUDGET_{name}", ""))
+              for name in ("MINUTE", "HOUR", "DAY")]
     if any(value <= 0 for value in values):
         raise ValueError("invalid_model_budget")
     return Budget(*values)
 
 
+def _daemon_lock_path():
+    db = make_url(database_url()).database
+    return Path(db).resolve().with_suffix(".worker.lock") if db and db != ":memory:" else None
+
+
 @contextmanager
 def _daemon_lock():
-    db = make_url(database_url()).database
-    if not db or db == ":memory:":
-        yield True
+    lock = _daemon_lock_path()
+    if lock is None:
+        yield BytesIO(b"0")
         return
-    lock = Path(db).resolve().with_suffix(".worker.lock")
-    with lock.open("a+b") as handle:
+    lock.touch(exist_ok=True)
+    with lock.open("r+b") as handle:
         if os.name == "nt":
             import msvcrt
-            if handle.tell() == 0:
-                handle.write(b"0")
-                handle.flush()
-            handle.seek(0)
             acquire = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
@@ -447,15 +451,39 @@ def _daemon_lock():
         try:
             acquire()
         except OSError:
-            yield False
+            yield None
         else:
-            yield True
+            yield handle
 
 
-def _run_daemon():
+def _write_worker_ready(handle, config):
+    # The first byte is the OS lock. Probes can read the status after that byte.
+    handle.seek(1)
+    handle.truncate()
+    if config is not None:
+        handle.write(json.dumps(config).encode())
+    handle.flush()
+
+
+def _worker_ready(config):
+    path = _daemon_lock_path()
+    if path is None or not path.is_file():
+        return False
+    with _daemon_lock() as handle:
+        if handle is not None:
+            return False
+    try:
+        with path.open("rb") as active:
+            active.seek(1)
+            return json.load(active) == config
+    except (OSError, ValueError):
+        return False
+
+
+def _run_daemon(handle, config, budget):
     engine = make_engine()
-    worker = Worker(engine, _client, budget=_budget_from_env(), editions_enabled=True,
-                    collect_enabled=os.environ.get("BLUEPULSE_COLLECT_ENABLED") == "1")
+    worker = Worker(engine, _client, budget=budget, editions_enabled=True,
+                    collect_enabled=config["collection"])
     stopping = Event()
 
     def stop(*_):
@@ -463,10 +491,15 @@ def _run_daemon():
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
+    ready = False
     try:
         while not stopping.is_set():
             try:
                 worker.tick()
+                if not ready:
+                    _write_worker_ready(handle, config)
+                    ready = True
+                    print("worker_ready", flush=True)
                 for _ in range(20):
                     if stopping.is_set() or not worker.run_one():
                         break
@@ -474,13 +507,17 @@ def _run_daemon():
                 print("worker_database_temporarily_unavailable", flush=True)
             stopping.wait(5)
     finally:
+        _write_worker_ready(handle, None)
         engine.dispose()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--live-test", type=Path, help="fixed isolated output directory, safe to resume")
-    args = parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--live-test", type=Path, help="fixed isolated output directory, safe to resume")
+    mode.add_argument("--check-config", action="store_true", help="validate local worker settings")
+    mode.add_argument("--wait-ready", action="store_true", help="wait for a worker with the current settings")
+    args = parser.parse_args(argv)
     from .cli import initialize
 
     if args.live_test:
@@ -523,9 +560,29 @@ def main():
         engine.dispose()
         return
 
-    with _daemon_lock() as acquired:
-        if acquired:
-            _run_daemon()
+    try:
+        budget = _budget_from_env()
+        if budget:
+            load_local_credentials()
+    except (OSError, ValueError):
+        parser.error("check backend/.env and the three BLUEPULSE_MODEL_BUDGET_* values")
+    config = {"collection": os.environ.get("BLUEPULSE_COLLECT_ENABLED") == "1",
+              "model_budget": {name: getattr(budget, name) for name in ("minute", "hour", "day")} if budget else None}
+    if args.check_config:
+        print(json.dumps(config))
+        return
+    if args.wait_ready:
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            if _worker_ready(config):
+                return
+            time.sleep(.25)
+        parser.exit(1, "worker not ready with the requested settings\n")
+
+    with _daemon_lock() as handle:
+        if handle is not None:
+            _write_worker_ready(handle, None)
+            _run_daemon(handle, config, budget)
         else:
             print("worker_already_running", flush=True)
 

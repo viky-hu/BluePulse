@@ -22,24 +22,26 @@ uv pip install --python .venv/Scripts/python.exe -e ".[test]"
 .\.venv\Scripts\python.exe -m bluepulse_backend.cli initialize
 ```
 
-数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。`initialize` 在已有库需要升级时先做 SQLite 备份，再迁移并幂等注册七类和 15 个信源。新来源的摘录、全文、媒体与全文再分发许可默认关闭。双击根目录 `Pulse.bat` 会初始化、启动 FastAPI 与独立 worker，等待 API 就绪后启动 Next.js 并打开浏览器。
+数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。`initialize` 在已有库需要升级时先做 SQLite 备份，再迁移并幂等注册七类和 15 个信源。新来源的摘录、全文、媒体与全文再分发许可默认关闭。双击根目录 `Pulse.bat` 会检查现有模型配置、初始化数据库、启动 FastAPI、独立 worker 和 Next.js，三项就绪后打开浏览器。
 
-### 启用真实运行
+### 一键真实运行
 
-在启动终端中按需配置以下环境变量。Windows PowerShell 可设置这些变量后执行 `..\Pulse.bat`，API、worker 与 Next.js 继承该配置。
+双击 `Pulse.bat` 默认启用真实采集和模型处理，读取 `backend/.env` 中已有凭据。每个模型服务的请求尝试上限默认为每分钟 10 次、每小时 20 次、每滚动 24 小时 30 次。已有环境设置优先。Windows PowerShell 可在同一窗口设置后执行 `..\Pulse.bat`。
 
 | 变量 | 用途 |
 | --- | --- |
-| `BLUEPULSE_COLLECT_ENABLED=1` | 启用已登记来源的真实定时采集 |
-| `BLUEPULSE_MODEL_CALLS_ENABLED=1` | 启用正常 worker 的付费步骤，使用现有 `backend/.env` 中的模型 |
-| `BLUEPULSE_MODEL_BUDGET_MINUTE`、`_HOUR`、`_DAY` | 全名使用 `BLUEPULSE_MODEL_BUDGET_` 前缀。分别设置每分钟、小时和日的正整数请求上限 |
+| `BLUEPULSE_COLLECT_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实采集 |
+| `BLUEPULSE_MODEL_CALLS_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实模型请求 |
+| `BLUEPULSE_MODEL_BUDGET_MINUTE`、`_HOUR`、`_DAY` | 全名使用 `BLUEPULSE_MODEL_BUDGET_` 前缀。分别覆盖每分钟、小时和滚动 24 小时的正整数请求上限 |
 | `BLUEPULSE_SITE_ORIGIN` | 本机默认 `http://127.0.0.1:3000`，部署时填写实际 HTTPS 站点地址 |
 | `BLUEPULSE_ADMIN_PASSWORD`、`BLUEPULSE_ADMIN_SESSION_SECRET` | 密码至少 12 字符，独立会话密钥至少 32 字符。配置后可进入 `/admin` |
 | `BLUEPULSE_FEEDBACK_ENABLED=1` | 同时启用 FastAPI 接收与 Next.js 反馈代理 |
 | `BLUEPULSE_MEDIA_SECRET` | 配置独立签名密钥并批准来源媒体许可后启用签名图片 |
 | `BLUEPULSE_MODEL_PRESETS`、`BLUEPULSE_MODELS` | 可选 JSON 对象。前者映射预设名到凭据文件绝对路径，后者映射能力到预设名。默认模型使用现有 `backend/.env` |
 
-正常 worker 在未显式启用采集或模型时仍可编排已确认的公开内容。管理员可在站内查看任务、恢复未知回执、调整来源许可和确认选稿门槛。模型预算统计已预留的真实请求尝试次数。
+一键脚本会核对运行中的 worker 是否使用这次要求的开关与预算。旧 worker 的配置不同时，关闭旧 Worker 窗口后再双击。可用 `Pulse.bat --check-config` 查看本次会使用的采集和模型配置。直接调用 Python worker 时仍需显式设置运行开关。
+
+管理员可在站内查看任务、恢复未知回执、调整来源许可和确认选稿门槛。模型预算统计已预留的真实请求尝试次数。
 
 ### 一次性隔离联调
 
