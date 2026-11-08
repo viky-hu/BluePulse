@@ -102,7 +102,7 @@ class _EntryRobotsAdapter:
     def diagnostics(self) -> dict:
         return {**getattr(self.wrapped, "diagnostics", {}), "robots_status": self.robots_status}
 
-    def candidates(self):
+    def _guard(self, url=None):
         if not self._guarded:
             try:
                 raw = BoundedHTTP(self.client, allowed_hosts={self.host}).get(
@@ -115,7 +115,7 @@ class _EntryRobotsAdapter:
             policy = RobotFileParser()
             policy.parse(raw.decode("utf-8-sig", "replace").splitlines())
             delay = policy.crawl_delay(USER_AGENT) or 0
-            entry = getattr(self.wrapped, "SEARCH", None) or self.wrapped.feed
+            entry = url or getattr(self.wrapped, "SEARCH", None) or self.wrapped.feed
             if delay > 10 or not policy.can_fetch(USER_AGENT, entry):
                 raise SourceFetchError("robots_disallowed_or_delayed")
             self.wrapped.http.delay_seconds = max(self.wrapped.http.delay_seconds, delay)
@@ -127,7 +127,27 @@ class _EntryRobotsAdapter:
 
             self.client.event_hooks["request"].append(guard)
             self._guarded = True
+
+    def candidates(self):
+        self._guard()
         return self.wrapped.candidates()
+
+    def list_candidates(self, *, first_import=False):
+        self._guard()
+        return self.wrapped.list_candidates(first_import=first_import)
+
+    def iter_listing_pages(self, *, start=0):
+        self._guard()
+        paged = getattr(self.wrapped, "iter_listing_pages", None)
+        if paged:
+            yield from paged(start=start)
+        else:
+            yield self.wrapped.list_candidates(), None
+
+    def fetch_detail(self, candidate):
+        # A known detail still gets its own current robots check in a new client.
+        self._guard(candidate.url)
+        return self.wrapped.fetch_detail(candidate)
 
 
 def build_adapter(spec: SourceSpec, client: httpx.Client, *, max_items: int) -> SourceAdapter:

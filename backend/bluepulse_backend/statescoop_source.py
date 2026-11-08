@@ -4,13 +4,13 @@ from __future__ import annotations
 import re
 import time
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
-from urllib.robotparser import RobotFileParser
 
-from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError, parse_time, plain_text
 from .pipeline import Candidate, canonical_url
+from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 
 
 HOST = "statescoop.com"
@@ -82,71 +82,64 @@ class StateScoopAdapter:
         if not 1 <= max_items <= 5 or http.allowed_hosts != {HOST}:
             raise ValueError("invalid_statescoop_configuration")
         self.http, self.max_items, self.sleeper = http, max_items, sleeper
+        self.reader = SourcePageReader(http, FEED, lambda delay: self.sleeper(delay), allow_missing_robots=True)
         self.diagnostics: dict[str, int] = {}
         self.item_diagnostics: list[dict] = []
 
-    def candidates(self) -> list[Candidate]:
+    def _listing(self, limit: int | None = None) -> list[Candidate]:
         self.diagnostics = {"feed_items": 0, "detail_attempts": 0,
                             "detail_full_text": 0, "detail_failed": 0}
         self.item_diagnostics = []
+        self.reader.refresh()
         try:
-            robots = self.http.get(ROOT + "/robots.txt", accept="text/plain")
-        except SourceFetchError as exc:
-            if exc.code != "http_404":
-                raise
-            robots = b""
-        policy = RobotFileParser()
-        policy.parse(robots.decode("utf-8-sig", "replace").splitlines())
-        delay = policy.crawl_delay(USER_AGENT) or 0
-        if delay > 10 or not policy.can_fetch(USER_AGENT, FEED):
-            raise SourceFetchError("robots_disallowed_or_delayed")
-
-        def fetch(url: str, accept: str) -> bytes:
-            if not policy.can_fetch(USER_AGENT, url):
-                raise SourceFetchError("robots_disallowed")
-            self.sleeper(max(1.0, float(delay)))
-            return self.http.get(url, accept=accept)
-
-        try:
-            root = ET.fromstring(fetch(FEED, "application/rss+xml"))
+            root = ET.fromstring(self.reader.get(FEED, "application/rss+xml"))
         except ET.ParseError as exc:
             raise SourceFetchError("invalid_feed") from exc
         items = root.findall("./channel/item")
         self.diagnostics["feed_items"] = len(items)
         candidates: list[Candidate] = []
-        for item in items[:self.max_items]:
+        for item in items[:limit]:
             url = (item.findtext("link") or "").strip()
-            parts = urlsplit(url)
-            if (parts.scheme != "https" or parts.hostname != HOST or parts.query or parts.fragment or
-                    not ARTICLE_PATH.fullmatch(parts.path)):
+            if not self._valid_article(url):
                 continue
-            try:
-                canonical_url(url, [HOST])
-            except ValueError:
-                continue
-            self.diagnostics["detail_attempts"] += 1
-            try:
-                detail = _Article()
-                detail.feed(fetch(url, "text/html").decode("utf-8-sig"))
-            except (SourceFetchError, UnicodeDecodeError) as exc:
-                if isinstance(exc, SourceFetchError) and exc.code in {"http_403", "http_429", "robots_disallowed"}:
-                    raise
-                self.diagnostics["detail_failed"] += 1
-                self.item_diagnostics.append({"url": url, "status": getattr(exc, "code", "decode_error")})
-                continue
-            if len(detail.body) < 120 or not detail.title:
-                self.diagnostics["detail_failed"] += 1
-                self.item_diagnostics.append({"url": url, "status": "incomplete_article",
-                                              "body_chars": len(detail.body)})
-                continue
-            self.diagnostics["detail_full_text"] += 1
-            self.item_diagnostics.append({"url": url, "status": "full_text",
-                                          "body_chars": len(detail.body)})
             candidates.append(Candidate(
-                url=url, title=detail.title, body=detail.body,
-                summary=plain_text(item.findtext("description") or detail.description or "", max_chars=1000) or None,
-                published_at=parse_time(detail.raw_date or item.findtext("pubDate")), language="en",
+                url=url, title=plain_text(item.findtext("title") or "", max_chars=500),
+                summary=plain_text(item.findtext("description") or "", max_chars=1000) or None,
+                published_at=parse_time(item.findtext("pubDate")), language="en",
             ))
-        if not candidates and self.diagnostics["detail_failed"]:
-            raise SourceFetchError("all_details_failed")
         return candidates
+
+    @staticmethod
+    def _valid_article(url: str) -> bool:
+        try:
+            parts = urlsplit(url)
+            canonical_url(url, [HOST])
+            return (parts.scheme == "https" and not parts.query and not parts.fragment and
+                    bool(ARTICLE_PATH.fullmatch(parts.path)))
+        except ValueError:
+            return False
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        return self._listing()
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        if not self._valid_article(candidate.url):
+            raise SourceFetchError("invalid_article_url")
+        self.diagnostics["detail_attempts"] = self.diagnostics.get("detail_attempts", 0) + 1
+        detail = _Article()
+        try:
+            detail.feed(self.reader.get(candidate.url, "text/html").decode("utf-8-sig"))
+        except UnicodeDecodeError as exc:
+            raise SourceFetchError("decode_error") from exc
+        body = detail.body
+        if len(body) < 120 or not detail.title:
+            raise IncompleteArticle(len(body))
+        self.diagnostics["detail_full_text"] = self.diagnostics.get("detail_full_text", 0) + 1
+        self.item_diagnostics.append({"url": candidate.url, "status": "full_text", "body_chars": len(body)})
+        return replace(candidate, title=detail.title, body=body,
+                       summary=candidate.summary or plain_text(detail.description or "", max_chars=1000) or None,
+                       published_at=parse_time(detail.raw_date) or candidate.published_at)
+
+    def candidates(self) -> list[Candidate]:
+        return bounded_details(self._listing(self.max_items), self.fetch_detail,
+                               self.diagnostics, self.item_diagnostics)

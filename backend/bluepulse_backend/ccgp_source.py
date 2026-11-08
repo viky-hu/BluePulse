@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Callable
@@ -157,12 +158,16 @@ class CcgpAdapter:
         self.max_items = max_items
         self.request_delay_seconds = request_delay_seconds
         self.sleeper = sleeper
-        self.diagnostics: dict[str, int] = {}
+        self._policy: RobotFileParser | None = None
+        self._delay = 0.0
+        self._reset_diagnostics()
 
-    def candidates(self) -> list[Candidate]:
+    def _reset_diagnostics(self) -> None:
         self.diagnostics = {"robots_unavailable": 0, "listing_links": 0, "topic_filtered": 0,
                             "detail_attempts": 0, "detail_parsed": 0,
                             "detail_failed": 0, "detail_skipped": 0}
+
+    def _load_robots(self) -> None:
         try:
             robots = self.http.get(f"https://{HOST}/robots.txt", accept="text/plain")
         except SourceFetchError as exc:
@@ -176,16 +181,24 @@ class CcgpAdapter:
         crawl_delay = policy.crawl_delay(USER_AGENT) or 0
         if crawl_delay > 10:
             raise SourceFetchError("robots_delay_exceeds_budget")
-        delay = max(self.request_delay_seconds, float(crawl_delay))
+        self._policy, self._delay = policy, max(self.request_delay_seconds, float(crawl_delay))
 
-        def fetch(url: str) -> bytes:
-            if not policy.can_fetch(USER_AGENT, url):
-                raise SourceFetchError("robots_disallowed")
-            self.sleeper(delay)
-            return self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9")
+    def _fetch(self, url: str) -> bytes:
+        if self._policy is None:
+            self._load_robots()
+        if not self._policy.can_fetch(USER_AGENT, url):
+            raise SourceFetchError("robots_disallowed")
+        if getattr(self.http.client, "pulse_host_pace", None):
+            self.http.delay_seconds = max(self.http.delay_seconds, self._delay)
+        else:
+            self.sleeper(self._delay)
+        return self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9")
 
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        self._reset_diagnostics()
+        self._policy = None
         links = _Links()
-        links.feed(_decode(fetch(LISTING)))
+        links.feed(_decode(self._fetch(LISTING)))
         unique: dict[str, tuple[str, str]] = {}
         for raw_url, title, context in links.items:
             url = _valid_article_url(raw_url)
@@ -198,29 +211,39 @@ class CcgpAdapter:
         # Keep only listings that identify both a policing buyer/task and a technology.
         ranked = [item for item in unique.items() if _rank(" ".join(item[1])) == 0]
         self.diagnostics["topic_filtered"] = len(unique) - len(ranked)
-        results: list[Candidate] = []
-        for url, (listing_title, _) in ranked[: min(len(ranked), self.max_items * 3)]:
-            if len(results) >= self.max_items:
-                break
-            self.diagnostics["detail_attempts"] += 1
-            try:
-                html = _decode(fetch(url))
-            except SourceFetchError as exc:
-                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
-                    raise
-                self.diagnostics["detail_failed"] += 1
-                continue
+        return [Candidate(url=url, title=title, published_at=_published_at(context), language="zh")
+                for url, (title, context) in ranked]
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        if not _valid_article_url(candidate.url):
+            raise SourceFetchError("invalid_article_url")
+        self.diagnostics["detail_attempts"] += 1
+        try:
+            html = _decode(self._fetch(candidate.url))
             detail = _Detail()
             detail.feed(html)
             body = "\n".join(line.strip() for line in "".join(detail.parts).splitlines() if line.strip())[:12000]
             if len(body) < 100:
-                self.diagnostics["detail_failed"] += 1
-                continue
-            title = " ".join("".join(detail.heading).split())[:500] or listing_title
-            date = _published_at(plain_text(html, max_chars=3000))
-            results.append(Candidate(url=url, title=title, body=body, published_at=date, language="zh"))
-            self.diagnostics["detail_parsed"] += 1
-        self.diagnostics["detail_skipped"] = len(unique) - self.diagnostics["detail_attempts"]
+                raise SourceFetchError("incomplete_article")
+        except SourceFetchError:
+            self.diagnostics["detail_failed"] += 1
+            raise
+        self.diagnostics["detail_parsed"] += 1
+        title = " ".join("".join(detail.heading).split())[:500] or candidate.title
+        return replace(candidate, title=title, body=body,
+                       published_at=_published_at(plain_text(html, max_chars=3000)) or candidate.published_at)
+
+    def candidates(self) -> list[Candidate]:
+        results: list[Candidate] = []
+        for listed in self.list_candidates()[:self.max_items * 3]:
+            if len(results) >= self.max_items:
+                break
+            try:
+                results.append(self.fetch_detail(listed))
+            except SourceFetchError as exc:
+                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
+                    raise
+        self.diagnostics["detail_skipped"] = self.diagnostics["listing_links"] - self.diagnostics["detail_attempts"]
         if not results and self.diagnostics["detail_failed"]:
             raise SourceFetchError("detail_parse_or_fetch_failed")
         return results

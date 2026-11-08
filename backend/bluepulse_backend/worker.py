@@ -1,5 +1,6 @@
 """Blue Pulse's scheduled worker and bounded, resumable integration runner."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from io import BytesIO
@@ -7,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 import time
 
 import httpx
@@ -19,9 +20,13 @@ from sqlalchemy.orm import Session, joinedload
 from . import editorial, grouping
 from .admin_models import AdminContentOverride, AdminModelSetting
 from .ccgp_source import USER_AGENT
+from .collection_flow import (DETAIL_MAX_ATTEMPTS, DETAIL_RETRY, FIRST_IMPORT_LIMIT, adapt_intervals,
+                              admit_page, apply_detail, detail_is_current, schedule_after_fetch,
+                              schedule_due_sources, unpack)
 from .db import database_url, make_engine
 from .editorial_models import PaidAttempt, Story, WorkItem
 from .live_model import ProviderRejected, load_local_credentials, model_listed
+from .live_sources import SourceFetchError
 from .model_steps import Steps, environment_models
 from .models import AnalysisAttempt, AutoPublicationJob, FactGroup, FactReport, Material, Source, SourceRun, now_utc
 from .pipeline import ingest
@@ -57,11 +62,13 @@ def _queue_editorial(session, kind, material, now, run_key, generation=None):
             return
     identity = ":".join(str(part) for part in (key, generation, run_key) if part is not None)
     enqueue(session, kind, identity, {"material_id": material.id, "revision": material.revision,
-                                     "run_key": run_key, "generation": generation}, now)
+                                     "run_key": run_key, "generation": generation,
+                                     "historical": material.timeline_kind == "historical"}, now)
 
 
 def _schedule_material(session, material, now, *, run_key=None):
-    if material.duplicate_of_id or material.withdrawn or material.source.participation_mode == "isolated":
+    if (material.duplicate_of_id or material.withdrawn or material.collection_state == "pending" or
+            material.source.participation_mode == "isolated"):
         return
     if material.source.participation_mode == "hot_signal":
         if material.grouping_status == "pending":
@@ -83,12 +90,14 @@ def _schedule_material(session, material, now, *, run_key=None):
 
 class Worker:
     def __init__(self, engine, client_factory, *, presets=None, budget=None, collect_enabled=False,
-                 slugs=None, run_key=None, max_items=2, clock=now_utc, editions_enabled=False):
+                 slugs=None, run_key=None, max_items=None, clock=now_utc, editions_enabled=False):
         self.engine, self.client_factory = engine, client_factory
         self.presets = presets if presets is not None else editorial.preset_paths()
         self.budget, self.collect_enabled = budget, collect_enabled
         self.slugs, self.run_key, self.max_items = slugs, run_key, max_items
         self.clock, self.editions_enabled = clock, editions_enabled
+        self._hosts_lock = Lock()
+        self._hosts = {}
 
     def tick(self):
         now = self.clock()
@@ -98,6 +107,8 @@ class Worker:
                 self._schedule_collection(session, now)
                 if not self.run_key:
                     self.sync_requested_batches(session, now)
+                    if self.max_items is None:
+                        adapt_intervals(session, now, self.slugs or list(SOURCES))
             if self.budget:
                 materials = self._sweep_query()
                 if self.slugs:
@@ -127,6 +138,7 @@ class Worker:
         )
         return select(Material).join(Source).where(
             Material.withdrawn.is_(False), Material.duplicate_of_id.is_(None),
+            or_(Material.collection_state.is_(None), Material.collection_state != "pending"),
             or_(
                 and_(Source.participation_mode == "hot_signal", Material.grouping_status == "pending", available("group")),
                 and_(Source.participation_mode == "editorial", or_(
@@ -136,9 +148,12 @@ class Worker:
                          Material.translation_status == "pending", available("translate")),
                 )),
             ),
-        ).order_by(Material.first_seen_at.desc(), Material.id).limit(300)
+        ).order_by(Material.timeline_kind == "historical", Material.first_seen_at, Material.id).limit(300)
 
     def _schedule_collection(self, session, now):
+        if self.max_items is None and not self.run_key:
+            schedule_due_sources(session, now, self.slugs or list(SOURCES))
+            return
         for source in session.scalars(select(Source).where(Source.enabled.is_(True))):
             if source.slug not in SOURCES or self.slugs and source.slug not in self.slugs:
                 continue
@@ -198,16 +213,21 @@ class Worker:
             stop.set()
             thread.join()
 
-    def run_one(self, run_key=None) -> bool:
+    def allowed_kinds(self):
         kinds = set()
         if self.collect_enabled:
-            kinds.add("collect")
+            kinds.update(("collect", "extract"))
         if self.budget:
             kinds.update(("analyze", "group", "translate", "digest"))
             if self.editions_enabled:
                 kinds.add("digest_sweep")
         if self.editions_enabled:
             kinds.update(("hot", "heat", "daily", "featured"))
+        return kinds
+
+    def run_one(self, run_key=None, *, kinds=None) -> bool:
+        allowed = self.allowed_kinds()
+        kinds = allowed if kinds is None else allowed & kinds
         work = claim(self.engine, self.clock(), kinds, run_key=run_key)
         if work is None:
             return False
@@ -222,7 +242,7 @@ class Worker:
                 finish(self.engine, work, self.clock(), error=str(exc))
             else:
                 finish(self.engine, work, self.clock(), error=str(exc),
-                       retry_at=self.clock() + timedelta(minutes=1))
+                       retry_at=self.clock() + timedelta(seconds=exc.retry_after))
         except ReceiptUnknown:
             finish(self.engine, work, self.clock(), error="receipt_unknown",
                    retry_at=self.clock() + timedelta(minutes=5))
@@ -243,7 +263,9 @@ class Worker:
 
     def _execute(self, work):
         if work.kind == "collect":
-            return self._collect(work)
+            return self._collect(work) if "max_items" in work.payload else self._collect_listing(work)
+        if work.kind == "extract":
+            return self._extract(work)
         if work.kind in {"analyze", "group", "translate"}:
             return self._editorial(work)
         if work.kind == "digest":
@@ -266,6 +288,122 @@ class Worker:
                    "featured": lambda session, now: create_confirmed_featured(session, now=now)}[work.kind]
         with Session(self.engine) as session:
             return handler(session, self.clock())
+
+    @contextmanager
+    def _pace_host(self, hostname, seconds):
+        with self._hosts_lock:
+            gate, previous = self._hosts.setdefault(hostname, (Lock(), [0.0, 0.0]))
+        with gate:
+            wait = previous[0] + max(previous[1], seconds) - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                yield
+            finally:
+                previous[:] = [time.monotonic(), seconds]
+
+    @contextmanager
+    def _source_client(self):
+        with self.client_factory() as client:
+            client.pulse_host_pace = self._pace_host
+            yield client
+
+    def _locked_source(self, session, work, slug):
+        if not owns(session, work, self.clock()):
+            raise LeaseLost()
+        source = session.scalar(select(Source).where(Source.slug == slug))
+        if source and source.allowed_hosts != [SOURCES[slug].host]:
+            raise ValueError("source_host_policy_mismatch")
+        return source if source and source.enabled else None
+
+    def _collect_listing(self, work):
+        slug = work.payload["slug"]
+        with serialized(self.engine) as session:
+            source = self._locked_source(session, work, slug)
+            if source is None:
+                return {"skipped": "source_disabled"}
+            now = self.clock()
+            session.execute(update(SourceRun).where(SourceRun.source_id == source.id, SourceRun.status == "running")
+                            .values(status="failed", error_code="worker_interrupted", finished_at=now))
+            run = SourceRun(source_id=source.id, started_at=now, fetch_metrics={"mode": "listing"})
+            session.add(run)
+            session.flush()
+            run_id = run.id
+            cursor = dict(source.collection_cursor or {})
+            first = source.collection_initialized_at is None
+        code = None
+        with self._source_client() as client:
+            adapter = build_adapter(SOURCES[slug], client, max_items=2)
+            try:
+                paged = getattr(adapter, "iter_listing_pages", None)
+                pages = (paged(start=cursor.get("offset", 0)) if paged else
+                         [(adapter.list_candidates(first_import=first), None)])
+                for items, offset in pages:
+                    with serialized(self.engine) as session:
+                        source = self._locked_source(session, work, slug)
+                        if source is None:
+                            code = "source_disabled"
+                            break
+                        run = session.get(SourceRun, run_id)
+                        admit_page(session, source, run, items, self.clock(), cursor)
+                        cursor["offset"] = offset or 0
+                        source.collection_cursor = dict(cursor)
+                        # Set the successful checkpoint in the same transaction as the last page.
+                        if offset is None or first and len(cursor.get("imported", ())) >= FIRST_IMPORT_LIMIT:
+                            source.collection_initialized_at = source.collection_initialized_at or self.clock()
+                            source.collection_cursor = None
+                            break
+            except LeaseLost:
+                raise
+            except Exception as exc:
+                code = getattr(exc, "code", None) or (
+                    "invalid_listing" if isinstance(exc, ValueError) else type(exc).__name__)
+            diagnostics = getattr(adapter, "diagnostics", {})
+        with serialized(self.engine) as session:
+            source = self._locked_source(session, work, slug)
+            run = session.get(SourceRun, run_id)
+            now = self.clock()
+            if source:
+                schedule_after_fetch(source, now, success=code is None)
+            run.status = "failed" if code else "completed" if run.candidate_count else "no_candidates"
+            run.error_code, run.finished_at = code, now
+            run.fetch_metrics = {**diagnostics, **run.fetch_metrics}
+            return {"run_id": run.id, "status": run.status, "error": code}
+
+    def _extract(self, work):
+        slug = work.payload["slug"]
+        with serialized(self.engine) as session:
+            source = self._locked_source(session, work, slug)
+            if not detail_is_current(session, source, work.payload):
+                return {"skipped": "superseded"}
+            attempts = session.get(WorkItem, work.id).attempts
+        detail, error = None, None
+        try:
+            with self._source_client() as client:
+                adapter = build_adapter(SOURCES[slug], client, max_items=2)
+                detail = adapter.fetch_detail(unpack(work.payload["candidate"]))
+                if detail is None or not detail.title.strip():
+                    error = "title_missing"
+                    detail = None
+        except SourceFetchError as exc:
+            error = exc.code
+        except (TypeError, ValueError):
+            error = "invalid_detail"
+        with serialized(self.engine) as session:
+            now = self.clock()
+            source = self._locked_source(session, work, slug)
+            if not detail_is_current(session, source, work.payload):
+                return {"skipped": "superseded"}
+            if error and attempts < DETAIL_MAX_ATTEMPTS:
+                row = session.get(WorkItem, work.id)
+                row.status, row.error, row.due_at = "pending", error, now + DETAIL_RETRY
+                row.token = row.expires_at = None
+                return {"status": "retrying"}
+            item = apply_detail(session, source, work.payload, detail, now)
+            if item and self.budget:
+                _schedule_material(session, item, now)
+            return {"status": item.collection_state if item else "unconfirmed",
+                    "material_id": item.id if item else None, "error": error}
 
     def _collect(self, work):
         def guard(session):
@@ -353,7 +491,7 @@ class Worker:
         generation = payload.get("generation")
         with serialized(self.engine) as session:
             item = session.get(Material, material_id, options=[joinedload(Material.source)])
-            if not item or item.revision != revision or item.withdrawn or item.duplicate_of_id:
+            if not item or item.revision != revision or item.withdrawn or item.duplicate_of_id or item.collection_state == "pending":
                 return {"skipped": "superseded"}
             source_mode = item.source.participation_mode
             if source_mode == "isolated" or source_mode == "hot_signal" and work.kind != "group":
@@ -480,6 +618,36 @@ def _worker_ready(config):
         return False
 
 
+WORKER_LANES = (
+    ({"collect"}, 8),
+    ({"extract"}, 4),
+    ({"analyze"}, 6),
+    ({"group", "translate", "digest", "digest_sweep", "hot", "heat", "daily", "featured"}, 1),
+)
+
+
+def _dispatch(worker, executor, active):
+    now = worker.clock()
+    allowed = worker.allowed_kinds()
+    with Session(worker.engine) as session:
+        due = dict(session.execute(select(WorkItem.kind, func.count()).where(
+            WorkItem.kind.in_(allowed),
+            or_(and_(WorkItem.status == "pending", WorkItem.due_at <= now),
+                and_(WorkItem.status == "running", WorkItem.expires_at <= now)),
+        ).group_by(WorkItem.kind)).all())
+    for (kinds, capacity), running in zip(WORKER_LANES, active):
+        for future in tuple(running):
+            if future.done():
+                running.remove(future)
+                try:
+                    future.result()
+                except OperationalError:
+                    print("worker_database_temporarily_unavailable", flush=True)
+        remaining = min(capacity - len(running), sum(due.get(kind, 0) for kind in kinds))
+        for _ in range(remaining):
+            running.add(executor.submit(worker.run_one, kinds=kinds))
+
+
 def _run_daemon(handle, config, budget):
     engine = make_engine()
     worker = Worker(engine, _client, budget=budget, editions_enabled=True,
@@ -491,21 +659,23 @@ def _run_daemon(handle, config, budget):
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    ready = False
+    active = [set() for _ in WORKER_LANES]
+    next_tick = 0.0
     try:
-        while not stopping.is_set():
-            try:
-                worker.tick()
-                if not ready:
-                    _write_worker_ready(handle, config)
-                    ready = True
-                    print("worker_ready", flush=True)
-                for _ in range(20):
-                    if stopping.is_set() or not worker.run_one():
-                        break
-            except OperationalError:
-                print("worker_database_temporarily_unavailable", flush=True)
-            stopping.wait(5)
+        with ThreadPoolExecutor(max_workers=sum(capacity for _, capacity in WORKER_LANES)) as executor:
+            while not stopping.is_set():
+                try:
+                    if time.monotonic() >= next_tick:
+                        worker.tick()
+                        if next_tick == 0:
+                            _write_worker_ready(handle, config)
+                            print("worker_ready", flush=True)
+                        next_tick = time.monotonic() + 60
+                    if not stopping.is_set():
+                        _dispatch(worker, executor, active)
+                except OperationalError:
+                    print("worker_database_temporarily_unavailable", flush=True)
+                stopping.wait(2)
     finally:
         _write_worker_ready(handle, None)
         engine.dispose()

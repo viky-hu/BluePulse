@@ -5,18 +5,19 @@ import argparse
 import json
 import re
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
-from urllib.robotparser import RobotFileParser
 
 import httpx
 
 from .ccgp_source import CcgpAdapter, USER_AGENT, _Links, _decode
 from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter, SourceFetchError
 from .pipeline import Candidate
+from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 
 
 NPCC_LIST = "https://news.npcc.police.uk/releases"
@@ -107,38 +108,23 @@ class HtmlEvidenceProbe:
         self.http, self.kind, self.max_items, self.sleeper = http, kind, max_items, sleeper
         self.listing = NPCC_LIST if kind == "npcc" else JIANGSU_LIST
         self.pattern = NPCC_ARTICLE if kind == "npcc" else JIANGSU_ARTICLE
+        self.reader = SourcePageReader(http, self.listing, lambda delay: self.sleeper(delay),
+                                       allow_missing_robots=True, denied_listing="robots_disallowed",
+                                       excessive_delay="robots_delay_exceeds_budget")
         self.diagnostics: dict[str, int] = {}
         self.item_diagnostics: list[dict] = []
         self.stage = "not_started"
 
-    def candidates(self) -> list[Candidate]:
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
         self.diagnostics = {"robots_unavailable": 0, "listing_links": 0,
                             "detail_attempts": 0, "detail_body": 0, "detail_failed": 0}
         self.item_diagnostics = []
         self.stage = "robots"
-        host = urlsplit(self.listing).hostname
-        try:
-            robots = self.http.get(f"https://{host}/robots.txt", accept="text/plain")
-        except SourceFetchError as exc:
-            if exc.code != "http_404":
-                raise
-            robots = b""
-            self.diagnostics["robots_unavailable"] = 1
-        policy = RobotFileParser()
-        policy.parse(_decode(robots).splitlines())
-        delay = policy.crawl_delay(USER_AGENT) or 0
-        if delay > 10:
-            raise SourceFetchError("robots_delay_exceeds_budget")
-        delay = max(1.0, float(delay))
-
-        def fetch(url: str) -> str:
-            if not policy.can_fetch(USER_AGENT, url):
-                raise SourceFetchError("robots_disallowed")
-            self.sleeper(delay)
-            return _decode(self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9"))
-
+        self.reader.refresh()
+        self.reader.prepare()
+        self.diagnostics["robots_unavailable"] = int(self.reader.robots_missing)
         self.stage = "listing"
-        html = fetch(self.listing)
+        html = _decode(self.reader.get(self.listing, "text/html,application/xhtml+xml;q=0.9"))
         fragments = JIANGSU_RECORD.findall(html) if self.kind == "jiangsu" else []
         if self.kind == "jiangsu" and not fragments:
             raise SourceFetchError("listing_records_missing")
@@ -153,42 +139,39 @@ class HtmlEvidenceProbe:
         self.diagnostics["listing_links"] = len(links)
         if not links:
             raise SourceFetchError("listing_links_missing")
+        language = "en" if self.kind == "npcc" else "zh"
+        return [Candidate(url=url, title=title, language=language) for url, (title, _) in links.items()]
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        url = candidate.url
+        if not _valid_detail(url, self.listing, self.pattern):
+            raise SourceFetchError("invalid_article_url")
         self.stage = "detail"
-        ranked = list(links.items())
+        self.diagnostics["detail_attempts"] = self.diagnostics.get("detail_attempts", 0) + 1
+        parser = _Region(body_class="content-body" if self.kind == "npcc" else "wzzw-article",
+                         title_class="content-title" if self.kind == "npcc" else "wzzw-title",
+                         date_class="date" if self.kind == "npcc" else None)
+        parser.feed(_decode(self.reader.get(url, "text/html,application/xhtml+xml;q=0.9")))
+        body = parser.text("body", 12000)
+        title = parser.text("title", 500) or candidate.title
+        if len(body) < (120 if self.kind == "npcc" else 80):
+            raise IncompleteArticle(len(body))
+        self.item_diagnostics.append({"url": url, "body_chars": len(body),
+                                      "content_source": parser.content_source})
+        self.diagnostics["detail_body"] = self.diagnostics.get("detail_body", 0) + 1
+        parsed_date = _date(self.kind, parser)
+        return replace(candidate, title=title, body=body,
+                       published_at=parsed_date if self.kind == "jiangsu" else None,
+                       published_date=parsed_date.date() if self.kind == "npcc" and parsed_date else None)
+
+    def candidates(self) -> list[Candidate]:
+        ranked = self.list_candidates()
         selected = ranked[:self.max_items]
         if len(ranked) > self.max_items and self.max_items >= 3:
-            extra = next((item for item in ranked[self.max_items:] if TECH.search(item[1][0])), None)
-            if extra and not any(TECH.search(item[1][0]) for item in selected):
+            extra = next((item for item in ranked[self.max_items:] if TECH.search(item.title)), None)
+            if extra and not any(TECH.search(item.title) for item in selected):
                 selected[-1] = extra
-        results: list[Candidate] = []
-        for url, (listed_title, _) in selected:
-            self.diagnostics["detail_attempts"] += 1
-            try:
-                detail_html = fetch(url)
-            except SourceFetchError as exc:
-                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
-                    raise
-                self.diagnostics["detail_failed"] += 1
-                continue
-            parser = _Region(body_class="content-body" if self.kind == "npcc" else "wzzw-article",
-                             title_class="content-title" if self.kind == "npcc" else "wzzw-title",
-                             date_class="date" if self.kind == "npcc" else None)
-            parser.feed(detail_html)
-            body = parser.text("body", 12000)
-            title = parser.text("title", 500) or listed_title
-            if len(body) < (120 if self.kind == "npcc" else 80):
-                self.diagnostics["detail_failed"] += 1
-                continue
-            self.item_diagnostics.append({"url": url, "body_chars": len(body),
-                                          "content_source": parser.content_source})
-            parsed_date = _date(self.kind, parser)
-            results.append(Candidate(url=url, title=title, body=body,
-                                     published_at=parsed_date if self.kind == "jiangsu" else None,
-                                     published_date=parsed_date.date() if self.kind == "npcc" and parsed_date else None,
-                                     language="en" if self.kind == "npcc" else "zh"))
-            self.diagnostics["detail_body"] += 1
-        if not results and self.diagnostics["detail_failed"]:
-            raise SourceFetchError("all_details_failed")
+        results = bounded_details(selected, self.fetch_detail, self.diagnostics)
         self.stage = "done"
         return results
 

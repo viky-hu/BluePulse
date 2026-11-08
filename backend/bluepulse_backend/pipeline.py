@@ -5,9 +5,9 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Protocol
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -128,6 +128,95 @@ def _body_status(candidate: Candidate) -> str:
     return "metadata_only"
 
 
+def store_candidate(session: Session, source: Source, candidate: Candidate, seen: datetime) -> tuple[Material, str]:
+    """Apply a candidate and keep its revision; callers own the transaction and discovery."""
+    url = canonical_url(candidate.url, source.allowed_hosts)
+    if candidate.body_source_url is not None:
+        body_hosts = source.allowed_hosts
+        body_url = urlsplit(candidate.body_source_url)
+        if source.slug == "govuk" and body_url.hostname == "assets.publishing.service.gov.uk":
+            decoded = unquote(body_url.path)
+            if (body_url.scheme != "https" or body_url.port not in (None, 443) or
+                    body_url.query or body_url.fragment or not decoded.startswith("/media/") or
+                    ".." in decoded or "\\" in decoded or any(ord(char) < 32 for char in decoded)):
+                raise ValueError("asset_host_not_allowed")
+            body_hosts = ["assets.publishing.service.gov.uk"]
+        canonical_url(candidate.body_source_url, body_hosts)
+    if not _normalize(candidate.title):
+        raise ValueError("title_missing")
+    material = session.scalar(select(Material).where(Material.canonical_url == url))
+    first_seen = material.first_seen_at if material else seen
+    if first_seen.tzinfo is None:
+        first_seen = first_seen.replace(tzinfo=UTC)
+    timeline, sort_at, safe_published = publication_clock(
+        candidate.published_at, candidate.published_date, first_seen)
+    digest = _content_hash(candidate)
+    previous_title_key = material.title_key if material is not None else None
+    if material is None:
+        material = Material(
+            canonical_url=url, source_url=candidate.url, source_id=source.id,
+            source_title=candidate.title, title_key=title_key(candidate.title),
+            source_body=candidate.body,
+            body_source_url=candidate.body_source_url,
+            source_media=candidate.media,
+            source_summary=candidate.summary, language=candidate.language,
+            published_at=safe_published, published_date=candidate.published_date,
+            published_sort_at=sort_at,
+            first_seen_at=seen, fetched_at=seen,
+            content_hash=digest, timeline_kind=timeline, body_status=_body_status(candidate),
+            translation_status="pending" if candidate.language.startswith("en") else "not_required",
+            author=candidate.author,
+        )
+        session.add(material)
+        session.flush()
+        outcome = "new"
+    elif material.content_hash != digest:
+        material.revision += 1
+        material.content_hash = digest
+        material.source_url = candidate.url
+        material.source_title = candidate.title
+        material.title_key = title_key(candidate.title)
+        material.source_body = candidate.body
+        material.body_source_url = candidate.body_source_url
+        material.source_media = candidate.media
+        material.source_summary = candidate.summary
+        material.language = candidate.language
+        material.author = candidate.author
+        material.published_at = safe_published
+        material.published_date = candidate.published_date
+        material.published_sort_at = sort_at
+        material.fetched_at = seen
+        material.body_status = _body_status(candidate)
+        material.timeline_kind = timeline
+        material.state = "analysis_pending"
+        material.public = False
+        material.featured_candidate = False
+        material.selection_status = "pending"
+        material.grouping_status = "pending"
+        material.grouping_value = None
+        material.selected_at = material.judged_at = None
+        material.translation_revision = None
+        material.translation_status = "pending" if candidate.language.startswith("en") else "not_required"
+        material.zh_title = material.zh_summary = material.zh_body = None
+        outcome = "revised"
+    else:
+        outcome = "duplicate"
+    if outcome != "duplicate":
+        session.add(MaterialRevision(
+            material_id=material.id, revision=material.revision, content_hash=digest,
+            source_title=candidate.title, source_body=candidate.body,
+            body_source_url=candidate.body_source_url,
+            source_media=candidate.media,
+            source_summary=candidate.summary, published_at=candidate.published_at,
+            published_date=candidate.published_date,
+        ))
+        session.flush()
+        reconcile_title(session, material.title_key)
+        if previous_title_key and previous_title_key != material.title_key:
+            reconcile_title(session, previous_title_key)
+    return material, outcome
+
+
 def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=None, clock=now_utc) -> SourceRun:
     """Persist every discovery and revision. A failed source does not poison other sources."""
     if not source.enabled:
@@ -153,79 +242,7 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=No
         if guard:
             guard(session)
         try:
-            url = canonical_url(candidate.url, source.allowed_hosts)
-            if candidate.body_source_url is not None:
-                canonical_url(candidate.body_source_url, source.allowed_hosts)
-            if not _normalize(candidate.title):
-                raise ValueError("title_missing")
-            seen = clock()
-            timeline, sort_at, safe_published = publication_clock(
-                candidate.published_at, candidate.published_date, seen)
-            digest = _content_hash(candidate)
-            material = session.scalar(select(Material).where(Material.canonical_url == url))
-            previous_title_key = material.title_key if material is not None else None
-            if material is None:
-                material = Material(
-                    canonical_url=url, source_url=candidate.url, source_id=source.id,
-                    source_title=candidate.title, title_key=title_key(candidate.title),
-                    source_body=candidate.body,
-                    body_source_url=candidate.body_source_url,
-                    source_media=candidate.media,
-                    source_summary=candidate.summary, language=candidate.language,
-                    published_at=safe_published, published_date=candidate.published_date,
-                    published_sort_at=sort_at,
-                    first_seen_at=seen, fetched_at=seen,
-                    content_hash=digest, timeline_kind=timeline, body_status=_body_status(candidate),
-                    translation_status="pending" if candidate.language.startswith("en") else "not_required",
-                    author=candidate.author,
-                )
-                session.add(material)
-                session.flush()
-                outcome = "new"
-            elif material.content_hash != digest:
-                material.revision += 1
-                material.content_hash = digest
-                material.source_url = candidate.url
-                material.source_title = candidate.title
-                material.title_key = title_key(candidate.title)
-                material.source_body = candidate.body
-                material.body_source_url = candidate.body_source_url
-                material.source_media = candidate.media
-                material.source_summary = candidate.summary
-                material.language = candidate.language
-                material.author = candidate.author
-                material.published_at = safe_published
-                material.published_date = candidate.published_date
-                material.published_sort_at = sort_at
-                material.fetched_at = seen
-                material.body_status = _body_status(candidate)
-                material.timeline_kind = timeline
-                material.state = "analysis_pending"
-                material.public = False
-                material.featured_candidate = False
-                material.selection_status = "pending"
-                material.grouping_status = "pending"
-                material.grouping_value = None
-                material.selected_at = material.judged_at = None
-                material.translation_revision = None
-                material.translation_status = "pending" if candidate.language.startswith("en") else "not_required"
-                material.zh_title = material.zh_summary = material.zh_body = None
-                outcome = "revised"
-            else:
-                outcome = "duplicate"
-            if outcome != "duplicate":
-                session.add(MaterialRevision(
-                    material_id=material.id, revision=material.revision, content_hash=digest,
-                    source_title=candidate.title, source_body=candidate.body,
-                    body_source_url=candidate.body_source_url,
-                    source_media=candidate.media,
-                    source_summary=candidate.summary, published_at=candidate.published_at,
-                    published_date=candidate.published_date,
-                ))
-                session.flush()
-                reconcile_title(session, material.title_key)
-                if previous_title_key and previous_title_key != material.title_key:
-                    reconcile_title(session, previous_title_key)
+            material, outcome = store_candidate(session, source, candidate, clock())
             session.add(Discovery(run_id=run.id, source_id=source.id, material_id=material.id,
                                   url=candidate.url, outcome=outcome))
             session.commit()

@@ -20,7 +20,8 @@ def database_url() -> str:
 def make_engine(url: str | None = None) -> Engine:
     address = url or database_url()
     ensure_sqlite_parent(address)
-    return create_engine(address, pool_pre_ping=True)
+    options = {"connect_args": {"timeout": 30}} if address.startswith("sqlite:") else {}
+    return create_engine(address, pool_pre_ping=True, **options)
 
 
 def ensure_sqlite_parent(address: str) -> None:

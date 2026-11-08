@@ -16,7 +16,9 @@ from .work_queue import serialized, utc
 
 
 class BudgetWait(Exception):
-    pass
+    def __init__(self, code, *, retry_after=60):
+        super().__init__(code)
+        self.retry_after = retry_after
 
 
 class ReceiptUnknown(Exception):
@@ -90,11 +92,12 @@ class PaidGateway:
 
     def _check_budget(self, session: Session, now: datetime):
         attempts = select(func.count()).select_from(PaidAttempt).where(PaidAttempt.service == self.service)
-        for window, cap in ((60, self.budget.minute), (3600, self.budget.hour), (86400, self.budget.day)):
+        for window, cap, wait in ((60, self.budget.minute, 60), (3600, self.budget.hour, 600),
+                                  (86400, self.budget.day, 3600)):
             if cap <= 0 or session.scalar(attempts.where(
                 PaidAttempt.sent_at > now - timedelta(seconds=window)
             )) >= cap:
-                raise BudgetWait(f"request_budget_{window}")
+                raise BudgetWait(f"request_budget_{window}", retry_after=wait)
         if self.budget.total is not None and session.scalar(
             select(func.count()).select_from(PaidAttempt).where(PaidAttempt.run_key == self.run_key)
         ) >= self.budget.total:

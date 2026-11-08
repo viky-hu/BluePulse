@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import replace
 from datetime import date, datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
-from urllib.robotparser import RobotFileParser
 
 from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError
 from .pipeline import Candidate, canonical_url
 from .source_images import ArticleImages
+from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 
 
 HOST = "www.police.gov.sg"
@@ -130,38 +131,21 @@ class SpfPoliceLifeAdapter:
         if not 1 <= max_items <= 5 or http.allowed_hosts != {HOST}:
             raise ValueError("invalid_spf_configuration")
         self.http, self.max_items, self.sleeper = http, max_items, sleeper
+        self.reader = SourcePageReader(http, LISTING, lambda delay: self.sleeper(delay))
         self.diagnostics: dict[str, int] = {}
         self.item_diagnostics: list[dict] = []
 
-    def candidates(self) -> list[Candidate]:
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
         self.diagnostics = {"listing_links": 0, "topic_matches": 0, "detail_attempts": 0,
                             "detail_full_text": 0, "detail_failed": 0}
         self.item_diagnostics = []
-        robots = self.http.get(ROOT + "/robots.txt", accept="text/plain")
-        policy = RobotFileParser()
-        policy.parse(robots.decode("utf-8-sig", "replace").splitlines())
-        delay = policy.crawl_delay(USER_AGENT) or 0
-        if delay > 10 or not policy.can_fetch(USER_AGENT, LISTING):
-            raise SourceFetchError("robots_disallowed_or_delayed")
-
-        def fetch(url: str) -> bytes:
-            if not policy.can_fetch(USER_AGENT, url):
-                raise SourceFetchError("robots_disallowed")
-            self.sleeper(max(1.0, float(delay)))
-            return self.http.get(url, accept="text/html")
-
+        self.reader.refresh()
         links = _Links()
-        links.feed(fetch(LISTING).decode("utf-8-sig", "replace"))
+        links.feed(self.reader.get(LISTING, "text/html").decode("utf-8-sig", "replace"))
         selected: dict[str, tuple[str, bool, int]] = {}
         for position, (href, title, latest) in enumerate(links.items):
             url = urljoin(LISTING, href)
-            parts = urlsplit(url)
-            if (parts.scheme != "https" or parts.hostname != HOST or parts.query or parts.fragment or
-                    not ARTICLE_PATH.fullmatch(parts.path)):
-                continue
-            try:
-                canonical_url(url, [HOST])
-            except ValueError:
+            if not self._valid_article(url):
                 continue
             if url not in selected or latest and not selected[url][1]:
                 selected[url] = (title, latest, position)
@@ -172,30 +156,36 @@ class SpfPoliceLifeAdapter:
             if not TOPIC.search(listed_title + " " + urlsplit(url).path):
                 continue
             self.diagnostics["topic_matches"] += 1
-            if self.diagnostics["detail_attempts"] >= self.max_items:
-                continue
-            self.diagnostics["detail_attempts"] += 1
-            try:
-                detail = _Article(url)
-                detail.feed(fetch(url).decode("utf-8-sig", "replace"))
-            except SourceFetchError as exc:
-                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
-                    raise
-                self.diagnostics["detail_failed"] += 1
-                self.item_diagnostics.append({"url": url, "status": exc.code})
-                continue
-            if not detail.title or len(detail.body) < 120 or detail.published_date is None:
-                self.diagnostics["detail_failed"] += 1
-                self.item_diagnostics.append({"url": url, "status": "incomplete_article",
-                                              "body_chars": len(detail.body)})
-                continue
-            self.diagnostics["detail_full_text"] += 1
-            self.item_diagnostics.append({"url": url, "status": "full_text",
-                                          "body_chars": len(detail.body),
-                                          "published_date": detail.published_date.isoformat()})
-            candidates.append(Candidate(url=url, title=detail.title, body=detail.body,
-                                        summary=detail.description, published_date=detail.published_date,
-                                        language="en", media=detail.images.permitted(policy, USER_AGENT)))
-        if not candidates and self.diagnostics["detail_failed"]:
-            raise SourceFetchError("all_details_failed")
+            candidates.append(Candidate(url=url, title=listed_title, language="en"))
         return candidates
+
+    @staticmethod
+    def _valid_article(url: str) -> bool:
+        try:
+            parts = urlsplit(url)
+            canonical_url(url, [HOST])
+            return (parts.scheme == "https" and not parts.query and not parts.fragment and
+                    bool(ARTICLE_PATH.fullmatch(parts.path)))
+        except ValueError:
+            return False
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        url = candidate.url
+        if not self._valid_article(url):
+            raise SourceFetchError("invalid_article_url")
+        self.diagnostics["detail_attempts"] = self.diagnostics.get("detail_attempts", 0) + 1
+        detail = _Article(url)
+        detail.feed(self.reader.get(url, "text/html").decode("utf-8-sig", "replace"))
+        body, published_date = detail.body, detail.published_date
+        if not detail.title or len(body) < 120 or published_date is None:
+            raise IncompleteArticle(len(body))
+        self.diagnostics["detail_full_text"] = self.diagnostics.get("detail_full_text", 0) + 1
+        self.item_diagnostics.append({"url": url, "status": "full_text", "body_chars": len(body),
+                                      "published_date": published_date.isoformat()})
+        return replace(candidate, title=detail.title, body=body, summary=detail.description,
+                       published_date=published_date,
+                       media=detail.images.permitted(self.reader.prepare(), USER_AGENT))
+
+    def candidates(self) -> list[Candidate]:
+        rows = self.list_candidates()[:self.max_items]
+        return bounded_details(rows, self.fetch_detail, self.diagnostics, self.item_diagnostics)

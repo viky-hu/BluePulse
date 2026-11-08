@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, case, or_, select, update
 from sqlalchemy.orm import Session
 
 from .editorial_models import WorkItem
@@ -56,7 +56,8 @@ def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | N
         running = session.scalars(select(WorkItem).where(
             WorkItem.status == "running", WorkItem.expires_at > now))
         resources = set().union(*(_resources(job) for job in running))
-        for job in session.scalars(query.order_by(WorkItem.due_at, WorkItem.id)):
+        history = case((WorkItem.payload["historical"].as_boolean().is_(True), 1), else_=0)
+        for job in session.scalars(query.order_by(history, WorkItem.due_at, WorkItem.id)):
             if resources & _resources(job):
                 continue
             job.status, job.token, job.expires_at = "running", uid(), now + LEASE
@@ -69,6 +70,8 @@ def _resources(job):
     if job.kind == "collect":
         return {("source", job.payload.get("slug"))}
     resources = set()
+    if job.kind == "extract":
+        resources.add(("url", job.payload["url"]))
     if material_id := job.payload.get("material_id"):
         resources.add(("material", material_id))
     if story_id := job.payload.get("story_id"):

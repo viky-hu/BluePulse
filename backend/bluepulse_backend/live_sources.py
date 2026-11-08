@@ -7,6 +7,8 @@ import json
 import re
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
@@ -158,8 +160,15 @@ class BoundedHTTP:
         if (parts.scheme != "https" or parts.hostname not in self.allowed_hosts or
                 parts.port not in {None, 443} or parts.username or parts.password):
             raise SourceFetchError("host_not_allowed")
+        pace = getattr(self.client, "pulse_host_pace", None)
+        if pace:
+            with pace(parts.hostname, self.delay_seconds):
+                return self._read(url, params, accept)
         if self.delay_seconds:
             time.sleep(self.delay_seconds)
+        return self._read(url, params, accept)
+
+    def _read(self, url, params, accept):
         try:
             with self.client.stream("GET", url, params=params, follow_redirects=False,
                                     headers={"Accept": accept}) as response:
@@ -330,10 +339,9 @@ class GovUkAdapter:
             raise ValueError("max_items_must_be_1_to_5")
         self.http, self.query, self.max_items = http, query, max_items
         self.csv_fetcher = csv_fetcher
-        self.diagnostics: dict[str, int] = {}
-        self.item_diagnostics: list[dict] = []
+        self._reset_diagnostics()
 
-    def candidates(self) -> list[Candidate]:
+    def _reset_diagnostics(self) -> None:
         self.diagnostics = {"search_results": 0, "detail_attempts": 0,
                             "detail_parsed": 0, "detail_failed": 0,
                             "attachment_attempts": 0, "attachment_parsed": 0,
@@ -341,130 +349,198 @@ class GovUkAdapter:
                             "csv_parsed": 0, "csv_failed": 0,
                             "csv_matched_html": 0, "csv_mismatched_html": 0}
         self.item_diagnostics = []
-        data = json.loads(self.http.get(self.SEARCH, params={
-            "q": self.query, "count": min(5, self.max_items + 2),
-            "filter_organisations": "home-office",
-        }))
-        results = data.get("results")
+
+    @staticmethod
+    def _article_path(raw: object) -> str | None:
+        if not isinstance(raw, str) or not raw.startswith("/government/"):
+            return None
+        parts = urlsplit(raw)
+        decoded = unquote(parts.path)
+        if parts.query or parts.fragment or ".." in decoded or "\\" in decoded or any(
+            ord(char) < 32 for char in decoded
+        ):
+            return None
+        return parts.path
+
+    @classmethod
+    def _listing_item(cls, result: object) -> Candidate | None:
+        if not isinstance(result, dict) or (path := cls._article_path(result.get("link"))) is None:
+            return None
+        title = result.get("title")
+        description = result.get("description")
+        timestamp = result.get("public_timestamp")
+        return Candidate(
+            url="https://www.gov.uk" + path,
+            title=plain_text(title, max_chars=1000) if isinstance(title, str) else "",
+            summary=plain_text(description, max_chars=1000) if isinstance(description, str) else None,
+            published_at=parse_time(timestamp) if isinstance(timestamp, str) else None,
+            language="en",
+        )
+
+    def _search_page(self, count: int, start: int | None = None) -> tuple[list, int | None]:
+        params = {"q": self.query, "count": count, "filter_organisations": "home-office"}
+        if start is not None:
+            params["start"] = start
+            params["fields"] = "link,title,description,public_timestamp"
+        try:
+            data = json.loads(self.http.get(self.SEARCH, params=params))
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise SourceFetchError("invalid_search_payload") from exc
+        results = data.get("results") if isinstance(data, dict) else None
         if not isinstance(results, list):
             raise SourceFetchError("invalid_search_payload")
-        self.diagnostics["search_results"] = len(results)
-        candidates: list[Candidate] = []
+        returned_start = data.get("start")
+        if start is not None and type(returned_start) is int and returned_start != start:
+            raise SourceFetchError("invalid_search_offset")
+        self.diagnostics["search_results"] += len(results)
+        total = data.get("total")
+        return results, total if type(total) is int and total >= 0 else None
+
+    def iter_listing_pages(self, *, start: int = 0) -> Iterator[tuple[list[Candidate], int | None]]:
+        """Yield each listing page with a checkpoint for the next search offset."""
+        if start < 0:
+            raise SourceFetchError("invalid_search_offset")
+        self._reset_diagnostics()
+        while True:
+            results, total = self._search_page(30, start)
+            next_offset = start + len(results)
+            following = next_offset if total is not None and next_offset < total else None
+            if following is not None and not results:
+                raise SourceFetchError("search_pagination_stalled")
+            yield [item for result in results if (item := self._listing_item(result)) is not None], following
+            if following is None:
+                return
+            start = following
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        return [item for page, _ in self.iter_listing_pages() for item in page]
+
+    def candidates(self) -> list[Candidate]:
+        self._reset_diagnostics()
+        results, _ = self._search_page(min(5, self.max_items + 2))
+        candidates = []
         for result in results:
-            path = result.get("link") if isinstance(result, dict) else None
-            if not isinstance(path, str) or not path.startswith("/government/") or path.startswith("//"):
+            candidate = self._listing_item(result)
+            if candidate is None:
                 continue
-            if urlsplit(path).query or ".." in path:
-                continue
-            self.diagnostics["detail_attempts"] += 1
             try:
-                detail = json.loads(self.http.get(self.CONTENT + path))
-            except Exception:
-                self.diagnostics["detail_failed"] += 1
-                raise
-            if not isinstance(detail, dict):
-                self.diagnostics["detail_failed"] += 1
-                raise SourceFetchError("invalid_detail_payload")
-            title = detail.get("title")
-            if not isinstance(title, str) or not title.strip():
-                self.diagnostics["detail_failed"] += 1
-                continue
-            description = plain_text(detail.get("description") or "", max_chars=1000)
-            original_description_chars = len(description)
-            details = detail.get("details") or {}
-            raw_body = details.get("body") or ""
-            body = plain_text(raw_body) if isinstance(raw_body, str) else ""
-            page_body_chars = len(body)
-            # A publication landing page may contain an introduction but not the attached document.
-            if details.get("attachments") and page_body_chars < 1000:
-                if page_body_chars >= 100:
-                    description = plain_text(description + "\n" + body, max_chars=1000)
-                body = ""
-            attachments = details.get("attachments")
-            if not isinstance(attachments, list):
-                attachments = []
-            html_paths = [item.get("url") for item in attachments
-                          if isinstance(item, dict) and item.get("attachment_type") == "html"
-                          and isinstance(item.get("url"), str)]
-            other_text_attachments = [item for item in attachments
-                                      if isinstance(item, dict) and item.get("attachment_type") == "file"
-                                      and item.get("content_type") in {"text/csv", "text/plain"}]
-            body_source_url = None
-            attachment_error = None
-            # Read at most one English HTML document through the same bounded client.
-            # Content API details.body is the publication body without GOV.UK page chrome.
-            for attachment in attachments:
-                attachment_path = self._html_attachment_path(attachment)
-                if attachment_path is None:
-                    continue
-                self.diagnostics["attachment_attempts"] += 1
-                try:
-                    attachment_detail = json.loads(self.http.get(self.CONTENT + attachment_path))
-                    raw_attachment_body = (attachment_detail.get("details") or {}).get("body")
-                    attachment_body = (plain_text(raw_attachment_body, max_chars=300_000)
-                                       if isinstance(raw_attachment_body, str) else "")
-                    if not attachment_body:
-                        raise SourceFetchError("attachment_body_missing")
-                except (SourceFetchError, ValueError, AttributeError, TypeError) as exc:
-                    attachment_error = getattr(exc, "code", "invalid_attachment_payload")
-                    self.diagnostics["attachment_failed"] += 1
-                else:
-                    body = attachment_body
-                    body_source_url = "https://www.gov.uk" + attachment_path
-                    self.diagnostics["attachment_parsed"] += 1
-                break
-            csv_url = next((url for attachment in attachments
-                            if (url := self._csv_attachment_url(attachment)) is not None), None)
-            csv_error = None
-            csv_rows = 0
-            csv_matches_html = None
-            csv_robots_status = None
-            if csv_url is not None:
-                self.diagnostics["csv_attempts"] += 1
-                try:
-                    user_agent = self.http.client.headers.get("User-Agent", "BluePulseResearch/0.1")
-                    csv_payload, csv_robots_status = self.csv_fetcher(csv_url, user_agent)
-                    csv_body, data_rows = csv_table_text(csv_payload)
-                    csv_rows = len(data_rows)
-                    if body_source_url is not None:
-                        csv_matches_html = _html_csv_rows_match(body, data_rows)
-                        self.diagnostics["csv_matched_html" if csv_matches_html
-                                         else "csv_mismatched_html"] += 1
-                    elif not body:
-                        body, body_source_url = csv_body, csv_url
-                except SourceFetchError as exc:
-                    csv_error = exc.code
-                    self.diagnostics["csv_failed"] += 1
-                else:
-                    self.diagnostics["csv_parsed"] += 1
-            self.item_diagnostics.append({
-                "url": "https://www.gov.uk" + path,
-                "attachment_count": len(attachments),
-                "html_attachment_count": len(html_paths),
-                "html_attachment_paths": html_paths,
-                "other_text_attachment_count": len(other_text_attachments),
-                "page_body_chars": page_body_chars,
-                "description_chars": original_description_chars,
-                "body_source_url": body_source_url,
-                "attachment_body_chars": len(body) if body_source_url else 0,
-                "attachment_error": attachment_error,
-                "csv_url": csv_url,
-                "csv_rows": csv_rows,
-                "csv_matches_html": csv_matches_html,
-                "csv_robots_status": csv_robots_status,
-                "csv_error": csv_error,
-            })
-            candidates.append(Candidate(
-                url="https://www.gov.uk" + path, title=title,
-                body=body or None, summary=description or None,
-                body_source_url=body_source_url,
-                published_at=parse_time(detail.get("first_published_at") or result.get("public_timestamp")),
-                language="en",
-            ))
-            self.diagnostics["detail_parsed"] += 1
+                candidates.append(self.fetch_detail(candidate))
+            except SourceFetchError as exc:
+                if exc.code != "detail_title_missing":
+                    raise
             if len(candidates) >= self.max_items:
                 break
         return candidates
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        parts = urlsplit(candidate.url)
+        if (parts.scheme != "https" or parts.netloc != "www.gov.uk" or parts.query or parts.fragment
+                or (path := self._article_path(parts.path)) is None):
+            raise SourceFetchError("host_not_allowed")
+        self.diagnostics["detail_attempts"] += 1
+        try:
+            detail = json.loads(self.http.get(self.CONTENT + path))
+        except Exception:
+            self.diagnostics["detail_failed"] += 1
+            raise
+        if not isinstance(detail, dict):
+            self.diagnostics["detail_failed"] += 1
+            raise SourceFetchError("invalid_detail_payload")
+        title = detail.get("title")
+        if not isinstance(title, str) or not title.strip():
+            self.diagnostics["detail_failed"] += 1
+            raise SourceFetchError("detail_title_missing")
+        description = plain_text(detail.get("description") or "", max_chars=1000)
+        original_description_chars = len(description)
+        details = detail.get("details") or {}
+        raw_body = details.get("body") or ""
+        body = plain_text(raw_body) if isinstance(raw_body, str) else ""
+        page_body_chars = len(body)
+        # A publication landing page may contain an introduction but not the attached document.
+        if details.get("attachments") and page_body_chars < 1000:
+            if page_body_chars >= 100:
+                description = plain_text(description + "\n" + body, max_chars=1000)
+            body = ""
+        attachments = details.get("attachments")
+        if not isinstance(attachments, list):
+            attachments = []
+        html_paths = [item.get("url") for item in attachments
+                      if isinstance(item, dict) and item.get("attachment_type") == "html"
+                      and isinstance(item.get("url"), str)]
+        other_text_attachments = [item for item in attachments
+                                  if isinstance(item, dict) and item.get("attachment_type") == "file"
+                                  and item.get("content_type") in {"text/csv", "text/plain"}]
+        body_source_url = None
+        attachment_error = None
+        # Read at most one English HTML document through the same bounded client.
+        # Content API details.body is the publication body without GOV.UK page chrome.
+        for attachment in attachments:
+            attachment_path = self._html_attachment_path(attachment)
+            if attachment_path is None:
+                continue
+            self.diagnostics["attachment_attempts"] += 1
+            try:
+                attachment_detail = json.loads(self.http.get(self.CONTENT + attachment_path))
+                raw_attachment_body = (attachment_detail.get("details") or {}).get("body")
+                attachment_body = (plain_text(raw_attachment_body, max_chars=300_000)
+                                   if isinstance(raw_attachment_body, str) else "")
+                if not attachment_body:
+                    raise SourceFetchError("attachment_body_missing")
+            except (SourceFetchError, ValueError, AttributeError, TypeError) as exc:
+                attachment_error = getattr(exc, "code", "invalid_attachment_payload")
+                self.diagnostics["attachment_failed"] += 1
+            else:
+                body = attachment_body
+                body_source_url = "https://www.gov.uk" + attachment_path
+                self.diagnostics["attachment_parsed"] += 1
+            break
+        csv_url = next((url for attachment in attachments
+                        if (url := self._csv_attachment_url(attachment)) is not None), None)
+        csv_error = None
+        csv_rows = 0
+        csv_matches_html = None
+        csv_robots_status = None
+        if csv_url is not None:
+            self.diagnostics["csv_attempts"] += 1
+            try:
+                user_agent = self.http.client.headers.get("User-Agent", "BluePulseResearch/0.1")
+                csv_payload, csv_robots_status = self.csv_fetcher(csv_url, user_agent)
+                csv_body, data_rows = csv_table_text(csv_payload)
+                csv_rows = len(data_rows)
+                if body_source_url is not None:
+                    csv_matches_html = _html_csv_rows_match(body, data_rows)
+                    self.diagnostics["csv_matched_html" if csv_matches_html
+                                     else "csv_mismatched_html"] += 1
+                elif not body:
+                    body, body_source_url = csv_body, csv_url
+            except SourceFetchError as exc:
+                csv_error = exc.code
+                self.diagnostics["csv_failed"] += 1
+            else:
+                self.diagnostics["csv_parsed"] += 1
+        self.item_diagnostics.append({
+            "url": "https://www.gov.uk" + path,
+            "attachment_count": len(attachments),
+            "html_attachment_count": len(html_paths),
+            "html_attachment_paths": html_paths,
+            "other_text_attachment_count": len(other_text_attachments),
+            "page_body_chars": page_body_chars,
+            "description_chars": original_description_chars,
+            "body_source_url": body_source_url,
+            "attachment_body_chars": len(body) if body_source_url else 0,
+            "attachment_error": attachment_error,
+            "csv_url": csv_url,
+            "csv_rows": csv_rows,
+            "csv_matches_html": csv_matches_html,
+            "csv_robots_status": csv_robots_status,
+            "csv_error": csv_error,
+        })
+        self.diagnostics["detail_parsed"] += 1
+        return replace(
+            candidate, title=title, body=body or None, summary=description or candidate.summary,
+            body_source_url=body_source_url,
+            published_at=parse_time(detail.get("first_published_at")) or candidate.published_at,
+        )
 
 
 class NistRssAdapter:
@@ -480,12 +556,15 @@ class NistRssAdapter:
         self.http, self.max_items, self.fetch_details = http, max_items, fetch_details
         self.feed = feed or self.FEED
         self.focused = focused
-        self.diagnostics: dict[str, int] = {}
-        self.discovered_urls: list[str] = []
+        self._reset_diagnostics()
 
-    def candidates(self) -> list[Candidate]:
+    def _reset_diagnostics(self) -> None:
         self.diagnostics = {"feed_items": 0, "feed_skipped": 0, "topic_filtered": 0, "detail_attempts": 0,
                             "detail_body": 0, "detail_failed": 0}
+        self.discovered_urls: list[str] = []
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        self._reset_diagnostics()
         root = ET.fromstring(self.http.get(self.feed))
         candidates: list[Candidate] = []
         items = root.findall("./channel/item")
@@ -512,21 +591,23 @@ class NistRssAdapter:
                                         for term in self.FOCUSED_TERMS):
                 self.diagnostics["topic_filtered"] += 1
                 continue
-            body = ""
-            if self.fetch_details:
-                self.diagnostics["detail_attempts"] += 1
-                try:
-                    body = nist_article_text(self.http.get(url).decode("utf-8", errors="replace"))
-                except Exception:
-                    self.diagnostics["detail_failed"] += 1
-                    raise
-                self.diagnostics["detail_body"] += bool(body)
             candidates.append(Candidate(
                 url=url, title=title.strip(),
-                body=body or None,
                 summary=plain_text(item.findtext("description") or "", max_chars=1000) or None,
                 published_at=parse_time(item.findtext("pubDate")), language="en",
             ))
-            if len(candidates) >= self.max_items:
-                break
         return candidates
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        self.diagnostics["detail_attempts"] += 1
+        try:
+            body = nist_article_text(self.http.get(candidate.url).decode("utf-8", errors="replace"))
+        except Exception:
+            self.diagnostics["detail_failed"] += 1
+            raise
+        self.diagnostics["detail_body"] += bool(body)
+        return replace(candidate, body=body or None)
+
+    def candidates(self) -> list[Candidate]:
+        listed = self.list_candidates()[:self.max_items]
+        return [self.fetch_detail(candidate) for candidate in listed] if self.fetch_details else listed

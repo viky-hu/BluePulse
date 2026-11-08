@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
@@ -196,14 +196,17 @@ class BoundedHtmlSourceAdapter:
         if kind not in SITES or not 1 <= max_items <= 5:
             raise ValueError("invalid_html_source_configuration")
         self.http, self.config, self.max_items, self.sleeper = http, SITES[kind], max_items, sleeper
-        self.diagnostics: dict[str, int] = {}
+        self._policy: RobotFileParser | None = None
+        self._delay = 0.0
+        self._reset_diagnostics()
 
-    def candidates(self) -> list[Candidate]:
-        config = self.config
+    def _reset_diagnostics(self) -> None:
         self.diagnostics = {"robots_unavailable": 0, "listing_links": 0, "detail_attempts": 0,
                             "detail_full_text": 0, "detail_abstract_only": 0, "detail_failed": 0}
+
+    def _load_robots(self) -> None:
         try:
-            robots = self.http.get(f"https://{config.host}/robots.txt", accept="text/plain")
+            robots = self.http.get(f"https://{self.config.host}/robots.txt", accept="text/plain")
         except SourceFetchError as exc:
             if exc.code != "http_404":
                 raise
@@ -214,54 +217,76 @@ class BoundedHtmlSourceAdapter:
         delay = policy.crawl_delay(USER_AGENT) or 0
         if delay > 10:
             raise SourceFetchError("robots_delay_exceeds_budget")
+        self._policy, self._delay = policy, max(1.0, float(delay))
 
-        def fetch(url: str) -> str:
-            if not policy.can_fetch(USER_AGENT, url):
-                raise SourceFetchError("robots_disallowed")
-            self.sleeper(max(1.0, float(delay)))
-            return _decode(self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9"))
+    def _fetch(self, url: str) -> str:
+        if self._policy is None:
+            self._load_robots()
+        if not self._policy.can_fetch(USER_AGENT, url):
+            raise SourceFetchError("robots_disallowed")
+        if getattr(self.http.client, "pulse_host_pace", None):
+            self.http.delay_seconds = max(self.http.delay_seconds, self._delay)
+        else:
+            self.sleeper(self._delay)
+        return _decode(self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9"))
 
+    def _article_url(self, url: str) -> str | None:
+        try:
+            parts = urlsplit(url)
+            if parts.query or parts.fragment or not self.config.article_path.fullmatch(parts.path):
+                return None
+            return canonical_url(url, [self.config.host])
+        except ValueError:
+            return None
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        config = self.config
+        self._reset_diagnostics()
+        self._policy = None
         links = _ArticleLinks(config)
-        links.feed(fetch(config.listing))
+        links.feed(self._fetch(config.listing))
         selected: dict[str, str] = {}
         for raw_url, title in links.items:
-            url = urljoin(config.listing, raw_url)
-            parts = urlsplit(url)
-            if parts.query or parts.fragment or not config.article_path.fullmatch(parts.path):
-                continue
-            try:
-                canonical_url(url, [config.host])
-            except ValueError:
-                continue
-            selected.setdefault(url, title)
+            url = self._article_url(urljoin(config.listing, raw_url))
+            if url:
+                selected.setdefault(url, title)
         self.diagnostics["listing_links"] = len(selected)
         if not selected:
             raise SourceFetchError("listing_links_missing")
-        candidates: list[Candidate] = []
-        for url, listed_title in list(selected.items())[:self.max_items]:
-            self.diagnostics["detail_attempts"] += 1
-            try:
-                detail = _Detail(config)
-                detail.feed(fetch(url))
-            except SourceFetchError as exc:
-                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
-                    raise
-                self.diagnostics["detail_failed"] += 1
-                continue
+        return [Candidate(url=url, title=title, language="en") for url, title in selected.items()]
+
+    def fetch_detail(self, candidate: Candidate) -> Candidate:
+        if not self._article_url(candidate.url):
+            raise SourceFetchError("invalid_article_url")
+        self.diagnostics["detail_attempts"] += 1
+        try:
+            detail = _Detail(self.config)
+            detail.feed(self._fetch(candidate.url))
             body = detail.body
-            summary = (detail.description or "").strip()[:1000] or None
+            summary = (detail.description or "").strip()[:1000] or candidate.summary
             if len(body) >= 120:
                 self.diagnostics["detail_full_text"] += 1
             elif summary:
                 self.diagnostics["detail_abstract_only"] += 1
                 body = ""
             else:
-                self.diagnostics["detail_failed"] += 1
-                continue
-            candidates.append(Candidate(url=url, title=detail.title or listed_title,
-                                        body=body or None, summary=summary,
-                                        published_at=detail.published_at,
-                                        published_date=detail.published_date, language="en"))
+                raise SourceFetchError("incomplete_article")
+        except SourceFetchError:
+            self.diagnostics["detail_failed"] += 1
+            raise
+        return replace(candidate, title=detail.title or candidate.title,
+                       body=body or candidate.body, summary=summary,
+                       published_at=detail.published_at or candidate.published_at,
+                       published_date=detail.published_date or candidate.published_date)
+
+    def candidates(self) -> list[Candidate]:
+        candidates: list[Candidate] = []
+        for listed in self.list_candidates()[:self.max_items]:
+            try:
+                candidates.append(self.fetch_detail(listed))
+            except SourceFetchError as exc:
+                if exc.code in {"http_403", "http_429", "robots_disallowed"}:
+                    raise
         if not candidates and self.diagnostics["detail_failed"]:
             raise SourceFetchError("all_details_failed")
         return candidates

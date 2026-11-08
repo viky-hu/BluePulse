@@ -41,6 +41,10 @@ class Source(Base):
     interval_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
     media_allowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     syndicate_full_text_allowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    collection_initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    collection_cursor: Mapped[dict | None] = mapped_column(JSON)
+    collection_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class Topic(Base):
@@ -114,6 +118,9 @@ class Material(Base):
     selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     visible_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     standalone: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    collection_state: Mapped[str | None] = mapped_column(String(20))
+    listing_hash: Mapped[str | None] = mapped_column(String(64))
+    backfill_reason: Mapped[str | None] = mapped_column(String(30))
 
 
 class MaterialRevision(Base):

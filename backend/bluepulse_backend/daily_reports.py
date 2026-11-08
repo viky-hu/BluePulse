@@ -126,7 +126,8 @@ def _fact_rows(session: Session, start: datetime, end: datetime):
         .outerjoin(FactReport, and_(FactReport.material_id == Material.id, FactReport.revision == Material.revision,
                                    FactReport.relation.in_(("primary", "report"))))
         .outerjoin(FactGroup, FactGroup.id == FactReport.fact_id)
-        .where(Material.timeline_kind == "fresh", Material.public.is_(True), Material.withdrawn.is_(False),
+        .where(Material.timeline_kind == "fresh", Material.backfill_reason.is_(None),
+               Material.public.is_(True), Material.withdrawn.is_(False),
                timeline >= start - DAY, timeline < end)
     )
     cutoff = end - timedelta(microseconds=1)
