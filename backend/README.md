@@ -22,24 +22,26 @@ uv pip install --python .venv/Scripts/python.exe -e ".[test]"
 .\.venv\Scripts\python.exe -m bluepulse_backend.cli initialize
 ```
 
-数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。`initialize` 在已有库需要升级时先做 SQLite 备份，再迁移并幂等注册七类和 15 个信源。新来源的摘录、全文、媒体与全文再分发许可默认关闭。双击根目录 `Pulse.bat` 会检查现有模型配置、初始化数据库、启动 FastAPI、独立 worker 和 Next.js，三项就绪后打开浏览器。
+数据库默认在 `backend/data/bluepulse.db`，可通过 `BLUEPULSE_DATABASE_URL` 指向独立数据库。`initialize` 在已有库需要升级时先做 SQLite 备份，再迁移并幂等注册七类和 15 个信源。新来源的摘录、全文、媒体与全文再分发许可默认关闭。切换运行实例前可执行 `python -m bluepulse_backend.cli backup` 对当前 SQLite 库生成独立备份，命令使用 SQLite 备份接口并校验副本完整性。
 
 ### 一键真实运行
 
-双击 `Pulse.bat` 默认启用真实采集和模型处理，读取 `backend/.env` 中已有凭据。默认熔断沿用 AIHOT 的默认模型配置，每分钟 300 次、每小时 6,000 次、每滚动 24 小时 40,000 次，计入实际尝试和重试。已有环境设置优先。Windows PowerShell 可在同一窗口设置后执行 `..\Pulse.bat`。
+双击 `Pulse.bat` 默认构建生产 Web，再启动 FastAPI、独立 worker 和 `next start`。脚本核验端口归属、API 就绪、目标库 worker 配置和同源代理，三项通过后打开浏览器。采集和模型处理默认启用，使用 `backend/.env` 的模型凭据。默认熔断沿用 AIHOT 的配置，每分钟 300 次、每小时 6,000 次、每滚动 24 小时 40,000 次，计入实际尝试和重试。已有环境设置优先。Windows PowerShell 可在同一窗口设置后执行 `..\Pulse.bat`。
 
 | 变量 | 用途 |
 | --- | --- |
 | `BLUEPULSE_COLLECT_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实采集 |
 | `BLUEPULSE_MODEL_CALLS_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实模型请求 |
 | `BLUEPULSE_MODEL_BUDGET_MINUTE`、`_HOUR`、`_DAY` | 全名使用 `BLUEPULSE_MODEL_BUDGET_` 前缀。分别覆盖每分钟、小时和滚动 24 小时的正整数请求上限 |
-| `BLUEPULSE_SITE_ORIGIN` | 本机默认 `http://127.0.0.1:3000`，部署时填写实际 HTTPS 站点地址 |
+| `BLUEPULSE_LOCAL_WEB_PORT`、`BLUEPULSE_LOCAL_API_PORT` | 一键脚本默认使用本机 `3000` 和 `8000`。脚本要求站点和 API 地址匹配这两个回环端口 |
 | `BLUEPULSE_ADMIN_PASSWORD`、`BLUEPULSE_ADMIN_SESSION_SECRET` | 密码至少 12 字符，独立会话密钥至少 32 字符。配置后可进入 `/admin` |
-| `BLUEPULSE_FEEDBACK_ENABLED=1` | 同时启用 FastAPI 接收与 Next.js 反馈代理 |
+| `BLUEPULSE_FEEDBACK_ENABLED` | 一键启动默认 `1`，同时启用 FastAPI 接收与 Next.js 反馈代理。设为 `0` 可关闭 |
 | `BLUEPULSE_MEDIA_SECRET` | 配置独立签名密钥并批准来源媒体许可后启用签名图片 |
 | `BLUEPULSE_MODEL_PRESETS`、`BLUEPULSE_MODELS` | 可选 JSON 对象。前者映射预设名到凭据文件绝对路径，后者映射能力到预设名。默认模型使用现有 `backend/.env` |
 
-一键脚本会核对运行中的 worker 是否使用这次要求的开关与预算。旧 worker 的配置不同时，关闭旧 Worker 窗口后再双击。可用 `Pulse.bat --check-config` 查看本次会使用的采集和模型配置。直接调用 Python worker 时仍需显式设置运行开关。
+服务日志在 `backend/data/launcher/3000-8000/`。重复双击复用同一版本及配置的进程。更新版本或变更配置前，运行 `Pulse.bat --stop`，让 worker 排空在途任务后依次停止 Web 和 API。旧脚本启动的服务可在原窗口按 `Ctrl+C`，先等 worker 完成排空。使用 `Pulse.bat --dev` 启动开发 Web，或用 `Pulse.bat --check-config` 查看采集和模型配置。直接调用 Python worker 时仍需显式设置运行开关。
+
+一键启动优先使用环境变量中的凭据。缺失的本机管理员密码、会话密钥和媒体密钥分别生成，用当前 Windows 用户的 DPAPI 加密保存。执行 `Pulse.bat --copy-admin-password` 将密码复制到剪贴板，在 `/admin` 粘贴登录。如果启动时在当前终端覆盖过管理员密码，使用同一环境执行复制命令。站点继续按目标库内的来源许可和精选门槛发布，公网部署另需配置实际 HTTPS 入口和反向代理。
 
 管理员可在站内查看任务、恢复未知回执、调整来源许可和确认选稿门槛。模型预算统计已预留的真实请求尝试次数。
 

@@ -47,7 +47,7 @@ def test_agent_queries_share_public_scope_without_exposing_body(tmp_path, monkey
                        published_at=now - timedelta(hours=2),
                        body="hiddenphrase " * 35)
         date_only = _row(source, "date", "日期级报道", "日期公开信息",
-                         published_at=None, published_date=now.date())
+                         published_at=None, published_date=now.date() - timedelta(days=1))
         old = _row(source, "old", "历史技术稿", "旧稿仍可查",
                    published_at=now - timedelta(days=90))
         stale = _row(source, "stale", "无效正文", "不应出现",
