@@ -234,7 +234,8 @@ class Worker:
         try:
             with self._heartbeat(work):
                 result = self._execute(work)
-            finish(self.engine, work, self.clock(), result=result)
+            error = "daily_nothing_judged" if work.kind == "daily" and result["failed"] else None
+            finish(self.engine, work, self.clock(), result=result, error=error)
         except LeaseLost:
             pass
         except BudgetWait as exc:

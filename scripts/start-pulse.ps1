@@ -82,7 +82,7 @@ function Get-LocalCredentials([switch]$ReadOnly) {
 function Invoke-Backend($Module, $Argument) {
     Push-Location $backend
     try {
-        & $python -m $Module $Argument
+        & $python -m $Module $Argument @args
         if ($LASTEXITCODE -ne 0) { throw "$Module $Argument failed (exit $LASTEXITCODE)." }
     } finally { Pop-Location }
 }
@@ -149,8 +149,9 @@ function Wait-Http($Role, $Port, $Path, $ExpectedProperty, $Seconds) {
         if (Assert-PortOwner $Role $Port) {
             try {
                 $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port$Path" -TimeoutSec 3
-                if ($ExpectedProperty -eq 'status' -and $response.status -eq 'ready') { return }
-                if ($ExpectedProperty -eq 'sources' -and $null -ne $response.sources) { return }
+                if ($ExpectedProperty -eq 'status' -and $response.status -eq 'ready') { return $response }
+                if ($ExpectedProperty -eq 'sources' -and $null -ne $response.sources) { return $response }
+                if ($ExpectedProperty -eq 'cards' -and $null -ne $response.cards) { return $response }
             } catch { }
         }
         Start-Sleep -Milliseconds 500
@@ -255,7 +256,7 @@ try {
         if (-not (Get-OwnedProcess api)) {
             if (-not (Get-OwnedProcess worker) -and -not (Get-OwnedProcess web)) {
                 Write-Host 'Preparing the Pulse database and source registry...'
-                Invoke-Backend bluepulse_backend.cli initialize
+                Invoke-Backend bluepulse_backend.cli initialize --local-live
             }
             foreach ($name in $effective.Keys) { [Environment]::SetEnvironmentVariable($name, $effective[$name]) }
             try {
@@ -264,7 +265,7 @@ try {
                 foreach ($name in $effective.Keys) { [Environment]::SetEnvironmentVariable($name, $null) }
             }
         }
-        Wait-Http api $apiPort '/api/v1/health/ready' status 60
+        [void](Wait-Http api $apiPort '/api/v1/health/ready' status 60)
 
         if (-not (Get-OwnedProcess worker)) { Start-ServiceProcess worker $python '-m bluepulse_backend.worker' $backend }
         Invoke-Backend bluepulse_backend.worker --wait-ready
@@ -274,9 +275,15 @@ try {
             $nextMode = if ($Mode -eq 'dev') { 'dev' } else { 'start' }
             Start-ServiceProcess web $node "`"$next`" $nextMode --hostname 127.0.0.1 --port $webPort" $root
         }
-        Wait-Http web $webPort '/api/bluepulse/site/stats' sources 90
+        $stats = Wait-Http web $webPort '/api/bluepulse/site/stats' sources 90
+        $entryUrl = $webOrigin
+        if ($stats.items -gt 0) {
+            $timeline = Wait-Http web $webPort '/api/bluepulse/site/timeline?limit=1' cards 15
+            if ($timeline.cards.Count -eq 0) { $entryUrl = "$webOrigin/all" }
+        }
+        Write-Host "Pulse public items: $($stats.items). Opening page: $entryUrl"
         Write-Host "Pulse API, Worker and Web are ready at $webOrigin. Logs: $runDir"
-        if ($env:BLUEPULSE_LAUNCH_NO_BROWSER -ne '1') { Start-Process $webOrigin }
+        if ($env:BLUEPULSE_LAUNCH_NO_BROWSER -ne '1') { Start-Process $entryUrl }
     } finally { $lock.Dispose() }
 } catch {
     Write-Host "[Pulse] $($_.Exception.Message)" -ForegroundColor Red

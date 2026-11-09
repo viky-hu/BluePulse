@@ -61,12 +61,14 @@ def sync_taxonomy(database_url: str | None = None) -> None:
         engine.dispose()
 
 
-def sync_sources() -> None:
+def sync_sources(*, local_live: bool = False) -> None:
     engine = make_engine()
     try:
         with serialized(engine) as session:
-            for spec in SOURCES.values():
-                ensure_source(session, spec, commit=False)
+            sources = [ensure_source(session, spec, commit=False) for spec in SOURCES.values()]
+            if local_live:
+                from .source_permissions import initialize_local_live
+                initialize_local_live(session, sources)
     finally:
         engine.dispose()
 
@@ -116,18 +118,21 @@ def _backup_before_upgrade(config: Config):
         _save_backup(source, path)
 
 
-def initialize() -> None:
+def initialize(*, local_live: bool = False) -> None:
     config = migration_config()
     _backup_before_upgrade(config)
     command.upgrade(config, "head")
     sync_taxonomy()
-    sync_sources()
+    sync_sources(local_live=local_live)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Blue Pulse backend local setup")
     parser.add_argument("command", choices=["migrate", "sync-taxonomy", "sync-sources", "initialize", "backup"])
+    parser.add_argument("--local-live", action="store_true", help="apply the approved local publication defaults")
     args = parser.parse_args()
+    if args.local_live and args.command != "initialize":
+        parser.error("--local-live requires initialize")
     if args.command == "migrate":
         migrate()
     elif args.command == "sync-taxonomy":
@@ -137,7 +142,7 @@ def main() -> None:
     elif args.command == "backup":
         print(backup())
     else:
-        initialize()
+        initialize(local_live=args.local_live)
 
 
 if __name__ == "__main__":

@@ -93,7 +93,7 @@ export function FeaturedFeed() {
       {feed.status === "category-unavailable" && <div role="status">{state("分类暂不可用", "这个筛选下暂时没有可用内容。", <Link href={buildHomeHref("/", selectAllFilter(filters, "all"), { mock: shell.mock })}>浏览全部精选</Link>)}</div>}
       {visible?.feed.status === "ready" && visible.list && <>
         {!visible.list.filters.region && !visible.list.filters.topic && visible.list.hot && <HotTopics entries={visible.list.hot} />}
-        {!visible.list.cards.length ? state("这个筛选下还没有精选内容", "换个类别看看，或者去全部动态里找找。") : <FeaturedTimeline key={`${visible.feed.key}:${visible.generation}`} scopeKey={visible.feed.key} start={visible.list} taxonomy={visible.feed.taxonomy} active={feed.status === "ready" && shell.active} />}
+        {!visible.list.cards.length ? state("这个筛选下还没有精选内容", "已发布的新闻可在全部动态查看。", <Link href={buildHomeHref("/all", selectAllFilter(filters, "all"), { mock: shell.mock })}>浏览全部动态</Link>) : <FeaturedTimeline key={`${visible.feed.key}:${visible.generation}`} scopeKey={visible.feed.key} start={visible.list} taxonomy={visible.feed.taxonomy} active={feed.status === "ready" && shell.active} />}
       </>}
     </div>
   </div>;

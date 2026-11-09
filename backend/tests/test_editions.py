@@ -162,6 +162,28 @@ def test_catchup_skips_an_unjudged_window_and_preserves_a_genuine_quiet_issue(db
     assert load_daily(db, "2026-11-08", NOW)["leadItemId"] == newer.id
 
 
+def test_worker_records_unjudged_edition_then_rechecks_on_next_tick(db, report):
+    from bluepulse_backend.daily_reports import load_daily
+    from bluepulse_backend.editorial_models import WorkItem
+    from bluepulse_backend.worker import Worker
+
+    now = NOW
+    worker = Worker(db.get_bind(), httpx.Client, editions_enabled=True, clock=lambda: now)
+    worker.tick()
+    assert worker.run_one(kinds={"daily"})
+    failed = db.scalar(select(WorkItem).where(WorkItem.kind == "daily"))
+    assert (failed.status, failed.error, failed.result["failed"]) == (
+        "failed", "daily_nothing_judged", ["2026-11-08"],
+    )
+    assert load_daily(db, "2026-11-08", now) is None
+
+    report(datetime(2026, 11, 7, 23, tzinfo=UTC), selected=False)
+    now += timedelta(minutes=30)
+    worker.tick()
+    assert worker.run_one(kinds={"daily"})
+    assert load_daily(db, "2026-11-08", now)["lead"]["title"] == "警务科技动态平静"
+
+
 def test_daily_remembers_related_facts_and_still_carries_day_of_only_followups(db, report):
     from bluepulse_backend.daily_reports import compose_daily, load_daily
 

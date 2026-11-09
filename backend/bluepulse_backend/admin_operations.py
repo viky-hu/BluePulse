@@ -139,6 +139,33 @@ def refresh_candidate(item: Material, fields: dict) -> bool:
     return not before and item.featured_candidate
 
 
+def reproject_source(session: Session, source: Source, *, threshold_changed: bool,
+                     mode_changed: bool = False, fresh_only: bool = False) -> int:
+    released = 0
+    items = session.scalars(select(Material).where(
+        Material.source_id == source.id,
+        Material.state.in_(("publication_pool", "publication_hidden")),
+    )).all()
+    for item in items:
+        was_public = item.public
+        project_visibility(item)
+        released += int(not was_public and item.public)
+        needs_group = mode_changed and item.editorial_revision == item.revision
+        if threshold_changed:
+            override = session.get(AdminContentOverride, item.id)
+            needs_group = refresh_candidate(item, override.fields if override else {}) or needs_group
+        newly_available = not was_public and item.public and item.featured_candidate and item.selected_at is None
+        if fresh_only and (item.timeline_kind != "fresh" or not item.public):
+            continue
+        if needs_group or newly_available:
+            admin_rerun(session, item, "group", explicit=False)
+        if (source.full_text_allowed and selected(item) and not item.language.lower().startswith("zh") and
+                item.translation_revision != item.revision):
+            enqueue(session, "translate", f"{item.id}:{item.revision}",
+                    {"material_id": item.id, "revision": item.revision}, now_utc())
+    return released
+
+
 def register_operations(router: APIRouter, session_dep, guard, error) -> None:
     protected = [Depends(guard)]
 
@@ -170,26 +197,9 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
         before = {key: getattr(source, key) for key in fields}
         for key, value in fields.items():
             setattr(source, key, value)
-        items = session.scalars(select(Material).where(
-            Material.source_id == source.id,
-            Material.state.in_(("publication_pool", "publication_hidden")),
-        )).all()
         threshold_changed = "selection_threshold" in fields and before["selection_threshold"] != source.selection_threshold
         mode_changed = "participation_mode" in fields and before["participation_mode"] != source.participation_mode
-        for item in items:
-            was_public = item.public
-            project_visibility(item)
-            needs_group = mode_changed and item.editorial_revision == item.revision
-            if threshold_changed:
-                override = session.get(AdminContentOverride, item.id)
-                needs_group = refresh_candidate(item, override.fields if override else {}) or needs_group
-            newly_available = not was_public and item.public and item.featured_candidate and item.selected_at is None
-            if needs_group or newly_available:
-                admin_rerun(session, item, "group", explicit=False)
-            if (source.full_text_allowed and selected(item) and not item.language.lower().startswith("zh") and
-                    item.translation_revision != item.revision):
-                enqueue(session, "translate", f"{item.id}:{item.revision}",
-                        {"material_id": item.id, "revision": item.revision}, now_utc())
+        reproject_source(session, source, threshold_changed=threshold_changed, mode_changed=mode_changed)
         audit(session, "source.update", f"source:{source.id}", reason=why,
               changes={"before": before, "after": fields})
         result = source_view(source)
