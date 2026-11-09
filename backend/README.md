@@ -32,6 +32,8 @@ uv pip install --python .venv/Scripts/python.exe -e ".[test]"
 
 日报每半小时检查北京 08:00 已到期的刊期，使用模型已生成的标题、摘要和事件结果组稿。有完成研判的稿件时可出平静刊。刊期缺少符合窗口的研判材料时，「运行」页会记录 `daily_nothing_judged` 和失败刊期，下次调度继续补查。
 
+一键启动的默认 SQLite 库使用 WAL，网页读取可以与采集和发布提交并行。备份请用 `cli backup`，以包含 WAL 中已提交的数据。
+
 | 变量 | 用途 |
 | --- | --- |
 | `BLUEPULSE_COLLECT_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实采集 |

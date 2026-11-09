@@ -122,6 +122,11 @@ def initialize(*, local_live: bool = False) -> None:
     config = migration_config()
     _backup_before_upgrade(config)
     command.upgrade(config, "head")
+    if local_live and (path := _database_file()) is not None:
+        with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=30)) as connection:
+            # Public reads can overlap worker commits during collection and publishing.
+            if connection.execute("PRAGMA journal_mode=WAL").fetchone() != ("wal",):
+                raise RuntimeError("local_database_wal_unavailable")
     sync_taxonomy()
     sync_sources(local_live=local_live)
 

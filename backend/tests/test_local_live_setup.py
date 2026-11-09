@@ -1,3 +1,5 @@
+import sqlite3
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -61,3 +63,22 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
         assert not source.excerpt_allowed and source.selection_threshold == 85
         assert session.scalar(select(func.count()).select_from(WorkItem)) == 1
         assert session.scalar(select(func.count()).select_from(AdminAudit).where(AdminAudit.action == "source.bootstrap")) == 1
+
+
+def test_local_live_database_allows_worker_commit_during_a_reader_snapshot(tmp_path, monkeypatch):
+    path = tmp_path / "concurrent.db"
+    monkeypatch.setenv("BLUEPULSE_DATABASE_URL", f"sqlite:///{path.as_posix()}")
+    cli.initialize(local_live=True)
+    reader = sqlite3.connect(path)
+    writer = sqlite3.connect(path, timeout=0.2)
+    try:
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM sources").fetchone()
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("UPDATE sources SET interval_minutes = 30 WHERE slug = 'govuk'")
+        writer.commit()
+        reader.rollback()
+        assert reader.execute("SELECT interval_minutes FROM sources WHERE slug = 'govuk'").fetchone() == (30,)
+    finally:
+        reader.close()
+        writer.close()
