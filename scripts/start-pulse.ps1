@@ -1,4 +1,4 @@
-param([ValidateSet('production', 'dev', 'check', 'clipboard', 'stop')][string]$Mode = 'production')
+param([ValidateSet('production', 'dev', 'check', 'clipboard', 'stop', 'health', 'probe')][string]$Mode = 'production')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -186,6 +186,21 @@ try {
     Set-Default BLUEPULSE_MODEL_BUDGET_HOUR '6000'
     Set-Default BLUEPULSE_MODEL_BUDGET_DAY '40000'
     Set-Default BLUEPULSE_FEEDBACK_ENABLED '1'
+    # Diagnostic modes must not acquire launch locks, prepare storage, or start services.
+    if ($Mode -eq 'check') {
+        $workerConfig = Invoke-Backend bluepulse_backend.worker --check-config
+        Write-Host "Worker configuration (syntax only; provider not probed): $workerConfig"
+        exit 0
+    }
+    if ($Mode -in @('health', 'probe')) {
+        Push-Location $backend
+        try {
+            if ($Mode -eq 'probe') { & $python -m bluepulse_backend.runtime_health --probe-model }
+            else { & $python -m bluepulse_backend.runtime_health }
+            $healthExit = $LASTEXITCODE
+        } finally { Pop-Location }
+        exit $healthExit
+    }
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
     $lock = Open-LaunchLock (Join-Path $launcherDir 'launch.lock')
     try {
@@ -289,7 +304,14 @@ try {
             if (-not $hasFeatured) { $entryUrl = "$webOrigin/all" }
         }
         Write-Host "Pulse public items: $($stats.items). Opening page: $entryUrl"
-        Write-Host "Pulse API, Worker and Web are ready at $webOrigin. Logs: $runDir"
+        Write-Host "Pulse API, Worker and Web services are ready at $webOrigin. Logs: $runDir"
+        Push-Location $backend
+        try {
+            & $python -m bluepulse_backend.runtime_health
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host 'Pulse services are running; content pipeline audit has degraded or unavailable checks. See above.' -ForegroundColor Yellow
+            }
+        } finally { Pop-Location }
         if ($env:BLUEPULSE_LAUNCH_NO_BROWSER -ne '1') { Start-Process $entryUrl }
     } finally { $lock.Dispose() }
 } catch {
