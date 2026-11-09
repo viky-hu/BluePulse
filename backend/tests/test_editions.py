@@ -167,7 +167,7 @@ def test_worker_records_unjudged_edition_then_rechecks_on_next_tick(db, report):
     from bluepulse_backend.editorial_models import WorkItem
     from bluepulse_backend.worker import Worker
 
-    now = NOW
+    now = NOW.replace(hour=23, minute=45)
     worker = Worker(db.get_bind(), httpx.Client, editions_enabled=True, clock=lambda: now)
     worker.tick()
     assert worker.run_one(kinds={"daily"})
@@ -181,6 +181,7 @@ def test_worker_records_unjudged_edition_then_rechecks_on_next_tick(db, report):
     now += timedelta(minutes=30)
     worker.tick()
     assert worker.run_one(kinds={"daily"})
+    assert now.date().isoformat() == "2026-11-09"
     assert load_daily(db, "2026-11-08", now)["lead"]["title"] == "警务科技动态平静"
 
 

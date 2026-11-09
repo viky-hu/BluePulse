@@ -151,7 +151,6 @@ function Wait-Http($Role, $Port, $Path, $ExpectedProperty, $Seconds) {
                 $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port$Path" -TimeoutSec 3
                 if ($ExpectedProperty -eq 'status' -and $response.status -eq 'ready') { return $response }
                 if ($ExpectedProperty -eq 'sources' -and $null -ne $response.sources) { return $response }
-                if ($ExpectedProperty -eq 'cards' -and $null -ne $response.cards) { return $response }
             } catch { }
         }
         Start-Sleep -Milliseconds 500
@@ -256,7 +255,11 @@ try {
         if (-not (Get-OwnedProcess api)) {
             if (-not (Get-OwnedProcess worker) -and -not (Get-OwnedProcess web)) {
                 Write-Host 'Preparing the Pulse database and source registry...'
-                Invoke-Backend bluepulse_backend.cli initialize --local-live
+                if ($env:BLUEPULSE_DATABASE_URL) {
+                    Invoke-Backend bluepulse_backend.cli initialize
+                } else {
+                    Invoke-Backend bluepulse_backend.cli initialize --local-live
+                }
             }
             foreach ($name in $effective.Keys) { [Environment]::SetEnvironmentVariable($name, $effective[$name]) }
             try {
@@ -278,8 +281,12 @@ try {
         $stats = Wait-Http web $webPort '/api/bluepulse/site/stats' sources 90
         $entryUrl = $webOrigin
         if ($stats.items -gt 0) {
-            $timeline = Wait-Http web $webPort '/api/bluepulse/site/timeline?limit=1' cards 15
-            if ($timeline.cards.Count -eq 0) { $entryUrl = "$webOrigin/all" }
+            $hasFeatured = $stats.selected -gt 0
+            try {
+                $timeline = Invoke-RestMethod -Uri "$webOrigin/api/bluepulse/site/timeline?limit=1" -TimeoutSec 5
+                if ($null -ne $timeline.cards) { $hasFeatured = $timeline.cards.Count -gt 0 }
+            } catch { }
+            if (-not $hasFeatured) { $entryUrl = "$webOrigin/all" }
         }
         Write-Host "Pulse public items: $($stats.items). Opening page: $entryUrl"
         Write-Host "Pulse API, Worker and Web are ready at $webOrigin. Logs: $runDir"

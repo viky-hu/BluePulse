@@ -40,6 +40,10 @@ class SourceSpec:
     kind: str
     source_type: str = "official"
 
+    @property
+    def tier(self) -> str:
+        return "T1" if self.source_type == "official" else "T2"
+
 
 SOURCES = {
     "govuk": SourceSpec("govuk", "GOV.UK Home Office", "www.gov.uk", "GB", "foreign", "en",
@@ -211,7 +215,7 @@ def ensure_source(session: Session, spec: SourceSpec, *, commit: bool = True) ->
                     country_code=spec.country_code, language=spec.language,
                     source_type=spec.source_type, topics=list(spec.topics),
                     allowed_hosts=[spec.host], enabled=True,
-                    tier="T1" if spec.source_type == "official" else "T2",
+                    tier=spec.tier,
                     participant_key=spec.host,
                     excerpt_allowed=False, full_text_allowed=False,
                     min_body_status="full_text")

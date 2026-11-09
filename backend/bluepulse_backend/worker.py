@@ -285,7 +285,14 @@ class Worker:
         from .fact_grouping import create_confirmed_featured
         from .hotspots import compute_hot_ranking, snapshot_heat
 
-        handler = {"hot": compute_hot_ranking, "heat": snapshot_heat, "daily": compose_due_reports,
+        if work.kind == "daily":
+            with Session(self.engine) as session:
+                previous = session.scalar(select(WorkItem.result).where(
+                    WorkItem.kind == "daily", or_(WorkItem.status == "done", WorkItem.error == "daily_nothing_judged"),
+                ).order_by(WorkItem.due_at.desc(), WorkItem.id).limit(1))
+                retry_from = min((previous or {}).get("failed", []), default=None)
+                return compose_due_reports(session, self.clock(), retry_from=retry_from)
+        handler = {"hot": compute_hot_ranking, "heat": snapshot_heat,
                    "featured": lambda session, now: create_confirmed_featured(session, now=now)}[work.kind]
         with Session(self.engine) as session:
             return handler(session, self.clock())

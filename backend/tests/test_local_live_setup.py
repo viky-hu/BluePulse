@@ -15,6 +15,7 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
     with Session(engine) as session:
         source = session.scalar(select(Source).where(Source.slug == "govuk"))
         assert not source.excerpt_allowed and source.selection_threshold is None
+        source.tier = None  # Databases created before source tiers were seeded.
 
         def saved(suffix, *, withdrawn=False, timeline="fresh"):
             url = f"https://www.gov.uk/{suffix}"
@@ -38,7 +39,7 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
     cli.initialize(local_live=True)
     with Session(engine) as session:
         source = session.get(Source, source_id)
-        assert source.excerpt_allowed and source.selection_threshold == 60
+        assert source.excerpt_allowed and source.tier == "T1" and source.selection_threshold == 60
         assert not source.full_text_allowed and not source.media_allowed and not source.syndicate_full_text_allowed
         media = session.scalar(select(Source).where(Source.slug == "statescoop-law-enforcement-tech"))
         assert media.excerpt_allowed and media.selection_threshold == 76

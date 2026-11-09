@@ -373,7 +373,9 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
         return {"queue": [{"kind": kind, "status": status, "count": count} for kind, status, count in counts],
                 "pending_due": due_count, "unknown_receipts": unknown_count,
                 "jobs": [{"id": row.id, "kind": row.kind, "status": row.status, "attempts": row.attempts,
-                          "error": row.error, "due_at": row.due_at} for row in jobs],
+                          "error": row.error, "due_at": row.due_at,
+                          **({"failed_editions": (row.result or {}).get("failed", [])} if row.kind == "daily" else {})}
+                         for row in jobs],
                 "receipts": [{"key": row.key, "subject": row.subject, "purpose": row.purpose, "status": row.status,
                               "attempts": row.latest_attempt, "updated_at": row.updated_at, "error": attempt.error,
                               "service": attempt.service, "billed": attempt.billed, "release_note": attempt.release_note}

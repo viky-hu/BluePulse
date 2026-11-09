@@ -32,6 +32,8 @@ def initialize_local_live(session: Session, sources) -> None:
     applied = {}
     for source in sources:
         subject = f"source:{source.id}"
+        if source.tier is None and (subject, "tier") not in changed_by_admin:
+            source.tier = SOURCES[source.slug].tier
         threshold = AIHOT_TIER_THRESHOLDS.get(source.tier)
         threshold_changed = (threshold is not None and source.selection_threshold is None and
                              (subject, "selection_threshold") not in changed_by_admin)
@@ -40,7 +42,7 @@ def initialize_local_live(session: Session, sources) -> None:
         if threshold_changed:
             source.selection_threshold = threshold
         released = reproject_source(session, source, threshold_changed=threshold_changed, fresh_only=True)
-        applied[source.slug] = {"excerpt_allowed": source.excerpt_allowed,
+        applied[source.slug] = {"excerpt_allowed": source.excerpt_allowed, "tier": source.tier,
                                 "selection_threshold": source.selection_threshold, "released": released}
     session.add(AdminAudit(actor="system:launcher", action="source.bootstrap", subject=LOCAL_LIVE_PROFILE,
                            reason="Approved local publication defaults and AIHOT tier thresholds", changes=applied))

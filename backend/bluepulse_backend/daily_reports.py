@@ -350,12 +350,15 @@ def compose_daily(
     return {"key": key, "entries": len(main), "written": written, "version": next_version}
 
 
-def compose_due_reports(session: Session, now: datetime | None = None, limit: int = 8) -> dict:
+def compose_due_reports(session: Session, now: datetime | None = None, limit: int = 8, *,
+                        retry_from: str | None = None) -> dict:
     now = utc(now or now_utc())
     local = now.astimezone(BEIJING)
     due = local.date() if local.hour >= 8 else local.date() - DAY
     have = set(session.scalars(select(DailyIssue.key)))
     key = date.fromisoformat(min(have)) if have else due
+    if retry_from:
+        key = min(key, date.fromisoformat(retry_from))
     generated, failed = [], []
     while key <= due and len(generated) < limit:
         label = key.isoformat()

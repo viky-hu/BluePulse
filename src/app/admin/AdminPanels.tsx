@@ -213,7 +213,7 @@ function Feedback({ rows, bans, request, reload }: DataProps & { rows: FeedbackR
 
 type RunData = {
   queue: { kind: string; status: string; count: number }[]; pending_due: number; unknown_receipts: number;
-  jobs: { id: string; kind: string; status: string; error: string | null; attempts: number }[];
+  jobs: { id: string; kind: string; status: string; error: string | null; attempts: number; failed_editions?: string[] }[];
   receipts: { key: string; subject: string; purpose: string; status: string; error: string | null; attempts: number }[];
 };
 
@@ -228,6 +228,7 @@ function Runs({ jobs, receipts, queue, pending_due, unknown_receipts, request, r
     <ul className={styles.rows}>{jobs.map(row => <li key={row.id}><details>
       <summary>{row.kind} · {row.status} · {row.attempts} 次</summary>
       <p className={styles.meta}>{row.id} {row.error}</p>
+      {!!row.failed_editions?.length && <p className={styles.meta}>刊期缺少符合条件的研判稿件 · {row.failed_editions.join("、")}</p>}
       {["failed", "pending"].includes(row.status) && <Action label="重新排队" reload={reload}
         submit={form => request(`runs/${row.id}/requeue`, "POST", reason(form))}><ReasonField /></Action>}
     </details></li>)}</ul>
