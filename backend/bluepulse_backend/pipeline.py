@@ -18,7 +18,7 @@ from .publication import evidence_allowed
 
 
 PUBLIC_TOPIC_SLUGS = frozenset({
-    "product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude",
+    "product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude", "other",
 })
 LEGACY_TOPIC_SLUGS = frozenset({
     "policing", "public-safety-tech", "artificial-intelligence", "cybersecurity",

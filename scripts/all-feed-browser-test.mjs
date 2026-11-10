@@ -9,9 +9,9 @@ import { MOCK_HOME_DATA } from "../src/app/_lib/home-mock.ts";
 const playwright = process.env.PULSE_PLAYWRIGHT_MODULE ?? "C:/Users/Admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs";
 const { chromium } = await import(pathToFileURL(playwright).href);
 const origin = "http://127.0.0.1:3150", artifacts = "test-results/all-feed";
-const categories = ["product", "practice", "paper", "embodied", "public-opinion", "low-altitude"];
-const taxonomy = categories.map(slug => ({ id: slug, slug, name_zh: { product: "产品", practice: "实战", paper: "论文", embodied: "具身", "public-opinion": "舆情", "low-altitude": "低空" }[slug], name_en: slug, parent_id: null }));
-const rows = Array.from({ length: 48 }, (_, i) => ({ ...MOCK_HOME_DATA.articles[i % 8], id: `b2200000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, title: `警务科技公开材料 ${i + 1}：智能辅助系统的适用条件与人工复核`, summary: "这是一段受控测试摘要，用来检查真实组件在多行中文、来源信息、阅读状态和容器宽度变化下的表现。接口测试不代表真实新闻或后端已经上线。", importance_score: 92 - i, topics: [categories[i % categories.length]], published_at: i === 4 ? null : new Date(Date.UTC(2026, 9, 29, 5) - i * 45 * 60_000).toISOString(), first_seen_at: new Date(Date.UTC(2026, 9, 29, 5) - i * 45 * 60_000).toISOString() }));
+const categories = ["product", "practice", "paper", "embodied", "public-opinion", "low-altitude", "other"];
+const taxonomy = categories.map(slug => ({ id: slug, slug, name_zh: { product: "产品", practice: "实战", paper: "论文", embodied: "具身", "public-opinion": "舆情", "low-altitude": "低空", other: "其它" }[slug], name_en: slug, parent_id: null }));
+const rows = Array.from({ length: 48 }, (_, i) => ({ ...MOCK_HOME_DATA.articles[i % 8], id: `b2200000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, title: `警务科技公开材料 ${i + 1}：智能辅助系统的适用条件与人工复核`, summary: "这是一段受控测试摘要，用来检查真实组件在多行中文、来源信息、阅读状态和容器宽度变化下的表现。接口测试不代表真实新闻或后端已经上线。", importance_score: 92 - i, topics: [i === 47 ? "other" : categories[i % 6]], published_at: i === 4 ? null : new Date(Date.UTC(2026, 9, 29, 5) - i * 45 * 60_000).toISOString(), first_seen_at: new Date(Date.UTC(2026, 9, 29, 5) - i * 45 * 60_000).toISOString() }));
 const requests = [], checks = [], errors = [], held = new Map();
 let fail = true, taxonomyFail = false, browser, serverLog = "";
 const api = createServer(async (req, res) => {
@@ -39,7 +39,7 @@ const api = createServer(async (req, res) => {
   res.statusCode = 404; res.end("{}");
 });
 await new Promise(done => api.listen(3151, "127.0.0.1", done));
-const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", "3150"], { cwd: process.cwd(), env: { ...process.env, BLUEPULSE_API_URL: "http://127.0.0.1:3151" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", "3150"], { cwd: process.env.PULSE_TEST_APP_ROOT ?? process.cwd(), env: { ...process.env, BLUEPULSE_API_URL: "http://127.0.0.1:3151" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 server.stdout.on("data", d => { serverLog += d; }); server.stderr.on("data", d => { serverLog += d; });
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
 const ready = async (page, path = "/all") => {
@@ -65,7 +65,7 @@ try {
     if (i === 99) throw Error(serverLog);
     await new Promise(done => setTimeout(done, 100));
   }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.PULSE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PULSE_CHROMIUM_EXECUTABLE } : {}) });
   for (const mode of ["desktop", "mobile", "reduced"]) {
     const context = await browser.newContext({ viewport: mode === "mobile" ? { width: 390, height: 844 } : { width: 1360, height: 760 }, reducedMotion: mode === "reduced" ? "reduce" : "no-preference" });
     const page = await context.newPage(); page.on("pageerror", e => errors.push(e.message));
@@ -77,7 +77,7 @@ try {
     assert.equal(new URLSearchParams(firstRequest.search).get("limit"), "40");
     assert.equal(await cards(page).first().locator('[aria-label="AI 评分 92 分"]:visible').count(), 1);
     assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-    assert.deepEqual(await page.locator('[aria-label="筛选"] a').allTextContents(), ["全部", "国内", "国外", "产品", "实战", "论文", "法制", "具身", "舆情", "低空"]);
+    assert.deepEqual(await page.locator('[aria-label="筛选"] a').allTextContents(), ["全部", "国内", "国外", "产品", "实战", "论文", "法制", "具身", "舆情", "低空", "其它"]);
     const tabGeometry = await filter(page, "all").evaluate(el => { const s = getComputedStyle(el); return { height: el.getBoundingClientRect().height, padding: s.paddingInlineStart, font: s.fontSize }; });
     assert.deepEqual(tabGeometry, { height: mode === "mobile" ? 44 : 36, padding: "16px", font: "14px" });
     const tabBox = await page.locator('[aria-label="筛选"]').boundingBox(), inputBox = await page.locator("#all-search").boundingBox();
@@ -93,14 +93,21 @@ try {
       new MutationObserver(() => { if (stage.dataset.phase !== "idle") window.__allScenePhases.push(stage.dataset.phase); }).observe(stage, { attributes: true, attributeFilter: ["data-phase"] });
     });
     await page.screenshot({ path: `${artifacts}/${mode}.png` });
-    check(`${mode}: 40 real rows, correct score and request, ten tabs, container layout and no overflow`);
+    check(`${mode}: 40 real rows, correct score and request, eleven tabs, container layout and no overflow`);
+    await filter(page, "other").click(); await page.waitForURL(url => url.searchParams.get("topic") === "other"); await ready(page);
+    assert.equal(await cards(page).count(), 1);
+    assert.equal(await filter(page, "other").getAttribute("aria-current"), "page");
+    assert.equal(await cards(page).first().getByRole("link", { name: "其它", exact: true, includeHidden: true }).count(), 1);
+    assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+    await page.waitForTimeout(mode === "reduced" ? 30 : 350);
+    await page.screenshot({ path: `${artifacts}/${mode}-other.png` });
+    check(`${mode}: explicit other filter requests topic=other and shows Chinese badge`);
+    await filter(page, "all").click(); await page.waitForURL(url => !url.searchParams.has("topic")); await ready(page);
     await page.keyboard.press("/"); assert.equal(await page.locator("#all-search").evaluate(el => el === document.activeElement), true);
     await page.locator("#all-search").fill("警务");
     await page.locator("#all-search").dispatchEvent("compositionstart"); await page.locator("#all-search").press("Enter");
     assert.equal(new URL(page.url()).searchParams.has("q"), false);
     await page.locator("#all-search").dispatchEvent("compositionend"); await page.locator("#all-search").press("Enter"); await page.waitForURL(url => url.searchParams.get("q") === "警务"); await ready(page);
-    assert.equal(await page.getByRole("tab", { name: "全文相关", exact: true }).isDisabled(), true);
-    assert.equal(await page.getByText("全文相关排序暂不可用", { exact: true }).count(), 0);
     await filter(page, "paper").click(); await page.waitForURL(url => url.searchParams.get("topic") === "paper"); await ready(page);
     assert.equal(new URL(page.url()).searchParams.get("q"), "警务");
     assert.equal(await cards(page).count(), 8);

@@ -10,6 +10,7 @@ export const CONTENT_FILTERS = [
   { key: "embodied", label: "具身" },
   { key: "public-opinion", label: "舆情" },
   { key: "low-altitude", label: "低空" },
+  { key: "other", label: "其它" },
 ] as const;
 export const ALL_FILTERS = [{ key: "all", label: "全部" }, { key: "domestic", label: "国内" }, { key: "foreign", label: "国外" }, ...CONTENT_FILTERS];
 export const isContentFilter = (key: string) => CONTENT_FILTERS.some(item => item.key === key);

@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .api import create_app
-from .cli import sync_taxonomy
+from .cli import TOPICS, sync_taxonomy
 from .db import make_engine
 from .live_model import DEFAULT_MODEL_ENV, LiveAnalyzer, load_local_credentials, model_listed
 from .models import AnalysisAttempt, Material, Source
@@ -98,7 +98,8 @@ def run(output_dir: Path, *, max_items: int = 2, max_model_calls: int = 4,
         article_list = client.get("/api/v1/articles", params={"period": "all"})
         timeline = client.get("/api/v1/site/timeline")
     app.state.engine.dispose()
-    if (taxonomy.status_code != 200 or len(taxonomy.json()["items"]) != 7 or
+    if (taxonomy.status_code != 200 or
+            {row["slug"] for row in taxonomy.json()["items"]} != {row[0] for row in TOPICS} or
             sources.status_code != 200 or len(sources.json()["items"]) != 15 or
             article_list.status_code != 200 or article_list.json()["items"] or
             timeline.status_code != 200 or timeline.json()["cards"]):

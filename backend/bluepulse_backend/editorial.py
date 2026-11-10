@@ -23,7 +23,7 @@ PREFILTER = SAFETY + """判断是否属于警务、公共安全中的科技实�
 普通治安、事故、宣传、会议和行政新闻不因出现警察或技术名词就相关。
 只有明确无关才 BLOCK，相关 PASS，材料不足 UNKNOWN。返回 JSON {label,reason}。"""
 STRUCTURE = SAFETY + """返回 JSON {scope,category,tags,entities,fact}。scope 是 single、composite 或 unknown。
-category 是 product、practice、paper、law、embodied、public-opinion、low-altitude 或 null，分别表示产品、实战、论文、法制、具身智能、舆情治理、低空警务。只用明确有证据的分类。
+category 从 product、practice、paper、law、embodied、public-opinion、low-altitude、other 中选一个主要类别，分别表示产品、实战、论文、法制、具身智能、舆情治理、低空警务、其它。优先选择有正文依据且贴切的前七类；确实涉及警务科技或有具体应用线索、但前七类都不贴切时选 other。不能因为普通警务报道不好分类就选 other；分类不代替相关性判断，也不决定是否精选。分类必须明确给出，不得省略或返回 null。
 tags 是原文中能逐字找到的短词。entities 为最多6个 {name,type,evidence}，type 为 vendor、model、organization，evidence 必须逐字含名称。
 fact 是 {title,subject,action,object,occurredAt,evidence,conditions} 或 null。evidence 必须逐字复制正文短句，conditions 每项仅含逐字 quote。区分同一实际行动、宣布、采购、测试、部署和效果。综合稿或材料不足时 fact 为 null。"""
 UNDERSTAND = SAFETY + """以读者需要知道的警务技术新进展为先，写中文标题、答案先行摘要和推荐理由。
@@ -87,6 +87,8 @@ def _structure(step, data):
     if scope not in {"single", "composite", "unknown"}:
         raise ValueError("invalid_structure_scope")
     category = output.get("category")
+    if not isinstance(category, str) or category not in PUBLIC_TOPIC_SLUGS:
+        raise ValueError("invalid_structure_category")
     tags = tuple(dict.fromkeys(quote for value in (output.get("tags") or [])[:12]
                                if (quote := _ground(value, original, 80))))
     entities = []
@@ -114,7 +116,7 @@ def _structure(step, data):
         fact = None
         if scope == "single" or not original:
             scope = "unknown"
-    return scope, fact, (category,) if category in PUBLIC_TOPIC_SLUGS else (), tags, tuple(entities)
+    return scope, fact, (category,), tags, tuple(entities)
 
 
 def _score(step, data, ordinal):

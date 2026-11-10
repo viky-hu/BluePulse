@@ -27,6 +27,7 @@ TOPICS = (
     ("embodied", "具身", "Embodied"),
     ("public-opinion", "舆情", "Public Opinion"),
     ("low-altitude", "低空", "Low Altitude"),
+    ("other", "其它", "Other"),
 )
 
 
@@ -53,7 +54,7 @@ def sync_taxonomy(database_url: str | None = None) -> None:
                 else:
                     topic.name_zh, topic.name_en, topic.enabled = zh, en, True
             # Preserve legacy classifications for exact old links, but keep them out
-            # of the seven current frontend category choices.
+            # of the current frontend category choices.
             for topic in session.scalars(select(Topic).where(Topic.slug.in_(sorted(LEGACY_TOPIC_SLUGS)))):
                 topic.enabled = False
             session.commit()

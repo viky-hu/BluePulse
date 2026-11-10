@@ -7,9 +7,9 @@ import { pathToFileURL } from "node:url";
 import { MOCK_HOME_DATA } from "../src/app/_lib/home-mock.ts";
 const { chromium } = await import(pathToFileURL(process.env.PULSE_PLAYWRIGHT_MODULE ?? "C:/Users/Admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs").href);
 const origin = "http://127.0.0.1:3160", artifacts = "test-results/featured-feed";
-const slugs = ["product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude"];
+const slugs = ["product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude", "other"];
 const taxonomy = slugs.map(slug => ({ id: slug, slug, name_zh: slug, name_en: slug, parent_id: null }));
-const rows = Array.from({ length: 76 }, (_, i) => ({ ...MOCK_HOME_DATA.articles[i % 8], id: `f3300000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, title: `警务科技公开材料 ${i + 1}：系统适用条件、证据引用与人工复核`, summary: `受控接口演示摘要 ${i + 1}。公开材料记录具体场景中的适用边界与人工复核流程，测试结果不代表真实新闻或后端已经上线。`, importance_score: 92 - i % 35, published_at: new Date(Date.UTC(2026, 9, 30, 7, 25) - i * 47 * 60000).toISOString(), topics: [slugs[i % 7]], selected: true, channel: "news", x: null, media_preview: null, featured_reason: "关注可核查的公开证据，以及人工复核与责任边界。" }));
+const rows = Array.from({ length: 76 }, (_, i) => ({ ...MOCK_HOME_DATA.articles[i % 8], id: `f3300000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, title: `警务科技公开材料 ${i + 1}：系统适用条件、证据引用与人工复核`, summary: `受控接口演示摘要 ${i + 1}。公开材料记录具体场景中的适用边界与人工复核流程，测试结果不代表真实新闻或后端已经上线。`, importance_score: 92 - i % 35, published_at: new Date(Date.UTC(2026, 9, 30, 7, 25) - i * 47 * 60000).toISOString(), topics: [i === 75 ? "other" : slugs[i % 7]], selected: true, channel: "news", x: null, media_preview: null, featured_reason: "关注可核查的公开证据，以及人工复核与责任边界。" }));
 rows[1] = { ...rows[1], channel: "x", x: { authorName: "公共安全研究站", handle: "safety_lab", avatarUrl: null, media: [{ kind: "image", url: "/favicon.ico", fullUrl: "/favicon.ico", width: 128, height: 128, alt: "受控媒体预览", poster: null }], quoted: { authorName: "研究团队", handle: "research", text: "公开评测关注跨场景误差。", translation: null } } };
 rows[2].sameEvent = { id: rows[0].id, title: rows[0].title };
 const hot = Array.from({ length: 5 }, (_, i) => ({ rank: i + 1, title: `公共安全热点事件 ${i + 1}：公开验证与应用边界`, heat: 137 - i * 19, trend: ["up", "new", "flat", "down", "unknown"][i], storyPublicId: i === 1 ? null : `event-${i + 1}`, itemId: rows[i].id, participantCount: 9, participants: ["研究站", "装备观察", "法治观察", "技术实验室", "公共安全", "实战研究", "技术社区"].map((name, j) => ({ name, kind: j < 6 ? "editorial" : "signal", iconUrl: j === 0 ? "/favicon.ico" : null })) }));
@@ -48,10 +48,10 @@ const api = createServer(async (req, res) => {
   res.statusCode = 404; send({});
 });
 await new Promise(resolve => api.listen(3161, "127.0.0.1", resolve));
-const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", "3160"], { cwd: process.cwd(), env: { ...process.env, BLUEPULSE_API_URL: "http://127.0.0.1:3161" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", "3160"], { cwd: process.env.PULSE_TEST_APP_ROOT ?? process.cwd(), env: { ...process.env, BLUEPULSE_API_URL: "http://127.0.0.1:3161" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 server.stdout.on("data", d => { serverLog += d; }); server.stderr.on("data", d => { serverLog += d; });
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
-async function ready(page, path = "/") { await page.waitForFunction(path => location.pathname === path && document.querySelector('[data-entry="stable"] [data-phase="idle"]') && document.querySelector("[data-p0-scroller]")?.getAttribute("aria-busy") === "false" && (path !== "/" || document.querySelector("[data-featured-status]")?.getAttribute("data-featured-status") !== "loading"), path); }
+async function ready(page, path = "/") { await page.waitForFunction(path => location.pathname === path && document.querySelector('[data-entry="stable"] [data-phase="idle"]') && document.querySelector("[data-p0-scroller]")?.getAttribute("aria-busy") === "false" && (path !== "/" || (document.querySelectorAll("[data-featured-status]").length === 1 && document.querySelector("[data-featured-status]")?.getAttribute("data-featured-status") !== "loading")), path); }
 async function goto(page, path = "/", expectedPath = path.split(/[?#]/)[0]) { await page.goto(`${origin}${path}`); await ready(page, expectedPath); }
 const news = page => page.locator("article[data-item-id]");
 const paper = page => page.locator("[data-p0-scroller]");
@@ -60,7 +60,7 @@ async function end(page) { await paper(page).evaluate(el => { el.scrollTop = el.
 try {
   await mkdir(artifacts, { recursive: true });
   for (let i = 0; i < 100; i++) { try { if ((await fetch(`${origin}/hot`)).ok) break; } catch {} if (i === 99) throw Error(serverLog); await new Promise(resolve => setTimeout(resolve, 100)); }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.PULSE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PULSE_CHROMIUM_EXECUTABLE } : {}) });
   for (const spec of [{ name: "desktop", viewport: { width: 1360, height: 760 }, reducedMotion: "no-preference" }, { name: "mobile", viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" }, { name: "reduced", viewport: { width: 1360, height: 760 }, reducedMotion: "reduce" }]) {
     const context = await browser.newContext({ viewport: spec.viewport, reducedMotion: spec.reducedMotion, isMobile: spec.name === "mobile", hasTouch: spec.name === "mobile" });
     await context.addInitScript(() => { localStorage.setItem("blue-pulse-entry-complete-v1", "1"); localStorage.setItem("blue-pulse-entry-complete-v1:mock", "1"); });
@@ -76,6 +76,19 @@ try {
     await page.screenshot({ path: `${artifacts}/${spec.name}.png`, fullPage: true });
     assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
     check(`${spec.name}: source composition, faces, conditional badges and paper width`);
+    await goto(page, "/?topic=other");
+    assert.equal(await news(page).count(), 1);
+    assert.equal(await page.locator('[data-filter="other"]').getAttribute("aria-current"), "page");
+    assert.equal(await news(page).first().getAttribute("data-item-id"), rows[75].id);
+    assert.equal(await paper(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+    await page.waitForTimeout(spec.name === "reduced" ? 30 : 350);
+    assert.equal(await page.locator('[data-filter="other"]').evaluate(el => {
+      const tab = el.getBoundingClientRect(), viewport = el.closest('[data-pill-track]').parentElement.getBoundingClientRect();
+      return tab.left >= viewport.left - 1 && tab.right <= viewport.right + 1;
+    }), true, "the selected other category must be fully visible on a direct link");
+    await page.screenshot({ path: `${artifacts}/${spec.name}-other.png`, fullPage: true });
+    check(`${spec.name}: other selection is independently available in the featured timeline`);
+    await goto(page);
     const firstDay = page.locator('section[data-collapsed]').first(), toggle = firstDay.getByRole("button", { name: /^收起/ }).filter({ visible: true }).last();
     await toggle.click(); await page.waitForTimeout(spec.name === "reduced" ? 30 : 280); assert.equal(await firstDay.getAttribute("data-collapsed"), "true");
     await firstDay.getByRole("button", { name: /^展开/ }).filter({ visible: true }).last().click(); await page.waitForTimeout(280); check(`${spec.name}: dated sections fold and reopen`);
@@ -156,7 +169,7 @@ try {
       await goto(page, "/?q=警务&region=foreign", "/all"); assert.equal(new URL(page.url()).searchParams.get("region"), "foreign"); check("desktop: unregistered category and legacy home search redirect");
       const proxyResponse = await page.request.get(`${origin}/api/bluepulse/site/groups/group-1/reports?topic=paper`); assert.equal(proxyResponse.headers()["cache-control"], "no-store");
       assert.equal((await page.request.get(`${origin}/api/bluepulse/site/groups/bad.id/reports`)).status(), 404);
-      await goto(page); await page.locator('a[href="/story/event-1"]').click(); await ready(page, "/story/event-1"); assert.ok(await page.getByText("事件详情正在建设中", { exact: false }).isVisible()); assert.equal(await page.locator('aside a[href="/hot"]').getAttribute("aria-current"), "page"); check("desktop: proxy whitelist and no-store groups, original story destination");
+      await goto(page); await page.locator('a[href="/story/event-1"]').click(); await ready(page, "/story/event-1"); assert.equal(new URL(page.url()).pathname, "/story/event-1"); assert.equal(await page.locator('aside a[href="/hot"]').getAttribute("aria-current"), "page"); check("desktop: proxy whitelist and no-store groups, original story destination");
       await goto(page, "/?mock=1"); assert.equal(await page.locator("h1").textContent(), "精选"); assert.equal(await news(page).first().getByRole("button", { name: "收藏", exact: true }).isVisible(), true); check("desktop: explicit demo and local state stay separate from live");
       mode = "nostore"; await goto(page); await menu(page, "/hot"); const old = requests.filter(r => r.path === "/api/v1/site/timeline").length; await page.goBack(); await ready(page); assert.ok(requests.filter(r => r.path === "/api/v1/site/timeline").length > old); mode = "ready"; check("desktop: no-store data cannot be revived from history snapshot");
     }

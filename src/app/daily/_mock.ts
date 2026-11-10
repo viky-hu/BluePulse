@@ -2,7 +2,7 @@
 import { MOCK_SOURCES } from "../_lib/home-mock.ts";
 import type { DailyRoute } from "./_route";
 import type { ReportCitation, ReportDetail, ReportIndexEntry, ReportNavigationEntry } from "./_types";
-export const DAILY_SECTIONS = ["产品发布与更新", "警务实战应用", "论文研究进展", "法制政策动态", "具身智能装备", "舆情治理观察", "低空警务应用"] as const;
+export const DAILY_SECTIONS = ["产品发布与更新", "警务实战应用", "论文研究进展", "法制政策动态", "具身智能装备", "舆情治理观察", "低空警务应用", "其它"] as const;
 // The same seven public-demo subjects as /all; IDs open the existing demo article reader.
 const examples = [
   ["多模态检索工具增加警务知识引用核查能力", "工具将检索结果与公开材料逐条关联，便于人工回溯出处。产品功能不等同于经过验证的实战效果。"],

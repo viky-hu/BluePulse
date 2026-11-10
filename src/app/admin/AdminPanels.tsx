@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { adminSections, type AdminSection } from "./sections";
+import { CONTENT_FILTERS } from "../all/_data";
 import styles from "./admin.module.css";
 
 export type AdminRequest = <T>(path: string, method?: string, body?: object) => Promise<T>;
@@ -13,7 +14,6 @@ const sourceFlags = {
   enabled: "启用采集", excerpt_allowed: "公开摘要", full_text_allowed: "站内全文",
   media_allowed: "公开媒体", syndicate_full_text_allowed: "允许全文分发",
 } as const;
-const topics = ["product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude"];
 
 function text(form: FormData, name: string) { return String(form.get(name) ?? "").trim(); }
 function reason(form: FormData) { return { reason: text(form, "reason") }; }
@@ -150,7 +150,7 @@ function Content({ rows, request, reload }: DataProps & { rows: ArticleRow[] }) 
       }}>
         <label className={styles.wide}>覆盖标题<input name="zh_title" maxLength={200} placeholder={row.zh_title ?? ""} /></label>
         <label className={styles.wide}>覆盖摘要<textarea name="zh_summary" maxLength={4000} /></label>
-        <label>覆盖栏目<select name="topics" multiple>{topics.map(topic => <option key={topic}>{topic}</option>)}</select></label>
+        <label>覆盖栏目<select name="topics" multiple>{CONTENT_FILTERS.map(topic => <option key={topic.key} value={topic.key}>{topic.label}</option>)}</select></label>
         <label>相关性<select name="relevant"><option value="">保持现状</option><option value="yes">相关</option><option value="no">不相关</option><option value="auto">恢复模型判断</option></select></label>
         <label>精选<select name="selected"><option value="">保持现状</option><option value="yes">人工确认候选</option><option value="no">取消精选资格</option><option value="auto">恢复模型判断</option></select></label>
         <fieldset>
@@ -228,6 +228,7 @@ function Runs({ jobs, receipts, queue, pending_due, unknown_receipts, request, r
     <ul className={styles.rows}>{jobs.map(row => <li key={row.id}><details>
       <summary>{row.kind} · {row.status} · {row.attempts} 次</summary>
       <p className={styles.meta}>{row.id} {row.error}</p>
+      {row.error === "invalid_structure_category" && <p role="alert">分类处理异常：模型没有返回有效分类，请检查模型结果后再处理任务。</p>}
       {!!row.failed_editions?.length && <p className={styles.meta}>刊期缺少符合条件的研判稿件 · {row.failed_editions.join("、")}</p>}
       {["failed", "pending"].includes(row.status) && <Action label="重新排队" reload={reload}
         submit={form => request(`runs/${row.id}/requeue`, "POST", reason(form))}><ReasonField /></Action>}

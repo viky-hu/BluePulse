@@ -50,3 +50,26 @@ test("day headings follow source month/day copy without year or today labels", (
   assert.ok(data);
   assert.equal(data.dayHeading("2026-10-29", Date.parse("2026-10-29T00:00:00Z")).label, "10月29日");
 });
+
+test("selecting other keeps search constraints and round-trips the category through public routes", () => {
+  for (const base of ["/", "/all", "/search"]) {
+    const original = parseHomeRoute(base, "q=警务&region=foreign&source=abc&tag=复核").filters;
+    const selected = data.selectAllFilter(original, "other");
+    assert.equal(selected.topic, "other");
+    assert.equal(selected.region, "");
+    assert.equal(data.activeAllFilter(selected), "other");
+    const href = buildHomeHref(base, selected);
+    const query = href.slice(href.indexOf("?") + 1);
+    assert.deepEqual(parseHomeRoute(base, query).filters, selected);
+    const params = data.allArticleParams(selected, null);
+    assert.equal(params.get("topic"), "other");
+    assert.equal(params.get("q"), "警务");
+    assert.equal(params.get("source"), "abc");
+    assert.equal(params.get("tag"), "复核");
+  }
+});
+
+test("other waits for the exact taxonomy category before querying a feed", () => {
+  assert.equal(data.categorySupported("other", [{ slug: "low-altitude" }]), false);
+  assert.equal(data.categorySupported("other", [{ slug: "other" }]), true);
+});

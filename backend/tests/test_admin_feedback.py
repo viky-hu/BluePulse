@@ -4,6 +4,7 @@ import asyncio
 from io import BytesIO
 
 import httpx
+import pytest
 from sqlalchemy.orm import Session
 
 from bluepulse_backend.db import Base, make_engine
@@ -103,7 +104,10 @@ def test_feedback_limit_survives_connections_and_forged_ip(tmp_path, monkeypatch
     asyncio.run(scenario())
 
 
-def test_source_and_editorial_mutations_project_with_audit(tmp_path, monkeypatch):
+@pytest.mark.parametrize("topics", [["practice"], ["other"],
+                                   ["product", "practice", "paper", "law", "embodied",
+                                    "public-opinion", "low-altitude", "other"]])
+def test_source_and_editorial_mutations_project_with_audit(tmp_path, monkeypatch, topics):
     async def scenario():
         async with admin_client(tmp_path, monkeypatch) as client:
             engine = make_engine(f"sqlite:///{(tmp_path / 'admin.db').as_posix()}")
@@ -129,13 +133,14 @@ def test_source_and_editorial_mutations_project_with_audit(tmp_path, monkeypatch
             assert (await client.patch(source_path, json={"enabled": False, "reason": "误用旧状态",
                                                           "version": original["version"]}, headers=headers)).status_code == 409
             override = await client.post(f"admin/content/{item.id}/override",
-                                          json={"zh_title": "人工标题", "topics": ["practice"],
+                                          json={"zh_title": "人工标题", "topics": topics,
                                                 "reason": "纠正标题分类"}, headers=headers)
             assert override.status_code == 200
             with Session(engine) as session:
                 material = session.get(Material, item.id)
                 assert material.public and material.zh_title == "人工标题"
-                assert session.get(MaterialTopic, (item.id, "practice")) is not None
+                assert material.topics == topics
+                assert all(session.get(MaterialTopic, (item.id, topic)) is not None for topic in topics)
             removed = await client.post(f"admin/content/{item.id}/visibility",
                                         json={"withdrawn": True, "reason": "已撤回"}, headers=headers)
             assert removed.status_code == 200

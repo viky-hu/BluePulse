@@ -81,6 +81,18 @@ def test_window_is_beijing_eight_and_unjudged_cannot_publish(db):
         compose_daily(db, "2026-11-08", now=NOW)
 
 
+def test_other_news_has_its_own_daily_section(db, report):
+    from bluepulse_backend.daily_reports import compose_daily, load_daily
+
+    item, *_ = report(datetime(2026, 11, 7, 20, tzinfo=UTC), score=95)
+    item.topics = ["other"]
+    db.commit()
+    compose_daily(db, "2026-11-08", now=NOW)
+    detail = load_daily(db, "2026-11-08", now=NOW)
+    section = next(row for row in detail["sections"] if row["label"] == "其它警务科技")
+    assert [row["itemId"] for row in section["items"]] == [item.id]
+
+
 def test_frozen_issue_assigns_post_cutoff_release_to_next_day_and_replaces_withdrawn_lead(db, report):
     from bluepulse_backend.daily_reports import compose_daily, load_daily
     from bluepulse_backend.edition_models import DailyIssueRevision

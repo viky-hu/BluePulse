@@ -5,7 +5,7 @@ import type { FeedArticle, GroupReportsResponse, HotStripEntry, TimelineCard, Ti
 import { groupTimeline } from "./_data";
 
 export { ALL_MOCK_TAXONOMY as FEATURED_MOCK_TAXONOMY };
-const topics = ["product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude"];
+const topics = ["product", "practice", "paper", "law", "embodied", "public-opinion", "low-altitude", "other"];
 export const FEATURED_MOCK_CARDS: TimelineCard[] = Array.from({ length: 74 }, (_, index) => {
   const original = MOCK_HOME_DATA.articles[index % MOCK_HOME_DATA.articles.length];
   const at = new Date(Date.UTC(2026, 9, 30, 7, 25) - index * 47 * 60000).toISOString();

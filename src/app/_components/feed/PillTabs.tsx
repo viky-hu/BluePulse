@@ -40,9 +40,25 @@ export interface TabItem {
 }
 export function PillTabs({ items, active, onSelect, size = "md", label, fill = false }: { items: TabItem[]; active: string; onSelect?: (key: string) => void; size?: "md" | "sm" | "xs"; label: string; fill?: boolean }) {
   const previous = useRef<Place | null>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  useGSAP(() => {
+    const container = viewport.current;
+    const selected = container?.querySelector<HTMLElement>('[aria-current="page"], [aria-selected="true"]');
+    if (!container || !selected) return;
+    const reveal = () => {
+      const bounds = container.getBoundingClientRect(), tab = selected.getBoundingClientRect();
+      if (tab.left < bounds.left) container.scrollLeft += tab.left - bounds.left;
+      else if (tab.right > bounds.right) container.scrollLeft += tab.right - bounds.right;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(container);
+    observer.observe(selected);
+    return () => observer.disconnect();
+  }, { scope: viewport, dependencies: [active], revertOnUpdate: true });
   const links = items.some(item => item.to);
   const Track = links ? "nav" : "div";
-  return <div className={styles.tabsViewport} data-fill={fill || undefined}><Track data-pill-track="" className={styles.tabs} data-size={size} data-fill={fill || undefined} style={fill ? { gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` } : undefined} aria-label={label} role={links ? undefined : "tablist"}>
+  return <div ref={viewport} className={styles.tabsViewport} data-fill={fill || undefined}><Track data-pill-track="" className={styles.tabs} data-size={size} data-fill={fill || undefined} style={fill ? { gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` } : undefined} aria-label={label} role={links ? undefined : "tablist"}>
     {items.map(item => {
       const on = item.key === active;
       const inner = <>{on && <Thumb previous={previous} />}<span className={styles.tabLabel}>{item.label}</span></>;

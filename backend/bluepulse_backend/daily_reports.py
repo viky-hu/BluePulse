@@ -29,7 +29,7 @@ VERSION = "daily-v1-rule-based"
 SECTIONS = {
     "product": "产品发布与更新", "practice": "警务实战应用", "paper": "论文研究进展",
     "law": "法制政策动态", "embodied": "具身智能装备", "public-opinion": "舆情治理观察",
-    "low-altitude": "低空警务应用", "unclassified": "其他警务科技",
+    "low-altitude": "低空警务应用", "other": "其它警务科技", "unclassified": "其他警务科技",
 }
 JUDGED = {"qualified", "below_threshold", "uncalibrated", "complete"}
 

@@ -7,4 +7,5 @@ export const ARTICLE_TOPIC_LABELS: Record<string, string> = {
   research: "研究成果",
   "policy-standards": "政策与标准",
   "procurement-projects": "采购与项目",
+  other: "其它",
 };

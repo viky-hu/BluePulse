@@ -53,7 +53,7 @@ class SourcePatch(AdminReason):
 class ContentOverride(AdminReason):
     zh_title: str | None = Field(default=None, min_length=1, max_length=200)
     zh_summary: str | None = Field(default=None, min_length=1, max_length=4000)
-    topics: list[str] | None = Field(default=None, min_length=1, max_length=7)
+    topics: list[str] | None = Field(default=None, min_length=1, max_length=8)
     relevant: bool | None = None
     selected: bool | None = None
 
@@ -266,7 +266,7 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
             raise error(400, "invalid_request", "请填写有效的人工覆盖字段。")
         topics = fields.get("topics")
         if topics is not None and (set(topics) - set(PUBLIC_TOPIC_SLUGS) or len(set(topics)) != len(topics)):
-            raise error(400, "invalid_request", "分类不在七类目录内或重复。")
+            raise error(400, "invalid_request", "分类不在八类目录内或重复。")
         begin_write(session)
         item = required(session, Material, str(item_id))
         existing = session.get(AdminContentOverride, item.id)
