@@ -1,1 +1,113 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pulse · 选材校准</title><style>@font-face{font-family:'Google Sans';src:url(data:font/woff2;base64,%%FONT%%)}%%STYLE%%</style></head><body><header><div class="brand">PULSE <span>选材校准工作台</span></div><div class="tools"><button id="export-html" class="primary">导出已标注 HTML</button><button id="export">导出 JSON 备份</button><label class="button">导入 HTML / JSON<input id="import" type="file" accept=".html,.json,text/html,application/json" hidden></label></div></header><section class="intro"><p class="eyebrow">OFFLINE · HUMAN CALIBRATION</p><h1>先读证据，再留下你的判断。</h1><p>这次是校准选材标准，不是重新训练模型；未来日常选材将自动运行。无需账号，材料与标注仅在本机处理。浏览器自动保存不等于写回原文件；交回时务必导出新的已标注 HTML。</p><ol><li>填写姓名，团队可按材料编号分工；建议保留 10–20% 重叠复核。</li><li>阅读原文，独立判断相关性、是否值得精选及证据，写明理由。</li><li>确认后点击“导出已标注 HTML”，把生成的新文件交回汇总；多人分歧由负责人明确裁决。</li></ol><p class="calibration">相关 ≠ 精选；采购公告 ≠ 已部署成效；官方来源 ≠ 效果已验证。相关材料也可以不进精选。判断材料本身的价值，不因发布时间较早或其他报道已出现而扣分。</p><details class="coverage"><summary>材料包覆盖说明与分工提示</summary><div id="coverage"></div></details><p id="storage-status" role="status"></p></section><div class="workspace"><aside><label>标注人姓名<input id="reviewer" maxlength="80" placeholder="填写姓名以保存个人草稿" autocomplete="off"></label><div id="progress"></div><input id="search" aria-label="搜索材料" placeholder="搜索标题、来源或编号"><select id="filter" aria-label="筛选状态"><option value="all">全部材料</option><option value="pending">待确认</option><option value="confirmed">已确认</option><option value="conflict">有分歧</option></select><nav id="case-list" aria-label="材料列表"></nav></aside><main><section id="material"><p class="eyebrow" id="case-meta"></p><h2 id="case-title"></h2><a id="source-link" target="_blank" rel="noopener noreferrer">查看原始来源 ↗</a><p class="notice" id="cut-notice"></p><div class="reading"><article><h3>原文 · 本次判断输入</h3><div id="analysis" class="prose"></div><details><summary>展开完整原文</summary><div id="body" class="prose"></div></details></article><article><h3>辅助中文</h3><p class="subtle">辅助理解用，请以原文证据为准；翻译不构成额外事实。</p><h4 id="assist-title"></h4><div id="assist" class="prose"></div></article></div></section><form id="review-form"><h3>你的独立判断</h3><p class="subtle">这里判断的是“警务科技相关性”。直接相关：明确涉及科技在警务任务中的应用、研发、建设，或直接规范这些技术的政策与安全治理，必须有具体科技内容。潜在相关：重要上游科技有明确的新能力或新方法，并能说明对警务科技的具体影响路径；泛泛的科技评论不算。普通警务走访、一般案件、人事或纯会议新闻，没有科技内容就是无关。材料不足以判断时选“无法判断”。</p><p class="subtle">例如：民警社区走访，没有技术内容 → 无关；用无人机开展事故勘查试点 → 直接相关；重要通用智能体技术更新且有具体警务影响路径 → 潜在相关。无关时系统自动记录“不进精选”，跳过主题和证据阶段，只需写一句理由。</p><details><summary>“技术主张的证据阶段”怎么选？</summary><p class="subtle">看原文实际交代到哪一步：只是宣称效果，选“仅宣传或主张”；宣布产品、招标或政策发布，选“发布／宣布／招标”；只在实验室测过，选“实验室测试”；小范围试用，选“试点观察”；在实际工作环境有评估结果，选“实地评估”。这是区分技术主张的依据，不要求你自行调查新闻真假。相关材料也可以不够精选。</p></details><div class="fields"><label>警务科技相关性<select name="relevance" required><option value="">请选择</option><option value="direct">直接相关</option><option value="potential">潜在相关</option><option value="irrelevant">无关</option><option value="uncertain">无法判断</option></select></label><label>是否值得首页精选<select name="select" required><option value="">请选择</option><option value="select">值得精选</option><option value="reject">不进精选</option><option value="uncertain">证据不足</option></select></label><label>主要主题<select name="primary_topic"><option value="">请选择（直接 / 潜在相关必填）</option><option value="product">产品装备</option><option value="practice">警务实践</option><option value="paper">研究论文</option><option value="law">法规治理</option><option value="embodied">具身智能</option><option value="public-opinion">舆情研判</option><option value="low-altitude">低空警务</option></select></label><label>技术主张的证据阶段（相关材料再填）<select name="evidence_level" required><option value="">请选择</option><option value="marketing">仅宣传或主张，缺少验证</option><option value="announcement">发布／宣布／招标，未验证实际效果</option><option value="lab_test">实验室测试</option><option value="pilot_observation">试点观察</option><option value="field_evaluation">实地评估</option><option value="unknown">无法判断／材料不足</option></select></label></div><label>判断理由<textarea name="reason" maxlength="3000" rows="3" required placeholder="指出原文中的具体依据、适用警务场景或不确定点"></textarea></label><div class="confirm-row"><button id="confirm" type="submit" class="primary">确认本条判断</button><span>确认记录不可覆盖；再次确认会追加新版本。</span></div></form><section id="votes"></section><p id="message" role="status" aria-live="polite"></p></main></div><script type="application/json" id="packet">%%PACKET%%</script><script>%%SCRIPT%%</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse · 新闻标注</title>
+<style>@font-face{font-family:'Google Sans';src:url(data:font/woff2;base64,%%FONT%%)}%%STYLE%%</style>
+</head>
+<body>
+<header>
+  <div class="brand">PULSE <span>新闻标注</span></div>
+  <div class="tools">
+    <button id="export-html" class="primary">导出已标注 HTML</button>
+    <button id="export">导出备份（JSON）</button>
+    <label class="button">导入组员交回的文件<input id="import" type="file" accept=".html,.json,text/html,application/json" hidden></label>
+  </div>
+</header>
+<section class="intro">
+  <p class="eyebrow">离线填写 · 完成后导出交回</p>
+  <h1>请帮我们挑选值得关注的警务科技新闻</h1>
+  <p>阅读新闻，判断它是否属于警务科技、是否值得推荐，再写一句原因。你的答案会帮助我们检查和改进自动选稿。</p>
+  <p class="steps">填姓名 → 读新闻 → 回答下面的问题 → 点击“确认本条” → 导出已标注 HTML，发回负责人。</p>
+  <p class="return-reminder"><strong>页面会记住这台电脑上的进度。交回结果时，要发送“导出已标注 HTML”生成的新文件。</strong></p>
+  <details class="coverage"><summary>这份文件有多少新闻？组员怎么分工？</summary><div id="coverage"></div></details>
+  <p id="storage-status" role="status"></p>
+</section>
+<div class="workspace">
+<aside>
+  <label>你的姓名<input id="reviewer" maxlength="80" placeholder="请填自己的姓名，不要多人共用名字" autocomplete="off"></label>
+  <div id="progress"></div>
+  <input id="search" aria-label="搜索新闻" placeholder="搜索标题、来源或编号">
+  <select id="filter" aria-label="按填写情况筛选"><option value="all">全部新闻</option><option value="pending">还没人确认</option><option value="confirmed">已有确认</option><option value="conflict">组员意见不同</option></select>
+  <nav id="case-list" aria-label="新闻列表"></nav>
+</aside>
+<main>
+<section id="material">
+  <p class="eyebrow" id="case-meta"></p><h2 id="case-title"></h2>
+  <a id="source-link" target="_blank" rel="noopener noreferrer">打开原网站核对 ↗</a>
+  <p class="notice" id="cut-notice"></p>
+  <div class="reading">
+    <article><h3>新闻原文</h3><div id="analysis" class="prose"></div><details><summary>展开完整原文</summary><div id="body" class="prose"></div></details></article>
+    <article><h3>中文参考</h3><p class="subtle">机器翻译可能有错。有疑问请核对原文；判断不了就如实选择，不要猜。</p><h4 id="assist-title"></h4><div id="assist" class="prose"></div></article>
+  </div>
+</section>
+<form id="review-form">
+<h3>读完新闻，请回答下面的问题</h3>
+<p>先看“是不是我们关注的内容”，再看“值不值得重点推荐”。两件事分开判断。</p>
+<section class="question" data-question="relevance">
+  <label for="relevance">1. 这条新闻和警务科技有关吗？</label>
+  <p id="relevance-help">看新闻是否讲了警务中的技术、装备、系统、研究或相关规定。不能因为出现“公安”“民警”就选相关。</p>
+  <select id="relevance" name="relevance" aria-describedby="relevance-help" required><option value="">请选择</option><option value="direct">直接相关</option><option value="potential">有潜在用途</option><option value="irrelevant">无关</option><option value="uncertain">信息太少，判断不了</option></select>
+  <dl class="choice-guide">
+    <div><dt>直接相关</dt><dd>新闻讲的就是警务科技。例如无人机勘查、智能识别、警务数据系统，或规范这些技术的新规定。</dd></div>
+    <div><dt>有潜在用途</dt><dd>新闻没有直接讲警务，但技术有具体新进展，而且能说清对警务科技有什么用。</dd></div>
+    <div><dt>无关</dt><dd>普通走访、一般案情、人事或会议报道，没有实质科技内容。不涉及科技的一般制度改革，也不纳入。</dd></div>
+    <div><dt>信息太少，判断不了</dt><dd>文章没有写清楚，现有内容不足以判断。不要靠猜。</dd></div>
+  </dl>
+  <p class="example">民警社区走访，没有科技内容 → <strong>无关</strong>。警务视频系统例行维护 → <strong>相关，但通常不值得精选</strong>。</p>
+  <p class="subtle">选“无关”后，下面会自动记为不推荐，跳过分类和技术情况；你只需再写一句理由。</p>
+</section>
+<section class="question" data-question="select">
+  <label for="selection">2. 这条新闻值得重点推荐吗？</label>
+  <p id="selection-help">相关不代表值得推荐。再看它有没有值得读者关注的新技术、新做法、新结果或重要规定。</p>
+  <select id="selection" name="select" aria-describedby="selection-help" required><option value="">请选择</option><option value="select">值得推荐</option><option value="reject">不值得重点推荐</option><option value="uncertain">信息不足，暂不决定</option></select>
+  <dl class="choice-guide">
+    <div><dt>值得推荐</dt><dd>有具体、重要或值得借鉴的新内容，能说清推荐理由。不能只看“领先”“重大突破”等宣传词。</dd></div>
+    <div><dt>不值得重点推荐</dt><dd>虽然相关，但主要是日常维护、重复介绍、普通宣传，或没有多少新信息。</dd></div>
+    <div><dt>信息不足，暂不决定</dt><dd>想判断，但文章缺少必要细节，暂时拿不准。</dd></div>
+  </dl>
+  <p class="subtle">有价值的研究、试点和新规定也可以推荐，不要求已经大规模使用。不要仅因原文较早，或已看过同一件事的另一篇报道就扣分。</p>
+</section>
+<section class="question" data-question="primary_topic">
+  <label for="primary-topic">3. 这条新闻主要讲什么？</label>
+  <p id="topic-help">选最主要的一类即可，归到某一类不代表值得精选。直接相关或有潜在用途的新闻需要选一类。</p>
+  <select id="primary-topic" name="primary_topic" aria-describedby="topic-help"><option value="">请选择</option><option value="product">产品、装备或功能</option><option value="practice">警务应用案例</option><option value="paper">论文或研究结果</option><option value="law">科技相关的法律与规定</option><option value="embodied">机器人与具身智能</option><option value="public-opinion">网络舆情分析与治理</option><option value="low-altitude">无人机与低空警务</option></select>
+  <dl class="choice-guide">
+    <div><dt>产品、装备或功能</dt><dd>介绍技术产品、装备或系统功能。</dd></div>
+    <div><dt>警务应用案例</dt><dd>介绍技术在实际警务工作中怎么使用。</dd></div>
+    <div><dt>论文或研究结果</dt><dd>介绍研究方法、实验或研究发现。</dd></div>
+    <div><dt>科技相关的法律与规定</dt><dd>介绍电子证据、数据、算法等技术相关规则。</dd></div>
+    <div><dt>机器人与具身智能</dt><dd>介绍机器人及其感知、行动和执行任务的能力。</dd></div>
+    <div><dt>网络舆情分析与治理</dt><dd>介绍舆情监测、分析或治理中的技术和方法。</dd></div>
+    <div><dt>无人机与低空警务</dt><dd>介绍无人机及其他低空警务技术应用。</dd></div>
+  </dl>
+</section>
+<section class="question" data-question="evidence_level">
+  <label for="evidence-level">4. 报道具体说到哪一步了？</label>
+  <p id="evidence-help">按文章实际写到的情况选择，不需要你自己调查。不要把“宣布要做”当成“已经证明有效”。</p>
+  <select id="evidence-level" name="evidence_level" aria-describedby="evidence-help" required><option value="">请选择</option><option value="marketing">只有宣传或效果主张</option><option value="announcement">已发布或宣布</option><option value="lab_test">做过实验室测试</option><option value="pilot_observation">正在小范围试用</option><option value="field_evaluation">有实际使用评估</option><option value="unknown" data-base-label="文章没说清楚">文章没说清楚</option></select>
+  <dl class="choice-guide">
+    <div><dt>只有宣传或效果主张</dt><dd>说它很好、很有效，但没有交代具体测试或使用结果。</dd></div>
+    <div><dt>已发布或宣布</dt><dd>发布了产品、计划、招标或规定，但还没给出实际效果。</dd></div>
+    <div><dt>做过实验室测试</dt><dd>有实验或测试结果，尚未说明实际警务中的使用效果。</dd></div>
+    <div><dt>正在小范围试用</dt><dd>已开展试点或试用，尚不能代表广泛使用的效果。</dd></div>
+    <div><dt>有实际使用评估</dt><dd>在真实工作环境中评估过，给出了具体结果及适用条件。</dd></div>
+    <div><dt>文章没说清楚</dt><dd>无法从文章判断，不要猜测。</dd></div>
+  </dl>
+  <p class="subtle">如果文章写了不止一种情况，选它确实提供了依据的那一步。例如，既宣布产品又给出实际使用评估，就选“有实际使用评估”。</p>
+</section>
+<section class="question" data-question="reason">
+  <label for="reason">5. 用一句话说说为什么</label>
+  <p id="reason-help">写你自己的判断。下面只是写法示例，不是这条新闻的答案。</p>
+  <textarea id="reason" name="reason" maxlength="3000" rows="3" aria-describedby="reason-help" required placeholder="例如：涉及警务视频系统，但只是例行维护，没有新进展。"></textarea>
+  <ul class="reason-examples"><li>普通走访报道，没有科技内容。</li><li>涉及警务视频系统，但只是例行维护，没有新进展。</li><li>介绍无人机勘查试点，提供了具体流程和结果，值得参考。</li><li>没有写清技术怎么使用，暂时判断不了。</li></ul>
+</section>
+<div class="confirm-row"><button id="confirm" type="submit" class="primary">确认本条</button><span>想改答案？修改后再点一次确认。旧答案也会保留，方便负责人核对。</span></div>
+</form>
+<section id="votes"></section><p id="message" role="status" aria-live="polite"></p>
+</main>
+</div>
+<script type="application/json" id="packet">%%PACKET%%</script>
+<script>%%SCRIPT%%</script>
+</body>
+</html>
