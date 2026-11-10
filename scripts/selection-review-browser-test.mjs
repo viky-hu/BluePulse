@@ -11,6 +11,8 @@ const scenarios=[
  {title:'无人机创新试点',body:'无人机事故勘查开展小范围试点，说明了流程和观察结果。',relevance:'direct',select:'select',primary_topic:'practice',evidence_level:'pilot_observation'},
  {title:'科技相关法规',body:'新发布电子证据保存规则，尚未给出实际实施效果。',relevance:'direct',select:'select',primary_topic:'law',evidence_level:'announcement'},
  {title:'新闻信息不足',body:'文章没有交代具体技术和用途，无法判断。',relevance:'uncertain',select:'uncertain',primary_topic:null,evidence_level:'unknown'},
+ {title:'日常警务中的技术线索',body:'主体是日常警务行动，顺带提到值得继续了解的技术做法。',relevance:'potential',select:'reject',primary_topic:'practice',evidence_level:'unknown'},
+ {title:'其他领域技术的警务用途',body:'其他领域的技术有具体进展，能说明对警务科技的用途。',relevance:'potential',select:'uncertain',primary_topic:'product',evidence_level:'announcement'},
 ];
 fixture.cases.push(...scenarios.map((s,i)=>({...fixture.cases[0],case_id:'scenario-'+i,material_id:'scenario-'+i,title:s.title,body:s.body,analysis_text:s.body,input_truncated:false})));
 mkdirSync(resolve('test-results'),{recursive:true});
@@ -26,6 +28,10 @@ for(const [name,question,count]of [['relevance','这条新闻和警务科技有�
  const section=page.locator(`[data-question="${name}"]`);assert.match(await section.textContent(),new RegExp(question));assert.equal(await section.locator('.choice-guide dt').count(),count);assert.equal(await section.locator('.choice-guide').isVisible(),true);
 }
 assert.match(await page.locator('[data-question=relevance]').textContent(),/例行维护/);
+const potentialHelp=page.locator('[data-question=relevance] .choice-guide div').filter({has:page.locator('dt',{hasText:'有潜在用途'})});
+assert.match(await potentialHelp.textContent(),/主要讲日常警务/);
+assert.match(await potentialHelp.textContent(),/没有重点介绍新技术、新方法/);
+assert.doesNotMatch(await page.locator('[data-question=relevance]').textContent(),/新闻没有直接讲警务/);
 assert.match(await page.locator('[data-question=relevance]').textContent(),/不涉及科技的一般制度改革/);
 assert.doesNotMatch(await page.locator('body').innerText(),/校准|迁移价值|技术主张|不可变记录|内容哈希/);
 assert.doesNotMatch(await page.locator('#coverage').textContent(),/source_slug|available_unique|material_kinds|sources[：:]/);

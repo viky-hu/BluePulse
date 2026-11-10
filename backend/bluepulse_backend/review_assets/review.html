@@ -46,15 +46,16 @@
 <p>先看“是不是我们关注的内容”，再看“值不值得重点推荐”。两件事分开判断。</p>
 <section class="question" data-question="relevance">
   <label for="relevance">1. 这条新闻和警务科技有关吗？</label>
-  <p id="relevance-help">看新闻是否讲了警务中的技术、装备、系统、研究或相关规定。不能因为出现“公安”“民警”就选相关。</p>
+  <p id="relevance-help">看有没有值得关注的警务科技内容或改进线索，再看它是不是报道的重点。不能因为出现“公安”“民警”就选相关。</p>
   <select id="relevance" name="relevance" aria-describedby="relevance-help" required><option value="">请选择</option><option value="direct">直接相关</option><option value="potential">有潜在用途</option><option value="irrelevant">无关</option><option value="uncertain">信息太少，判断不了</option></select>
   <dl class="choice-guide">
-    <div><dt>直接相关</dt><dd>新闻讲的就是警务科技。例如无人机勘查、智能识别、警务数据系统，或规范这些技术的新规定。</dd></div>
-    <div><dt>有潜在用途</dt><dd>新闻没有直接讲警务，但技术有具体新进展，而且能说清对警务科技有什么用。</dd></div>
-    <div><dt>无关</dt><dd>普通走访、一般案情、人事或会议报道，没有实质科技内容。不涉及科技的一般制度改革，也不纳入。</dd></div>
+    <div><dt>直接相关</dt><dd>重点介绍警务科技及其应用，或规范这些技术的新规定。例如无人机勘查、智能识别、警务数据系统。</dd></div>
+    <div><dt>有潜在用途</dt><dd>主要讲日常警务，没有重点介绍新技术、新方法，但有值得继续了解的技术应用或改进线索。理由中写清这条线索。</dd></div>
+    <div><dt>无关</dt><dd>普通走访、一般案情、人事或会议报道，既没有值得关注的科技内容，也没有具体的技术或方法改进线索。不涉及科技的一般制度改革，也不纳入。</dd></div>
     <div><dt>信息太少，判断不了</dt><dd>文章没有写清楚，现有内容不足以判断。不要靠猜。</dd></div>
   </dl>
-  <p class="example">民警社区走访，没有科技内容 → <strong>无关</strong>。警务视频系统例行维护 → <strong>相关，但通常不值得精选</strong>。</p>
+  <p class="example">民警社区走访，没有技术或改进线索 → <strong>无关</strong>。日常警务报道顺带提到值得关注的技术做法 → <strong>有潜在用途</strong>。重点介绍警务视频系统例行维护 → <strong>直接相关，但通常不值得精选</strong>。</p>
+  <p class="subtle">其他领域的科技进展，如果能具体说明对警务科技有什么用，也可以选“有潜在用途”。不能只写“以后也许能用上”。</p>
   <p class="subtle">选“无关”后，下面会自动记为不推荐，跳过分类和技术情况；你只需再写一句理由。</p>
 </section>
 <section class="question" data-question="select">
@@ -100,7 +101,7 @@
   <label for="reason">5. 用一句话说说为什么</label>
   <p id="reason-help">写你自己的判断。下面只是写法示例，不是这条新闻的答案。</p>
   <textarea id="reason" name="reason" maxlength="3000" rows="3" aria-describedby="reason-help" required placeholder="例如：涉及警务视频系统，但只是例行维护，没有新进展。"></textarea>
-  <ul class="reason-examples"><li>普通走访报道，没有科技内容。</li><li>涉及警务视频系统，但只是例行维护，没有新进展。</li><li>介绍无人机勘查试点，提供了具体流程和结果，值得参考。</li><li>没有写清技术怎么使用，暂时判断不了。</li></ul>
+  <ul class="reason-examples"><li>普通走访报道，没有科技内容。</li><li>主要是日常警务报道，但其中的设备识别做法值得继续了解。</li><li>涉及警务视频系统，但只是例行维护，没有新进展。</li><li>介绍无人机勘查试点，提供了具体流程和结果，值得参考。</li><li>没有写清技术怎么使用，暂时判断不了。</li></ul>
 </section>
 <div class="confirm-row"><button id="confirm" type="submit" class="primary">确认本条</button><span>想改答案？修改后再点一次确认。旧答案也会保留，方便负责人核对。</span></div>
 </form>
