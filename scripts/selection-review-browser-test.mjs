@@ -13,6 +13,7 @@ const scenarios=[
  {title:'新闻信息不足',body:'文章没有交代具体技术和用途，无法判断。',relevance:'uncertain',select:'uncertain',primary_topic:null,evidence_level:'unknown'},
  {title:'日常警务中的技术线索',body:'主体是日常警务行动，顺带提到值得继续了解的技术做法。',relevance:'potential',select:'reject',primary_topic:'practice',evidence_level:'unknown'},
  {title:'其他领域技术的警务用途',body:'其他领域的技术有具体进展，能说明对警务科技的用途。',relevance:'potential',select:'uncertain',primary_topic:'product',evidence_level:'announcement'},
+ {title:'暂时不好分类的技术线索',body:'有值得继续了解的技术线索，但现有分类都不贴切。',relevance:'potential',select:'reject',primary_topic:'other',evidence_level:'unknown'},
 ];
 fixture.cases.push(...scenarios.map((s,i)=>({...fixture.cases[0],case_id:'scenario-'+i,material_id:'scenario-'+i,title:s.title,body:s.body,analysis_text:s.body,input_truncated:false})));
 mkdirSync(resolve('test-results'),{recursive:true});
@@ -24,7 +25,7 @@ try {
 const page=await browser.newPage({acceptDownloads:true,viewport:{width:1440,height:950}});await page.goto(pathToFileURL(join(dir,'review.html')).href);
 assert.equal(await page.locator('h1').textContent(),'请帮我们挑选值得关注的警务科技新闻');
 assert.equal(await page.locator('#review-form h3').textContent(),'读完新闻，请回答下面的问题');
-for(const [name,question,count]of [['relevance','这条新闻和警务科技有关吗？',4],['select','这条新闻值得重点推荐吗？',3],['primary_topic','这条新闻主要讲什么？',7],['evidence_level','报道具体说到哪一步了？',6]]){
+for(const [name,question,count]of [['relevance','这条新闻和警务科技有关吗？',4],['select','这条新闻值得重点推荐吗？',3],['primary_topic','这条新闻主要讲什么？',8],['evidence_level','报道具体说到哪一步了？',6]]){
  const section=page.locator(`[data-question="${name}"]`);assert.match(await section.textContent(),new RegExp(question));assert.equal(await section.locator('.choice-guide dt').count(),count);assert.equal(await section.locator('.choice-guide').isVisible(),true);
 }
 assert.match(await page.locator('[data-question=relevance]').textContent(),/例行维护/);

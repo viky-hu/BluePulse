@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const packet=JSON.parse(document.getElementById('packet').textContent), cases=new Map(packet.cases.map(c=>[c.case_id,c]));
-const enums={relevance:['direct','potential','irrelevant','uncertain'],select:['select','reject','uncertain'],primary_topic:['product','practice','paper','law','embodied','public-opinion','low-altitude'],evidence_level:['marketing','announcement','lab_test','pilot_observation','field_evaluation','unknown']};
+const enums={relevance:['direct','potential','irrelevant','uncertain'],select:['select','reject','uncertain'],primary_topic:['product','practice','paper','law','embodied','public-opinion','low-altitude','other'],evidence_level:['marketing','announcement','lab_test','pilot_observation','field_evaluation','unknown']};
 const $=id=>document.getElementById(id), empty=()=>({schema_version:1,packet_id:packet.packet_id,records:[],drafts:[],resolutions:[]});
 let state=empty(),active=packet.cases[0]?.case_id,reviewer='',storageOK=true;
 const key='pulse-review:'+packet.packet_id;

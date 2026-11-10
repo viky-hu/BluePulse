@@ -6,6 +6,12 @@ import pytest
 from bluepulse_backend import selection_packet as packet
 
 
+@pytest.mark.parametrize('relevance',['direct','potential'])
+def test_annotation_other_category_is_valid_for_related_news(relevance):
+    packet.validate_gold({'relevance':relevance,'select':'reject','primary_topic':'other',
+                          'evidence_level':'unknown','reason':'有技术线索，但现有分类不贴切。'})
+
+
 def test_sampling_is_frozen_balanced_and_blind():
     rows = [dict(material_id=str(i), revision=1, content_hash=f'h{i}', source_slug=f's{i % 8}',
                  source_name='真实来源', source_type='rss', language='zh' if i < 45 else 'en',

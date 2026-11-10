@@ -17,7 +17,8 @@ import re
 import sqlite3
 
 
-TOPICS = {'product', 'practice', 'paper', 'law', 'embodied', 'public-opinion', 'low-altitude'}
+# The review packet can keep an unclassified human answer without adding a public site category.
+TOPICS = {'product', 'practice', 'paper', 'law', 'embodied', 'public-opinion', 'low-altitude', 'other'}
 RELEVANCE = {'direct', 'potential', 'irrelevant', 'uncertain'}
 DECISIONS = {'select', 'reject', 'uncertain'}
 EVIDENCE = {'marketing', 'announcement', 'lab_test', 'pilot_observation', 'field_evaluation', 'unknown'}
