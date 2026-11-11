@@ -166,7 +166,10 @@ function ItemView({ item, taxonomy }: { item: ReaderArticle; taxonomy: ArticlePa
         {item.reason && !summaryOnly && <section className={styles.mobileReason}><h2>推荐理由</h2><p>{item.reason}</p></section>}
         {item.sameEvent && <p className={styles.sameEvent}>同一新闻，精选展示<IntentLink href={shell.href(`/articles/${item.sameEvent.id}`)}>《{item.sameEvent.title}》</IntentLink></p>}
         {item.group && item.group.reportCount > 1 && <div className={styles.group}><div className={styles.desktopGroup}><GroupSources group={item.group} parentId={article.id} /></div><div className={styles.mobileGroup}><GroupButton group={item.group} parentId={article.id} /></div></div>}
-        {summaryOnly && <p className={styles.contentNotice}>应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
+        {summaryOnly && <p className={styles.contentNotice}>本站目前仅展示摘要，全文请查看原文。</p>}
+        {!summaryOnly && !item.bodyHtml && <p className={styles.contentNotice}>本站暂未取得正文，请查看原文。</p>}
+        {item.bodyHtml && item.selected && item.bodyLanguage === "original" && !item.hasTranslation &&
+          !/^zh/i.test(article.language) && <p className={styles.contentNotice}>中文译文尚未完成，以下为原文。</p>}
         {item.bodyHtml && <section className={styles.bodySection}><div className={styles.bodyHeading}><span>{bodyLabel}</span>{item.hasTranslation && <PillTabs size="xs" label="正文语言" active={item.bodyLanguage} items={[{ key: "zh", label: "中文", prefetch: "intent", replace: true, to: shell.href(`/articles/${article.id}`) }, { key: "original", label: "原文", prefetch: "intent", replace: true, to: shell.href(`/articles/${article.id}/original`) }]} />}</div>{item.hasTranslation && item.bodyLanguage === "zh" && !item.complete && <p className={styles.partialNotice}>译文尚不完整，完整内容请切换到原文。</p>}<ArticleBody html={item.bodyHtml} /></section>}
         {isX && item.x!.media.length > 0 && <MediaGallery media={item.x!.media} postUrl={sourceUrl ?? ""} />}
         {!isX && !summaryOnly && article.media.length > 0 && <MediaGallery postUrl={sourceUrl ?? ""}

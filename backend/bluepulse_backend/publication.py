@@ -53,6 +53,12 @@ def selected(material: Material, *, at=None) -> bool:
                 material.editorial_revision == material.revision and material.timeline_kind == "fresh")
 
 
+def translation_needed(material: Material, *, at=None, replace_current: bool = False) -> bool:
+    return bool(material.source.full_text_allowed and material.collection_state != "pending" and
+                not material.language.lower().startswith("zh") and
+                (replace_current or material.translation_revision != material.revision) and selected(material, at=at))
+
+
 def project_visibility(material: Material, now=None) -> bool:
     material.public = _eligible(material)
     material.state = "publication_pool" if material.public else "publication_hidden"

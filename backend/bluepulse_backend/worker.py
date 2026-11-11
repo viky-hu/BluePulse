@@ -30,12 +30,13 @@ from .live_sources import SourceFetchError
 from .model_steps import Steps, environment_models
 from .models import AnalysisAttempt, AutoPublicationJob, FactGroup, FactReport, Material, Source, SourceRun, now_utc
 from .pipeline import ingest
-from .publication import selected
+from .publication import translation_needed
 from .receipts import Budget, BudgetWait, ReceiptUnknown, recover_receipts
 from .source_collection import SOURCES, build_adapter
 from .source_worker import RETRYABLE
 from .story_digest import DIGEST, digest_context, save_digest, schedule_digest
-from .work_queue import claim, enqueue, finish, heartbeat, owns, serialized, utc
+from .work_queue import (TRANSLATION_ELIGIBILITY_SKIPS, claim, enqueue, enqueue_translation, finish,
+                         heartbeat, owns, serialized, utc)
 
 
 class LeaseLost(RuntimeError):
@@ -83,9 +84,8 @@ def _schedule_material(session, material, now, *, run_key=None):
             _queue_editorial(session, "analyze", material, now, run_key)
     elif material.grouping_status == "pending":
         _queue_editorial(session, "group", material, now, run_key)
-    elif (selected(material, at=now) and material.source.full_text_allowed and material.source_body and
-          not material.language.lower().startswith("zh") and material.translation_revision != material.revision):
-        _queue_editorial(session, "translate", material, now, run_key)
+    elif translation_needed(material, at=now):
+        enqueue_translation(session, material, now, run_key)
 
 
 class Worker:
@@ -124,14 +124,21 @@ class Worker:
             identity = identity + ":" + self.run_key
 
         def available(kind):
+            matching_identity = WorkItem.identity == identity
+            if kind == "translate":
+                matching_identity = and_(matching_identity, or_(
+                    WorkItem.status != "done",
+                    func.coalesce(WorkItem.result["skipped"].as_string(), "").not_in(TRANSLATION_ELIGIBILITY_SKIPS),
+                ))
             return ~exists().where(WorkItem.kind == kind, or_(
-                WorkItem.identity == identity,
+                matching_identity,
                 and_(WorkItem.status.in_(("pending", "running")),
                      WorkItem.payload["material_id"].as_string() == Material.id,
                      WorkItem.payload["revision"].as_integer() == Material.revision),
             ))
 
         current = Material.editorial_revision == Material.revision
+        now = self.clock()
         legacy_unknown = exists().where(
             AnalysisAttempt.material_id == Material.id, AnalysisAttempt.revision == Material.revision,
             AnalysisAttempt.status.in_(("started", "unknown")),
@@ -144,8 +151,16 @@ class Worker:
                 and_(Source.participation_mode == "editorial", or_(
                     and_(or_(Material.editorial_revision.is_(None), ~current), ~legacy_unknown, available("analyze")),
                     and_(current, Material.grouping_status == "pending", available("group")),
-                    and_(current, Material.selected_at.is_not(None), Source.full_text_allowed.is_(True),
-                         Material.translation_status == "pending", available("translate")),
+                    and_(current, Material.public.is_(True), Material.featured_candidate.is_(True),
+                         Material.selected_at <= now,
+                         or_(Material.visible_after.is_(None), Material.visible_after <= now),
+                         Material.timeline_kind == "fresh", Material.grouping_status == "complete",
+                         Material.grouping_value.is_not(False), Material.body_status == "full_text",
+                         Source.excerpt_allowed.is_(True), Source.full_text_allowed.is_(True),
+                         ~func.lower(Material.language).startswith("zh"),
+                         or_(Material.translation_revision.is_(None),
+                             Material.translation_revision != Material.revision),
+                         available("translate")),
                 )),
             ),
         ).order_by(Material.timeline_kind == "historical", Material.first_seen_at, Material.id).limit(300)
@@ -521,7 +536,7 @@ class Worker:
                                                   step.embeddings if "embedding" in settings else None)
                 result = grouping.decide(item, candidates, step)
             else:
-                if not selected(item, at=self.clock()) or not item.source.full_text_allowed or not item.source_body:
+                if not translation_needed(item, at=self.clock(), replace_current=generation is not None):
                     return {"skipped": "translation_not_eligible"}
                 result = editorial.translate(item.source_body, step)
         with serialized(self.engine) as session:
@@ -552,7 +567,9 @@ class Worker:
                     fact = session.get(FactGroup, member.fact_id)
                     if fact:
                         schedule_digest(session, fact.story_id, now, run_key)
-            elif selected(current, at=now) and current.source.full_text_allowed:
+            else:
+                if not translation_needed(current, at=now, replace_current=generation is not None):
+                    return {"skipped": "translation_not_eligible"}
                 current.zh_body, complete = result
                 current.translation_revision = revision
                 current.translation_status = "available" if complete else "partial"

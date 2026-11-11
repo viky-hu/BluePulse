@@ -172,6 +172,8 @@ def reader_projection(session, article, body_language="zh"):
     }
     if not article.source.full_text_allowed:
         return result
+    selected = publication.selected(article)
+    result["selected"] = selected
     result["tags"] = public_tags(article)
     result["markdownAvailable"] = bool(article.zh_summary or _original(article))
     mentioned = session.scalars(select(FactGroup.story_id).join(FactMention, FactGroup.id == FactMention.fact_id)
@@ -189,7 +191,6 @@ def reader_projection(session, article, body_language="zh"):
         return result
     reports = _fact_reports(session, member.fact_id)
     chosen = [row for row in reports if publication.selected(row)]
-    selected = publication.selected(article)
     representative = min(chosen, key=lambda row: representative_key(row, fact), default=None)
     story = _public_story(session, fact.story_id)
     if story and (title := _current_story_title(session, story.id)):
@@ -203,7 +204,6 @@ def reader_projection(session, article, body_language="zh"):
         result["sameEvent"] = {"id": representative.id, "title": _title(representative)}
     elif selected:
         result["reason"] = _editorial(article).get("reason")
-    result["selected"] = selected
     result["indexable"] = selected
     return result
 

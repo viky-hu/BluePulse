@@ -200,7 +200,7 @@ def database_snapshot(path, now):
                                                 ((now - timedelta(seconds=seconds)).replace(tzinfo=None).isoformat(' '),)))
             # Eligibility is delegated to the exact publication policy, in memory, with no ORM writes.
             from .models import Material, Source
-            from .publication import selected
+            from .publication import translation_needed
             eligible = 0
             for row in db.execute('SELECT * FROM materials'):
                 item = Material()
@@ -213,8 +213,7 @@ def database_snapshot(path, now):
                 if source_row is None:
                     continue
                 item.source = Source(**dict(source_row))
-                if (selected(item, at=now) and item.source.full_text_allowed and item.source_body and
-                        not item.language.lower().startswith('zh') and item.translation_revision != item.revision):
+                if translation_needed(item, at=now):
                     eligible += 1
             return {'status': 'ok', 'sources': sources,
                     'materials': {'total': count('SELECT count(*) FROM materials'),

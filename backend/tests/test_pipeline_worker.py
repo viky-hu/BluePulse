@@ -42,6 +42,7 @@ def test_exhausted_bounded_batch_leaves_article_available_to_normal_worker(tmp_p
 
 
 def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_path):
+    from bluepulse_backend.admin_operations import admin_rerun
     from bluepulse_backend.api import create_app
     from bluepulse_backend.fact_grouping import create_confirmed_featured
     from bluepulse_backend.worker import Worker
@@ -123,3 +124,22 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
         assert client.get("/api/v1/home/featured").json()["items"] == []
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(PaidAttempt)) == 6
+        article = session.get(Material, article_id)
+        article.withdrawn = False
+        next_revision = article.revision + 1
+        article.revision = article.editorial_revision = next_revision
+        article.source_body += " New evidence for the revised article."
+        # The saved status can outlive the translation revision in older rows.
+        session.commit()
+    worker.tick()
+    assert worker.run_one(kinds={"translate"})
+    with Session(engine) as session:
+        article = session.get(Material, article_id)
+        assert article.translation_revision == next_revision
+        assert session.scalar(select(func.count()).select_from(PaidAttempt)) == 7
+        admin_rerun(session, article, "translate", explicit=True)
+        session.commit()
+    worker.clock = lambda: datetime.now(UTC)
+    assert worker.run_one(kinds={"translate"})
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(PaidAttempt)) == 8

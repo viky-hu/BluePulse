@@ -11,6 +11,9 @@ from .models import uid
 
 
 LEASE = timedelta(minutes=10)
+TRANSLATION_ELIGIBILITY_SKIPS = (
+    "translation_not_eligible", "source_role", "source_role_changed", "superseded",
+)
 
 
 def utc(value: datetime) -> datetime:
@@ -41,6 +44,25 @@ def enqueue(session: Session, kind: str, identity: str, payload: dict, due: date
         session.add(job)
         session.flush()
     return job
+
+
+def enqueue_translation(session: Session, material, now: datetime, run_key: str | None = None) -> None:
+    identity = f"{material.id}:{material.revision}"
+    if run_key:
+        identity = f"{identity}:{run_key}"
+    else:
+        active = session.scalar(select(WorkItem.id).where(
+            WorkItem.kind == "translate", WorkItem.status.in_(("pending", "running")),
+            WorkItem.payload["material_id"].as_string() == material.id,
+            WorkItem.payload["revision"].as_integer() == material.revision,
+        ).limit(1))
+        if active:
+            return
+    job = enqueue(session, "translate", identity, {"material_id": material.id,
+                  "revision": material.revision, "run_key": run_key}, now)
+    # Only callers that have rechecked the current revision and eligibility may revive these.
+    if job.status == "done" and (job.result or {}).get("skipped") in TRANSLATION_ELIGIBILITY_SKIPS:
+        job.status, job.due_at, job.result = "pending", now, None
 
 
 def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | None = None) -> Claim | None:

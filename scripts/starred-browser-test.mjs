@@ -60,7 +60,7 @@ try{
     await importFile(page,file(count));assert.equal(await cards(page).count(),count);
     await page.getByText('这条内容已不再公开，收藏会保留直到你手动移除。',{exact:true}).waitFor();
     assert.equal(await page.locator(`[data-card-key="${id(3)}"] a`).count(),0);
-    assert.equal(await page.locator(`[data-card-key="${id(4)}"]`).getByText('应来源方要求，这条内容现在只提供摘要。',{exact:true}).count(),1);
+    assert.equal(await page.locator(`[data-card-key="${id(4)}"]`).getByText('本站目前仅展示这条内容的摘要。',{exact:true}).count(),1);
     await page.getByText('当前公开来源',{exact:true}).first().waitFor();
     assert.equal(await paper(page).evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);
     assert.equal(await page.locator(`[data-card-key="${id(1)}"] h2`).evaluate(el=>getComputedStyle(el).fontSize),'16px');
@@ -99,7 +99,10 @@ try{
   }
   const flow=await browser.newContext({reducedMotion:'reduce'});const reading=await flow.newPage();reading.on('pageerror',e=>errors.push(e.message));
   await reading.goto(`${origin}/articles/${id(300)}`);await ready(reading,`/articles/${id(300)}`);
-  const action=reading.locator(`[data-star-id="${id(300)}"]`);assert.equal(await action.getAttribute('aria-pressed'),'false');await action.click();assert.equal(await action.getAttribute('aria-pressed'),'true');
+  const action=reading.getByRole('button',{name:'收藏',exact:true});
+  assert.equal(await action.getAttribute('aria-pressed'),'false');
+  await action.click();
+  assert.equal(await reading.getByRole('button',{name:/^(取消收藏|已收藏)$/}).getAttribute('aria-pressed'),'true');
   await menu(reading,'/starred');assert.equal(await cards(reading).count(),1);assert.equal(await cards(reading).first().getAttribute('data-card-key'),id(300));
   await reading.reload();await ready(reading);assert.equal(await cards(reading).count(),1);
   await reading.goto(`${origin}/history`);await ready(reading,'/history');await reading.getByRole('button',{name:'清空历史',exact:true}).click();

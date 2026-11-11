@@ -20,6 +20,6 @@ export function StarredCard({ item, current, href, remove }: { item: LocalStarre
     <h2>{unavailable ? item.title : <Link href={href}>{item.title}</Link>}</h2>
     {item.summary && <p className={styles.summary}>{item.summary}</p>}
     {unavailable && <p className={styles.unavailable}>这条内容已不再公开，收藏会保留直到你手动移除。</p>}
-    {current?.status === 'summary-only' && <p className={styles.permission}>应来源方要求，这条内容现在只提供摘要。</p>}
+    {current?.status === 'summary-only' && <p className={styles.permission}>本站目前仅展示这条内容的摘要。</p>}
   </li>;
 }

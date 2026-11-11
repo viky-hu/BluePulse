@@ -44,6 +44,12 @@ const api = createServer(async (req, res) => {
     if (body && mode === 'legacy') { delete body.reader; body.source_body = 'Literal <img src=x onerror="window.__unsafe=1">\n\nLegacy evidence'; body.zh_body = null; body.language = 'en'; }
     if (body && ['nullbody','sentinel-null','sentinel-summary'].includes(mode)) {body.source_body='READER_DENIED_LEGACY_ORIGINAL_SENTINEL';body.zh_body='READER_DENIED_LEGACY_ZH_SENTINEL';body.reader.body=null;if(mode==='sentinel-summary'){body.reader.readingMode='summary-only';body.reader.body={zh:'<p>READER_DENIED_RICH_ZH_SENTINEL</p>',original:'<p>READER_DENIED_RICH_ORIGINAL_SENTINEL</p>',zhKind:'translation',complete:true};}}
     if (body && mode === 'partial') body.reader.body.complete = false;
+    if (body?.reader?.body && mode === 'pending') {
+      body.reader = {...mockReaderArticle(match[1], 'original').reader, hasTranslation: false};
+      body.reader.body.zhKind = null;
+      body.language = 'en';
+      body.translation_status = 'pending';
+    }
     if (body && mode === 'fewheadings') body.reader.body.zh = '<h2>Only one heading</h2><p>Short body</p>';
     if (body && ['x','xvideo'].includes(mode)) { body.reader.channel = 'x'; body.reader.x = { authorName: 'Fixture analyst', handle: 'fixture', avatarUrl: null, media: Array.from({length: 9}, (_, i) => ({ kind: mode === 'xvideo' && i === 0 ? 'video' : 'image', url: `/reader-fixture-${i}.svg`, fullUrl: `/reader-fixture-${i}.svg`, poster: null })), quoted: { text: 'Quoted original evidence', translation: '引用译文证据', authorName: 'Quoted analyst', handle: 'quoted', url: 'https://example.com/quoted' } }; }
   } else if (url.pathname === '/api/v1/taxonomy') body = { items: mockReaderTaxonomy };
@@ -86,13 +92,24 @@ try {
         const trigger=page.getByRole('button',{name:'目录',exact:true});await trigger.click(); const dialog=page.getByRole('dialog');await dialog.waitFor();assert.ok(await dialog.evaluate(el=>el.contains(document.activeElement)));await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'}); assert.equal(await trigger.evaluate(el=>el===document.activeElement),true);
       });
     }
-    await test(page, `${spec.name}: summary-only removes reading extras`, async () => { await goto(page,`/articles/${summaryId}`); assert.ok(await page.getByText('应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。').isVisible()); assert.equal(await page.locator('[data-reading-progress],h2[id^="sec-"],.code-block').count(),0); assert.equal(await page.getByText('推荐理由',{exact:true}).count(),0); });
+    await test(page, `${spec.name}: summary-only removes reading extras`, async () => { await goto(page,`/articles/${summaryId}`); assert.ok(await page.getByText('本站目前仅展示摘要，全文请查看原文。').isVisible()); assert.equal(await page.locator('[data-reading-progress],h2[id^="sec-"],.code-block').count(),0); assert.equal(await page.getByText('推荐理由',{exact:true}).count(),0); });
     await context.close();
   }
   reset(); const context=await browser.newContext({viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']}); await context.addInitScript(()=>{localStorage.setItem('blue-pulse-entry-complete-v1','1');localStorage.setItem('blue-pulse-entry-complete-v1:mock','1');}); const page=await context.newPage(); await goto(page); await shot(page,'three-column');
   await test(page,'wide: both original source rails visible',async()=>{ const rails=page.locator('[data-reading-page] > div > aside'); assert.equal(await rails.count(),2); for(const rail of await rails.all()) assert.ok(await rail.isVisible()); });
   await test(page,'original language uses exact route and active pill',async()=>{ const link=page.locator('a[href$="/original"]').first(); await link.click(); await ready(page); assert.equal(new URL(page.url()).pathname,`/articles/${id}/original`); await page.getByRole('heading',{name:'Public evaluation',exact:true}).waitFor(); assert.equal(await page.locator('[aria-label="正文语言"] a[aria-current="page"]').getAttribute('data-filter'),'original'); assert.equal(await page.locator('nav[aria-label="本文目录"]').count(),0); });
   for(const branch of ['legacy','nullbody','partial','fewheadings','failure']) { mode=branch; await test(page,`${branch}: authoritative rendering branch`,async()=>{ await goto(page); if(branch==='failure'){assert.equal(await page.locator('[data-article-status]').getAttribute('data-article-status'),'error'); reset(); await page.getByRole('button',{name:'重试',exact:true}).click(); await ready(page); assert.equal(await page.locator('[data-article-status]').getAttribute('data-article-status'),'ready');} if(branch==='legacy'){assert.ok(await page.getByRole('article').getByText(/Literal <img src=x/).isVisible());assert.equal(await page.evaluate(()=>window.__unsafe),undefined);} if(branch==='nullbody')assert.equal(await page.locator('h2[id^="sec-"],.code-block').count(),0); if(branch==='partial')assert.ok(await page.getByRole('article').getByText('译文尚不完整，完整内容请切换到原文。').isVisible()); if(branch==='fewheadings')assert.equal(await page.locator('nav[aria-label="本文目录"]').count(),0); }); }
+  mode = 'nullbody';
+  await test(page, 'missing body has its own notice', async () => {
+    await goto(page);
+    assert.ok(await page.getByText('本站暂未取得正文，请查看原文。',{exact:true}).isVisible());
+  });
+  mode = 'pending';
+  await test(page, 'selected article still reads in the original while translation is pending', async () => {
+    await goto(page);
+    assert.ok(await page.getByText('中文译文尚未完成，以下为原文。',{exact:true}).isVisible());
+    assert.ok(await page.getByRole('heading',{name:'Public evaluation',exact:true}).isVisible());
+  });
   mode='404'; await test(page,'direct missing article: noindex and gone UI',async()=>{const response=await page.goto(`${origin}/articles/${id}`); await page.getByText('这里没有内容',{exact:true}).waitFor(); const robots=await page.locator('meta[name="robots"]').evaluateAll(els=>els.map(el=>el.content));assert.ok(robots.some(value=>value.includes('noindex'))); observations.push(`404 response observed: ${response.status()}`);});
   for(const branch of ['sentinel-null','sentinel-summary']){mode=branch;await test(page,`${branch}: SSR HTML and Flight omit denied raw bodies`,async()=>{const response=await fetch(`${origin}/articles/${id}`);const html=await response.text();assert.equal(/READER_DENIED_[A-Z_]+_SENTINEL/.test(html),false);});}
   reset(); await goto(page);

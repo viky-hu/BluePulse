@@ -270,11 +270,7 @@ try {
         if (-not (Get-OwnedProcess api)) {
             if (-not (Get-OwnedProcess worker) -and -not (Get-OwnedProcess web)) {
                 Write-Host 'Preparing the Pulse database and source registry...'
-                if ($env:BLUEPULSE_DATABASE_URL) {
-                    Invoke-Backend bluepulse_backend.cli initialize
-                } else {
-                    Invoke-Backend bluepulse_backend.cli initialize --local-live
-                }
+                Invoke-Backend bluepulse_backend.cli initialize --local-live
             }
             foreach ($name in $effective.Keys) { [Environment]::SetEnvironmentVariable($name, $effective[$name]) }
             try {

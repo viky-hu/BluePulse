@@ -7,7 +7,7 @@ from bluepulse_backend import cli
 from bluepulse_backend.admin_models import AdminAudit, AdminContentOverride
 from bluepulse_backend.db import make_engine
 from bluepulse_backend.editorial_models import PaidAttempt, WorkItem
-from bluepulse_backend.models import Material, Source
+from bluepulse_backend.models import Material, Source, now_utc
 
 
 def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatch):
@@ -42,7 +42,7 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
     with Session(engine) as session:
         source = session.get(Source, source_id)
         assert source.excerpt_allowed and source.tier == "T1" and source.selection_threshold == 60
-        assert not source.full_text_allowed and not source.media_allowed and not source.syndicate_full_text_allowed
+        assert source.full_text_allowed and not source.media_allowed and not source.syndicate_full_text_allowed
         media = session.scalar(select(Source).where(Source.slug == "statescoop-law-enforcement-tech"))
         assert media.excerpt_allowed and media.selection_threshold == 76
         other = session.scalar(select(Source).where(Source.slug == "npcc"))
@@ -62,7 +62,63 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
         source = session.get(Source, source_id)
         assert not source.excerpt_allowed and source.selection_threshold == 85
         assert session.scalar(select(func.count()).select_from(WorkItem)) == 1
-        assert session.scalar(select(func.count()).select_from(AdminAudit).where(AdminAudit.action == "source.bootstrap")) == 1
+        assert session.scalar(select(func.count()).select_from(AdminAudit).where(AdminAudit.action == "source.bootstrap")) == 2
+
+
+def test_existing_local_database_restores_full_text_and_resumes_selected_translation(tmp_path, monkeypatch):
+    monkeypatch.setenv("BLUEPULSE_DATABASE_URL", f"sqlite:///{(tmp_path / 'existing.db').as_posix()}")
+    cli.initialize()
+    engine = make_engine()
+    now = now_utc()
+    with Session(engine) as session:
+        source = session.scalar(select(Source).where(Source.slug == "govuk"))
+        source.excerpt_allowed = True
+        source.selection_threshold = 85
+        closed = session.scalar(select(Source).where(Source.slug == "npcc"))
+        explicitly_kept_closed = session.scalar(select(Source).where(Source.slug == "europol-news"))
+        session.add_all([
+            AdminAudit(actor="system:launcher", action="source.bootstrap", subject="local-live-v1"),
+            AdminAudit(actor="admin:local", action="source.update", subject=f"source:{closed.id}",
+                       changes={"before": {"full_text_allowed": True}, "after": {"full_text_allowed": False}}),
+            AdminAudit(actor="admin:local", action="source.update", subject=f"source:{explicitly_kept_closed.id}",
+                       changes={"before": {"full_text_allowed": False}, "after": {"full_text_allowed": False}}),
+        ])
+        skipped = {"skipped": "translation_not_eligible", "role_restored": "source_role_changed",
+                   "visibility_restored": "superseded"}
+        for kind in (*skipped, "missing", "failed", "unselected", "withdrawn"):
+            url = f"https://www.gov.uk/{kind}"
+            item = Material(source_id=source.id, source_url=url, canonical_url=url, source_title=kind,
+                            source_body="Original evidence. " * 35, zh_summary="公开摘要", content_hash=kind,
+                            language="en", body_status="full_text", state="publication_pool", public=True,
+                            relevant=True, revision=2, editorial_revision=2, timeline_kind="fresh",
+                            grouping_status="complete", featured_candidate=kind != "unselected",
+                            selected_at=now if kind != "unselected" else None, withdrawn=kind == "withdrawn")
+            session.add(item)
+            session.flush()
+            if kind in skipped or kind == "failed":
+                session.add(WorkItem(kind="translate", identity=f"{item.id}:2",
+                                     payload={"material_id": item.id, "revision": 2}, due_at=now,
+                                     status="done" if kind in skipped else "failed",
+                                     result={"skipped": skipped[kind]} if kind in skipped else None,
+                                     error="receipt_unknown" if kind == "failed" else None))
+        session.commit()
+
+    cli.initialize(local_live=True)
+    cli.initialize(local_live=True)
+    with Session(engine) as session:
+        sources = {row.slug: row for row in session.scalars(select(Source))}
+        assert sources["govuk"].selection_threshold == 85
+        assert {slug for slug, source in sources.items() if not source.full_text_allowed} == {"npcc", "europol-news"}
+        items = {item.id: item.source_title for item in session.scalars(select(Material))}
+        jobs = {items[job.payload["material_id"]]: (job.status, job.error)
+                for job in session.scalars(select(WorkItem).where(WorkItem.kind == "translate"))}
+        assert jobs == {"skipped": ("pending", None), "missing": ("pending", None),
+                        "role_restored": ("pending", None), "visibility_restored": ("pending", None),
+                        "failed": ("failed", "receipt_unknown")}
+        audit = session.scalar(select(AdminAudit).where(AdminAudit.subject == "local-live-full-text-v2"))
+        assert audit.changes["govuk"] == {"before": False, "after": True}
+        assert not {"npcc", "europol-news"} & audit.changes.keys()
+        assert session.scalar(select(func.count()).select_from(PaidAttempt)) == 0
 
 
 def test_local_live_database_allows_worker_commit_during_a_reader_snapshot(tmp_path, monkeypatch):

@@ -18,8 +18,8 @@ from .editorial import available_presets
 from .editorial_models import PaidAttempt, PaidReceipt, WorkItem
 from .models import FactGroup, FactReport, Material, MaterialTopic, Source, SourceRun, now_utc
 from .pipeline import PUBLIC_TOPIC_SLUGS
-from .publication import project_visibility, selected
-from .work_queue import enqueue, requeue
+from .publication import project_visibility, translation_needed
+from .work_queue import enqueue, enqueue_translation, requeue
 
 
 CAPABILITIES = {
@@ -159,10 +159,9 @@ def reproject_source(session: Session, source: Source, *, threshold_changed: boo
             continue
         if needs_group or newly_available:
             admin_rerun(session, item, "group", explicit=False)
-        if (source.full_text_allowed and selected(item) and not item.language.lower().startswith("zh") and
-                item.translation_revision != item.revision):
-            enqueue(session, "translate", f"{item.id}:{item.revision}",
-                    {"material_id": item.id, "revision": item.revision}, now_utc())
+        now = now_utc()
+        if translation_needed(item, at=now):
+            enqueue_translation(session, item, now)
     return released
 
 

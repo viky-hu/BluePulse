@@ -41,6 +41,23 @@ def test_reader_hides_translation_for_previous_revision():
     assert reader["hasTranslation"] is False
 
 
+def test_long_translation_is_partial_and_reader_keeps_the_original_tail():
+    from bluepulse_backend.editorial import translate
+    from bluepulse_backend.reading import reading_body
+
+    tail = "Evidence beyond the translation limit."
+    original = "A" * 60_000 + "\n\n" + tail
+
+    def translate_chunk(_capability, _purpose, _prompt, payload, _max_tokens):
+        return {"blocks": ["译文" for _ in payload["blocks"]]}, None
+
+    translation, complete = translate(original, translate_chunk)
+    assert not complete
+    article = sample(source_body=original, zh_body=translation, translation_status="partial")
+    assert reading_body(article, "zh")["body"]["complete"] is False
+    assert tail in reading_body(article, "original")["body"]["original"]
+
+
 def test_reader_returns_no_body_when_current_source_permission_disallows_it():
     from bluepulse_backend.reading import reading_body
 
