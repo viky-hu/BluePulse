@@ -128,7 +128,7 @@ try {
       const september=page.getByRole('navigation',{name:'日报历史'}).locator('details').filter({hasText:'2026 年 9 月'});const before=count('/months/2026-09');
       await september.locator('summary').click();await september.getByText(MOCK_REPORT_INDEX.at(-1).title,{exact:true}).waitFor();assert.equal(count('/months/2026-09'),before+1);
       const side=page.getByRole('navigation',{name:'日报历史'}).locator('..');const size=await side.boundingBox(), frame=await page.locator('[data-p0-content]').boundingBox(), content=await page.locator('[data-daily-status] article').first().boundingBox();
-      assert.ok(size.width>=175&&size.width<=241);assert.ok(Math.abs(size.x-frame.x)<2,'desktop archive must use the existing blank left gutter');assert.equal(await page.locator('[data-phone-bar]').isVisible(),false);
+      assert.ok(size.width>=175&&size.width<=241);assert.ok(Math.abs(size.x-frame.x)<2,'desktop archive must use the existing blank left gutter');assert.equal(await page.locator('[data-mobile-header]').isVisible(),false);
       const rightGutter=frame.x+frame.width-content.x-content.width;assert.ok(rightGutter>=15&&rightGutter<=33,'report must fill the available right paper with only its own gutter');
       await paper(page).evaluate(el=>{el.scrollTop=450;});await page.waitForTimeout(40);assert.ok(Math.abs((await side.boundingBox()).y-(await paper(page).boundingBox()).y)<2,'archive sticks to p0, not the window');
       const beforeHistory=await page.evaluate(()=>history.length);await page.getByRole('navigation',{name:'本期版面',exact:true}).getByRole('link',{name:/低空警务应用/}).click();assert.equal(await page.evaluate(()=>history.length),beforeHistory);assert.equal(await page.evaluate(()=>location.hash),'#s-7');
@@ -136,7 +136,7 @@ try {
       layouts.push({profile:spec.name,paperWidth:frame.width,archiveWidth:size.width,reportWidth:content.width,rightGutter,headlineSize:await page.locator('section[aria-label="头版"] h2').evaluate(el=>getComputedStyle(el).fontSize)});
       check(`${spec.name}: compact left archive fills the paper, sticks to p0, anchors and month fetch`);
     } else {
-      await paper(page).evaluate(el=>{el.scrollTop=450;});const bar=page.locator('[data-phone-bar]');assert.ok(Math.abs((await bar.boundingBox()).y-(await paper(page).boundingBox()).y)<2);
+      await paper(page).evaluate(el=>{el.scrollTop=450;});const bar=page.locator('[data-mobile-header]');assert.ok(Math.abs((await bar.boundingBox()).y)<2);assert.ok((await bar.boundingBox()).height<=(await paper(page).boundingBox()).y);
       const before=await page.evaluate(()=>history.length);await page.getByRole('button',{name:'本期目录',exact:true}).click();const sheet=page.getByRole('dialog',{name:'本期目录'});await sheet.waitFor();
       assert.equal(await sheet.evaluate(el=>el.closest('[class*="sheetOverlay"]').parentElement===document.body),true);
       await sheet.getByRole('link',{name:/低空警务应用/}).click();await sheet.waitFor({state:'hidden'});await page.waitForTimeout(spec.reducedMotion?40:700);

@@ -6,7 +6,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RouteReady, useMainShell } from "../_components/home/MainShell";
-import { browserKeys } from "../_lib/browser-state";
 import { ABOUT } from "./_config";
 import { SiteStatsError, type SiteStats } from "./_data";
 import { getCachedAboutStats, loadAboutStats } from "./_cache";
@@ -121,8 +120,7 @@ export function AboutPulse() {
     setOpeningIntro(true);
     setIntroError(false);
     try {
-      localStorage.removeItem(browserKeys(mock).entry);
-      window.location.assign(href("/"));
+      window.location.assign(href("/?intro=1"));
     } catch {
       introRequested.current = false;
       setOpeningIntro(false);

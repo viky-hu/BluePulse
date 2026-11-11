@@ -7,6 +7,7 @@ import { buildHomeHref, type HomeFilters } from "../home/home-routes";
 import { ALL_FILTERS, activeAllFilter, selectAllFilter } from "../../all/_data";
 import { FeedIcon } from "./FeedIcons";
 import { PillTabs } from "./PillTabs";
+import { FeedPhoneBar } from "./FeedPhoneBar";
 import styles from "./feed.module.css";
 
 function SearchField({ filters, base }: { filters: HomeFilters; base: "/" | "/all" }) {
@@ -32,6 +33,7 @@ function SearchField({ filters, base }: { filters: HomeFilters; base: "/" | "/al
 export function FeedToolbar({ filters, base }: { filters: HomeFilters; base: "/" | "/all" }) {
   const shell = useMainShell();
   return <>
+    <FeedPhoneBar filters={filters} base={base} />
     <div className={styles.toolbar}>
       <PillTabs label="筛选" active={activeAllFilter(filters)} items={ALL_FILTERS.map(item => ({ ...item, to: buildHomeHref(base, selectAllFilter(filters, item.key), { mock: shell.mock }), prefetch: "intent" }))} />
       <SearchField key={`${base}:${filters.q}`} filters={filters} base={base} />

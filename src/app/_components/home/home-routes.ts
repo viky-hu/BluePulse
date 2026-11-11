@@ -22,12 +22,13 @@ export type HomeRoute = {
 };
 export const ARTICLE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function entryMode(pathname: string, completed: boolean): "intro" | "stable" {
-  return pathname === "/" && !completed ? "intro" : "stable";
+export function entryMode(pathname: string, completed: boolean, { mobile = false, replay = false }: { mobile?: boolean; replay?: boolean } = {}): "intro" | "stable" {
+  return pathname === "/" && (replay || (!mobile && !completed)) ? "intro" : "stable";
 }
 
 export function canonicalHref(href: string): string {
   const url = new URL(href, "https://pulse.local");
+  url.searchParams.delete("intro");
   url.searchParams.sort();
   return `${url.pathname}${url.search}`;
 }
@@ -40,6 +41,7 @@ export function parseHomeRoute(pathname: string, search: string | { toString(): 
     : pathname === "/search" ? "search"
     : pathname === "/all" ? "all"
     : isSectionPath(pathname) || dailyRoute(pathname) ? "section"
+    : pathname === "/more" ? "section"
     : pathname === "/history" ? "history"
     : pathname === "/starred" ? "starred"
     : pathname === "/articles" ? "library"

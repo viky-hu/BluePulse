@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { HotResponse } from "./_types";
 import { monthDayTime } from "./_data";
 import { InfoIcon } from "./HotMethod";
+import { PhoneBar } from "../_components/home/mobile/MobileChrome";
 import styles from "./hot.module.css";
 function showMethod() {
   const method = document.getElementById("hot-method") as HTMLDetailsElement | null;
@@ -31,6 +32,7 @@ export function HotHeader({ hot }: { hot: HotResponse | null }) {
   const title = "热点榜";
   const description = `过去 ${hot?.windowHours ?? 48} 小时，智慧警务科技领域讨论最多的 ${hot?.entries.length || 10} 件事`;
   return <>
+    <PhoneBar title={title} actions={<button type="button" className={styles.mobileMethod} onClick={showMethod}><InfoIcon size={17} />怎么算</button>} />
     <header ref={bar} className={styles.phoneBar} data-scrolled={scrolled}>
       <div className={styles.phoneBarGrid}><div /><div className={styles.phoneTitle} data-shown={under} aria-hidden={!under}>{title}</div><div className={styles.phoneActions}><button type="button" onClick={showMethod}><InfoIcon size={17} />怎么算</button></div></div>
     </header>

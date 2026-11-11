@@ -30,24 +30,31 @@
 :global(html[data-pulse-entry="intro"]) .frame,
 :global(html[data-pulse-entry="intro"]) .menu { visibility: hidden; }
 .shell[data-entry="revealing"] .menu, .shell[data-entry="revealing"] .stage { visibility: hidden; }
-.mobileToggle { display: none; pointer-events: auto; }
 .notice { position: fixed; bottom: 1.4dvh; left: 3.4vw; right: 6.5vw; z-index: 12; margin: 0; color: #3b5847; font-size: 11px; pointer-events: none; }
-.scrim { display: none; pointer-events: auto; }
 @media (max-width: 768px) {
   .shell {
-    --green-left: max(10px, env(safe-area-inset-left));
-    --green-right: max(10px, env(safe-area-inset-right));
-    --green-top: max(0px, calc(max(44px, min(18dvh, 28vmin)) - 5dvh));
-    --paper-left: calc(var(--green-left) + 8px);
-    --paper-right: calc(var(--green-right) + 8px);
-    --paper-top: max(0px, calc(max(44px, min(18dvh, 28vmin)) - 6.8dvh));
-    --paper-bottom: 5.5dvh;
+    --green-left: 0px;
+    --green-right: 0px;
+    --green-top: 0px;
+    --paper-left: calc(6px + env(safe-area-inset-left));
+    --paper-right: calc(6px + env(safe-area-inset-right));
+    --paper-top: calc(56px + env(safe-area-inset-top));
+    --paper-bottom: calc(58px + env(safe-area-inset-bottom));
+    background: #a4d7c7;
   }
-  .scroller { --p0-padding-top: 49px; --p0-padding-inline: 12px; padding: var(--p0-padding-top) var(--p0-padding-inline) 26px; }
-  .mobileToggle { position: absolute; z-index: 5; left: 3vw; top: 3dvh; display: flex; gap: 6px; padding: 9px; color: #386451; background: #fdfdfd; border: 0; cursor: pointer; }
-  .menu { visibility: hidden; }
-  .menu[data-open="true"] { visibility: visible; }
-  .scrim[data-open="true"] { position: fixed; inset: 0; display: block; z-index: 3; border: 0; background: rgb(26 37 29 / 27%); }
+  .shell[data-reader="true"] { --paper-top: calc(8px + env(safe-area-inset-top)); --paper-bottom: 8px; }
+  .shell[data-reader="true"] :global([data-mobile-header]) { display: none; }
+  .shell[data-entry="intro"] :global([data-mobile-header]),
+  .shell[data-entry="intro"] :global([data-mobile-tabs]),
+  .shell[data-entry="revealing"] :global([data-mobile-header]),
+  .shell[data-entry="revealing"] :global([data-mobile-tabs]),
+  :global(html[data-pulse-entry="intro"]) .shell :global([data-mobile-header]),
+  :global(html[data-pulse-entry="intro"]) .shell :global([data-mobile-tabs]) { visibility: hidden; pointer-events: none; }
+  .scroller { --p0-padding-top: 24px; --p0-padding-inline: 14px; padding: var(--p0-padding-top) var(--p0-padding-inline) 26px; }
+  .paper { filter: drop-shadow(0 4px 10px rgb(29 71 58 / 12%)); }
+  .paperStaple { width: 28px; height: 28px; }
+  .menu { display: none; }
+  .notice { bottom: calc(60px + env(safe-area-inset-bottom)); left: 20px; right: 20px; padding: 6px 10px; background: #fdfdfd; }
 }
-@container pulse-content (max-width: 520px) { .scroller { --p0-padding-inline: 15px; padding-inline: var(--p0-padding-inline); } }
+@container pulse-content (max-width: 520px) { .scroller { --p0-padding-inline: 14px; padding-inline: var(--p0-padding-inline); } }
 @media (prefers-reduced-motion: reduce) { .shell * { scroll-behavior: auto !important; } }

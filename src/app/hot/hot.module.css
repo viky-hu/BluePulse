@@ -60,6 +60,8 @@
 }
 /* Pulse's narrow paper needs wrapping, while retaining every original control and font size. */
 @container hot (max-width: 360px) { .voicesPhrase { white-space: normal; }.methodToggle { flex-wrap: wrap; justify-content: end; max-width: 64px; }.row { column-gap: 8px; } }
+.mobileMethod { display:inline-flex; align-items:center; justify-content:center; gap:4px; min-height:44px; min-width:44px; padding:0 6px; border:0; border-radius:8px; background:transparent; color:#176b75; font:inherit; font-size:13px; white-space:nowrap; cursor:pointer; }
+@media (max-width:768px) { .phoneBar { display:none; }.phoneHeading h1 { display:none; }.phoneHeading { padding-top:0; } }
 @media (prefers-reduced-motion: reduce) {
   .live i { animation: none; }.card, .cover img, .phoneTitle, .methodToggle svg, .method::details-content { transition: none; }.lead:hover, .runner:hover, .lead:hover .cover img { transform: none; }
 }

@@ -14,6 +14,7 @@ import { NavigationProgress } from "./NavigationProgress";
 import { RouteRefresh } from "./RouteRefresh";
 import { finishEnter, finishExit, navigationIntent, requestNavigation, type NavigationState } from "./view-transition";
 import { MainScene, type MainSceneRefs } from "./MainScene";
+import { MobileHeader, MobileTabBar } from "./mobile/MobileChrome";
 import styles from "./main-shell.module.css";
 
 gsap.registerPlugin(useGSAP);
@@ -22,8 +23,9 @@ type ShellContext = {
   activation: { key: string; restore: boolean };
   mock: boolean; routeKey: string; pathname: string; restore: boolean; entry: Entry;
   introHost: HTMLDivElement | null; introFinished: () => void;
+  phoneBarHost: HTMLElement | null;
   sceneTargets: MainSceneRefs;
-  ready: (key: string, value: boolean) => void; navigate: (href: string, options?: { preserveScroll?: boolean; replace?: boolean }) => void;
+  ready: (key: string, value: boolean) => void; navigate: (href: string, options?: { preserveScroll?: boolean; replace?: boolean; origin?: "main-menu" | "content" }) => void;
   holdRestore: (key: string) => () => void;
   href: (href: string) => string; refreshRevision: number; active: boolean;
 };
@@ -48,12 +50,12 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
   const key = canonicalHref(`${pathname}?${search}`);
   const { state: browser, store } = useBrowserState(mock);
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), scroller = useRef<HTMLElement>(null), menu = useRef<HTMLElement>(null);
-  const menuToggle = useRef<HTMLButtonElement>(null);
   const greenTarget = useRef<SVGSVGElement>(null), paperTarget = useRef<SVGSVGElement>(null);
   const sceneTargets = useMemo(() => ({ green: greenTarget, paper: paperTarget }), []);
   const motion = useRef<gsap.core.Animation | null>(null), motionKey = useRef("");
   const [entry, setEntry] = useState<Entry>("pending");
   const [introHost, setIntroHost] = useState<HTMLDivElement | null>(null);
+  const [phoneBarHost, setPhoneBarHost] = useState<HTMLElement | null>(null);
   const [navigation, setNavigation] = useState<NavigationState<string>>({ phase: "idle", currentKey: key, pending: null });
   const navigationRef = useRef(navigation);
   const keyRef = useRef(key);
@@ -77,8 +79,6 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
   const [pendingRoute, setPendingRoute] = useState<string | null>(null);
   // An owned push carries its intent before URL commit. Any other key change is history traversal.
   const restore = pendingRoute === null && (activation.key !== key || activation.restore);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const closeMenu = useCallback(() => { setMenuOpen(false); menuToggle.current?.focus({ preventScroll: true }); }, []);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [refreshRequest, setRefreshRequest] = useState<{ id: number; key: string } | null>(null);
   const refreshTicket = useRef(0);
@@ -113,12 +113,13 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
   useLayoutEffect(() => {
     if (!initial.current) return;
     initial.current = false; store.hydrate();
-    const mode = entryMode(pathname, store.getSnapshot().entered);
+    const prepaint = document.documentElement.dataset.pulseEntry;
+    const mode = prepaint === "intro" || prepaint === "stable" ? prepaint : entryMode(pathname, store.getSnapshot().entered, { mobile: window.matchMedia("(max-width: 768px)").matches, replay: search.get("intro") === "1" });
     document.documentElement.dataset.pulseEntry = mode;
     setEntry(mode === "intro" ? "intro" : "stable");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial history activation before paint
     if (performance.getEntriesByType("navigation").some(item => (item as PerformanceNavigationTiming).type === "back_forward")) setActivation({ key, restore: true });
-  }, [key, pathname, store]);
+  }, [key, pathname, search, store]);
 
   const navigate = useCallback((target: string, options: { preserveScroll?: boolean; replace?: boolean; origin?: "main-menu" | "content" } = {}) => {
     const destination = href(target), targetKey = canonicalHref(destination);
@@ -129,7 +130,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
       setRefreshRequest({ id: ++refreshTicket.current, key: targetKey }); return;
     }
     setRefreshRequest(null);
-    savePosition(); setMenuOpen(false); restored.current = null;
+    savePosition(); restored.current = null;
     // AIHOT feed filters/search/paging are ordinary URL navigation, without a page scene transition.
     const currentPath = new URL(keyRef.current, "https://pulse.local").pathname;
     const feedQuery = ["/", "/all"].includes(currentPath) && new URL(destination, "https://pulse.local").pathname === currentPath;
@@ -168,7 +169,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
       setRefreshRequest(null);
       navigationRef.current = { phase: "idle", currentKey: target, pending: null };
       setNavigation(navigationRef.current); setPendingRoute(null);
-      setActivation(previous => previous.key === target && previous.restore ? previous : { key: target, restore: true }); setMenuOpen(false);
+      setActivation(previous => previous.key === target && previous.restore ? previous : { key: target, restore: true });
       contextSafe(() => { if (stage.current) gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
     };
     // Restoration is already classified by URL activation; this listener only cancels ongoing motion.
@@ -253,6 +254,12 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (entry === "stable") store.markEntered();
     if (entry !== "revealing" || revealing.current) return;
     revealing.current = true;
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      contextSafe(() => { gsap.set(stage.current, { autoAlpha: 1, y: 0 }); })();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- acknowledge the completed external SVG scene without a second phone entrance animation
+      store.markEntered(); setEntry("stable"); motionKey.current = "";
+      return;
+    }
     contextSafe(() => {
       motion.current = gsap.timeline({ onComplete: () => {
         store.markEntered(); setEntry("stable"); motionKey.current = "";
@@ -263,11 +270,18 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     })();
   }, [entry, key, readyKeys, store, contextSafe]);
 
+  useEffect(() => {
+    if (entry !== "stable" || !search.has("intro")) return;
+    const clean = new URLSearchParams(search);
+    clean.delete("intro");
+    router.replace(`${pathname}${clean.size ? `?${clean}` : ""}${location.hash}`, { scroll: false });
+  }, [entry, search, pathname, router]);
+
   useEffect(() => () => { motion.current?.kill(); }, []);
   const introFinished = useCallback(() => { document.documentElement.dataset.pulseEntry = "stable"; setEntry("revealing"); }, []);
   const active = entry === "stable" && navigation.phase === "idle" && pendingRoute === null;
   useEffect(() => { if (active && readyKeys[key]) rememberPage(key, mock); }, [active, readyKeys, key, mock]);
-  const context = useMemo<ShellContext>(() => ({ activation, mock, routeKey: key, pathname, restore, entry, introHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active }), [activation, mock, key, pathname, restore, entry, introHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active]);
+  const context = useMemo<ShellContext>(() => ({ activation, mock, routeKey: key, pathname, restore, entry, introHost, phoneBarHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active }), [activation, mock, key, pathname, restore, entry, introHost, phoneBarHost, introFinished, sceneTargets, ready, holdRestore, navigate, href, refreshRevision, active]);
   const targetKey = pendingRoute ?? key;
   const refreshing = refreshRequest?.key === key;
   const loading = (entry === "stable" || entry === "revealing") && (refreshing || !readyKeys[targetKey] || (restoreTasks[targetKey] ?? 0) > 0);
@@ -275,6 +289,7 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
     if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+    if (anchor.closest("[data-mobile-tabs]")) return;
     const url = new URL(anchor.href);
     const sameView = canonicalHref(`${url.pathname}${url.search}`) === keyRef.current;
     if (sameView && url.pathname === "/agent" && (anchor.getAttribute("role") === "tab" || anchor.getAttribute("aria-current") === "true")) { event.preventDefault(); return; }
@@ -287,15 +302,15 @@ export function MainShell({ children, changelogVersion }: { children: ReactNode;
     });
   };
   return <Context.Provider value={context}>
-    <div ref={root} className={styles.shell} data-entry={entry} onClickCapture={capture}>
+    <div ref={root} className={styles.shell} data-entry={entry} data-reader={pathname.startsWith("/articles/") || undefined} onClickCapture={capture}>
       <NavigationProgress active={loading} />
       {refreshing && <RouteRefresh key={refreshRequest.id} id={refreshRequest.id} onComplete={completeRefresh} />}
       <MainScene greenRef={greenTarget} paperRef={paperTarget} />
+      <MobileHeader ref={setPhoneBarHost} pathname={pathname} hrefFor={href} />
       <div className={styles.menuLayer}>
-        <button ref={menuToggle} className={styles.mobileToggle} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} aria-label={menuOpen ? "关闭菜单" : "打开菜单"} aria-expanded={menuOpen} aria-controls="pulse-main-menu">☰ 菜单</button>
-        <button className={styles.scrim} data-open={menuOpen} onClick={closeMenu} aria-label="关闭菜单" tabIndex={menuOpen ? 0 : -1} />
-        <PulseSidebar ref={menu} className={styles.menu} pathname={pathname} hrefFor={href} onPrefetch={prefetch} open={menuOpen} inactive={entry === "intro" || entry === "revealing"} onClose={closeMenu} changelogVersion={changelogVersion} mock={mock} />
+        <PulseSidebar ref={menu} className={styles.menu} pathname={pathname} hrefFor={href} onPrefetch={prefetch} inactive={entry === "intro" || entry === "revealing"} changelogVersion={changelogVersion} mock={mock} />
       </div>
+      <MobileTabBar changelogVersion={changelogVersion} />
       <div className={styles.frame} data-p0-content>
         <main ref={scroller} className={styles.scroller} data-p0-scroller aria-busy={loading} onScroll={savePosition}>
           <div ref={stage} className={styles.stage} data-phase={navigation.phase} data-home-view={pathname} inert={entry === "intro" || entry === "revealing" || navigation.phase !== "idle"}>{children}</div>
