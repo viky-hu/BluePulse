@@ -110,9 +110,11 @@ class LiveAnalyzer:
                                                 350], separators=(",", ":")).encode()).hexdigest()[:8]
         self.selection_input_version = f"axis-{SCORE_PROMPT_VERSION}-{config_id}"
 
-        if self.autodl_profile:
-            # Bind the actual wire parameters without changing existing provider identities.
-            config = ["autodl-deepseek-v1", self.base_url, self.max_input_chars,
+        profile = "autodl-deepseek-v1" if self.autodl_profile else (
+            "scnet-deepseek-v4-v1" if self.scnet_deepseek_v4 else None)
+        if profile:
+            # Bind the actual wire parameters without changing other provider identities.
+            config = [profile, self.base_url, self.max_input_chars,
                       self._options(self.max_output_tokens), self._options(self.max_score_tokens)]
             digest = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:12]
             self.input_version = f"{PROMPT_VERSION}-{INPUT_FORMAT_VERSION}-{digest}"
@@ -123,12 +125,19 @@ class LiveAnalyzer:
         return (urlsplit(self.base_url).hostname in {"www.autodl.art", "autodl.art"}
                 and self.model == AUTODL_MODEL)
 
+    @property
+    def scnet_deepseek_v4(self) -> bool:
+        return (urlsplit(self.base_url).hostname == "api.scnet.cn"
+                and self.model.lower().startswith(("deepseek-v4.", "deepseek-v4-")))
+
     def _options(self, max_tokens: int) -> dict:
         options = {"model": self.model, "temperature": 0, "max_tokens": max_tokens}
         if self.autodl_profile or urlsplit(self.base_url).hostname == "api.deepseek.com":
             options.update(thinking={"type": "disabled"}, response_format={"type": "json_object"})
         if self.autodl_profile:
             options["stream"] = False
+        if self.scnet_deepseek_v4:
+            options["enable_thinking"] = False
         return options
 
     def _redact(self, value):

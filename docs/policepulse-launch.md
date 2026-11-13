@@ -60,3 +60,4 @@ BLUEPULSE_MODEL_BUDGET_DAY=240
 - 应用提交 `3b68aae` 的独立副本通过 257 项后端回归、ESLint 和 webpack 生产构建。Windows 一键启动另完成 Turbopack 生产构建，Web、API、worker 均就绪。
 - 在快照副本上通过桌面、手机、减少动态效果三组真实稿件的列表、检索、详情、刷新和原文链接检查。管理员登录、缺少 CSRF 被拒绝、成功撤回后列表及详情不可见均通过。快照校验为 `ok`。
 - Caddyfile 通过 Caddy 配置校验。systemd 单元在 Ubuntu WSL 中用本地可执行文件路径检查，备份定时解析为北京时间 03:00。目标 Ubuntu 24.04 主机的实际启停、域名、证书和公网端到端检查待服务器就绪后执行。
+- 完整启动后，15 个信源的本轮状态均正常，采入 2 篇新稿。SCNet 的 DeepSeek V4 默认思考耗尽部分步骤的输出额度。请求改为该供应商 OpenAI 接口的 `enable_thinking: false` 后，只重新排队本轮两篇失败稿件，两篇均完成研判、归组并公开。本机公开统计从 228 增到 230，后端回归增至 260 项通过。 [SCNet OpenAI 接口文档](https://www2.scnet.cn/ac/openapi/doc/2.0/moduleapi/api/chat.html)

@@ -72,6 +72,25 @@ def test_autodl_options_do_not_leak_to_other_providers_or_models(base, model):
     assert "thinking" not in sent[0] and "response_format" not in sent[0]
 
 
+@pytest.mark.parametrize("host,model,disabled", [
+    ("api.scnet.cn", "DeepSeek-V4.1-Flash-1017-Event", True),
+    ("api.scnet.cn", "DeepSeek-R1-Distill", False),
+    ("api.scnet.cn.example.test", "DeepSeek-V4.1-Flash-1017-Event", False),
+])
+def test_scnet_deepseek_v4_uses_openai_thinking_switch(host, model, disabled):
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload.get("enable_thinking") is (False if disabled else None)
+        assert "thinking" not in payload
+        assert payload["max_tokens"] == 400
+        return httpx.Response(200, json=envelope('{"label":"PASS"}'))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        analyzer = LiveAnalyzer(client, f"https://{host}/api/llm/v1", "fixture-secret", model)
+        data, _, _ = analyzer._chat("prefilter", "source", 400)
+    assert data == {"label": "PASS"}
+
+
 @pytest.mark.parametrize("method", ["analyze", "score"])
 @pytest.mark.parametrize("response,code", [
     (envelope("", choices=[{"finish_reason": "length", "message": {
