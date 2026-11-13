@@ -21,10 +21,10 @@ export function DayHeader({ day, count = null, collapsed = false, onToggle }: { 
   </div>;
 }
 
-export function TimelineSlot({ at, children, dataKey, discovered = false, fresh = false, delay = 0 }: { at: string | null; children: ReactNode; dataKey?: string; discovered?: boolean; fresh?: boolean; delay?: number }) {
+export function TimelineSlot({ at, children, dataKey, fresh = false, delay = 0 }: { at: string | null; children: ReactNode; dataKey?: string; fresh?: boolean; delay?: number }) {
   const moment = articleMoment({ id: "", published_at: at });
   return <li className={`${styles.slot}${fresh ? ` ${styles.fresh}` : ""}`} data-card-key={dataKey} style={fresh ? { animationDelay: `${delay}ms` } : undefined}>
-    <time className={styles.timeRail} dateTime={at ?? undefined} title={discovered ? `原文日期待核，发现于 ${at}` : undefined}>{discovered ? "待核" : moment.time ?? "待核"}</time>
+    {moment.time ? <time className={styles.timeRail} dateTime={at ?? undefined}>{moment.time}</time> : <span className={styles.timeRail} aria-hidden="true" />}
     <span className={styles.rail} aria-hidden="true"><i /></span>{children}
   </li>;
 }

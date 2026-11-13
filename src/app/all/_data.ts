@@ -1,6 +1,7 @@
 // Adapted from AIHOT all.tsx, Filters.tsx and DayList.tsx (MIT).
 // Copyright (c) 2026 数字生命卡兹克. See THIRD_PARTY_NOTICES.md.
 import type { HomeFilters } from "../_components/home/home-routes";
+import { articlePublicationDate, isCalendarDate, type ArticleDates } from "../_lib/article-dates.ts";
 
 export const CONTENT_FILTERS = [
   { key: "product", label: "产品" },
@@ -30,15 +31,14 @@ export function allArticleParams(filters: HomeFilters, cursor: string | null) {
   return params;
 }
 
-type DatedItem = { id: string; published_at?: string | null; first_seen_at?: string | null };
+type DatedItem = ArticleDates & { id: string };
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const timeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-const validDate = (date?: string | null) => !!date && Number.isFinite(Date.parse(date));
 export function beijingDay(at: string | number) { return dayFormat.format(new Date(at)); }
 export function articleMoment(item: DatedItem) {
-  const published = validDate(item.published_at);
-  const at = published ? item.published_at! : validDate(item.first_seen_at) ? item.first_seen_at! : null;
-  return { day: at ? beijingDay(at) : null, time: at ? timeFormat.format(new Date(at)) : null, at, discovered: !published && !!at };
+  const at = articlePublicationDate(item);
+  if (isCalendarDate(at)) return { day: at, time: null, at };
+  return { day: at ? beijingDay(at) : null, time: at ? timeFormat.format(new Date(at)) : null, at };
 }
 export function groupAllItems<T extends DatedItem>(items: T[]) {
   const groups: { key: string; day: string | null; items: T[] }[] = [];

@@ -42,6 +42,7 @@ export interface ArticleCard {
   title: string;
   source_title: string;
   published_at: string | null;
+  published_date?: string | null;
   first_seen_at?: string | null;
   language: string;
   region: ArticleRegion | null;

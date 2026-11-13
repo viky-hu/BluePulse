@@ -25,7 +25,7 @@ test("tab selection clears the opposite dimension and keeps search and legacy fi
   assert.equal(params.get("source"), "abc");
   assert.equal(params.has("cursor"), false);
 });
-test("day grouping uses Beijing midnight, preserves ranked order and marks discovery dates", () => {
+test("day grouping uses Beijing midnight, preserves ranked order and omits unverified dates", () => {
   assert.ok(data);
   const rows = [
     { id: "a", published_at: "2026-10-28T16:01:00Z" },
@@ -34,10 +34,24 @@ test("day grouping uses Beijing midnight, preserves ranked order and marks disco
     { id: "d", published_at: "invalid", first_seen_at: null },
   ];
   const groups = data.groupAllItems(rows);
-  assert.deepEqual(groups.map(g => [g.day, g.items.map(i => i.id)]), [["2026-10-29", ["a"]], ["2026-10-28", ["b"]], ["2026-10-29", ["c"]], [null, ["d"]]]);
-  assert.equal(new Set(groups.map(g => g.key)).size, 4);
-  assert.deepEqual(data.articleMoment(rows[2]), { day: "2026-10-29", time: "00:02", at: "2026-10-28T16:02:00Z", discovered: true });
+  assert.deepEqual(groups.map(g => [g.day, g.items.map(i => i.id)]), [["2026-10-29", ["a"]], ["2026-10-28", ["b"]], [null, ["c", "d"]]]);
+  assert.equal(new Set(groups.map(g => g.key)).size, 3);
+  assert.deepEqual(data.articleMoment(rows[2]), { day: null, time: null, at: null });
   assert.equal(data.articleMoment(rows[3]).at, null);
+});
+test("date-only articles stay on their source day instead of their bulk collection day", () => {
+  const article = { id: "b", published_at: null, published_date: "2026-10-29", first_seen_at: "2026-11-08T04:23:45Z" };
+  const rows = [
+    { id: "a", published_at: "2026-10-29T12:00:00Z" },
+    article,
+    { id: "c", published_at: "2026-10-28T12:00:00Z" },
+  ];
+  assert.deepEqual(data.groupAllItems(rows).map(group => [group.day, group.items.map(item => item.id)]), [
+    ["2026-10-29", ["a", "b"]], ["2026-10-28", ["c"]],
+  ]);
+  assert.deepEqual(data.articleMoment(article), { day: "2026-10-29", time: null, at: "2026-10-29" });
+  assert.equal(data.articleMoment({ ...article, published_at: "2026-10-28T15:59:00Z" }).day, "2026-10-28");
+  assert.equal(data.articleMoment({ ...article, published_date: "2026-02-31" }).day, null);
 });
 test("only registered exact categories can be queried; old broad categories stay compatible", () => {
   assert.ok(data);

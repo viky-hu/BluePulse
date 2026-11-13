@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { ArticleCard } from "../../_lib/home-data";
+import { formatArticleDate, formatArticleTimeline } from "../../articles/_data";
 import { invalidateSessionSnapshot, readSessionSnapshot, saveSessionSnapshot } from "../../_lib/session-restore";
 import { RouteReady, useMainShell } from "./MainShell";
 import { ArticleActions } from "./ArticleActions";
@@ -12,10 +13,6 @@ import { ARTICLE_TOPIC_LABELS } from "./article-topic-labels";
 import styles from "./home.module.css";
 import { rememberArticlePreview } from "../../articles/_reader/preview";
 
-export function displayDate(value?: string | null) {
-  if (!value || !Number.isFinite(Date.parse(value))) return "日期待核";
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
-}
 function validCache(value: HomeFeed | null, key: string): value is HomeFeed {
   if (!value || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now()) return false;
   return !!value && value.key === key && value.status === "ready" && [value.articles, value.featured, value.collected].every(rows => Array.isArray(rows) && rows.every(row => row && typeof row.id === "string" && typeof row.title === "string" && typeof row.source?.name === "string"));
@@ -24,17 +21,22 @@ function validCache(value: HomeFeed | null, key: string): value is HomeFeed {
 export function ArticleRows({ articles, kind = "article" }: { articles: ArticleCard[]; kind?: "article" | "featured" | "collected" }) {
   const shell = useMainShell();
   return <div className={styles.articleList}>
-    {articles.map((article, index) => <div key={article.id} className={styles.articleEntry} data-card-key={article.id}>
+    {articles.map((article, index) => {
+      const published = formatArticleTimeline(article);
+      const collected = kind === "collected" && article.first_seen_at ? `收录于 ${formatArticleDate(article.first_seen_at)}` : null;
+      const date = [collected, published && (collected ? `原文 ${published}` : published)].filter(Boolean).join(" · ");
+      return <div key={article.id} className={styles.articleEntry} data-card-key={article.id}>
       <Link href={shell.href(`/articles/${article.id}`)} className={`${styles.articleRow} ${kind === "featured" ? styles.featuredRow : ""}`} onClick={() => rememberArticlePreview(article, shell.mock)}>
         <span className={styles.articleIndex}>{kind === "featured" ? `TOP ${index + 1}` : String(index + 1).padStart(2, "0")}</span>
         <span className={styles.articleRowBody}>
-          <span className={styles.articleRowMeta}><time>{kind === "collected" ? `收录于 ${displayDate(article.first_seen_at)} · 原文 ${displayDate(article.published_at)}` : displayDate(article.published_at ?? article.first_seen_at)}</time><span className={styles.metaDot} />{article.source.name}</span>
+          <span className={styles.articleRowMeta}>{date && <><time>{date}</time><span className={styles.metaDot} /></>}{article.source.name}</span>
           <strong>{article.title || article.source_title}</strong>
           {kind !== "article" && article.summary ? <span className={styles.articleRowSummary}>{article.summary}</span> : null}
           {kind === "featured" && article.featured_reason ? <span className={styles.articleRowSummary}>关注理由 · {article.featured_reason}</span> : null}
         </span><span className={styles.articleRowArrow} aria-hidden>↗</span>
       </Link><ArticleActions article={article} />
-    </div>)}
+    </div>;
+    })}
   </div>;
 }
 

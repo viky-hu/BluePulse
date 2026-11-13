@@ -10,11 +10,10 @@ import styles from "../_components/feed/feed.module.css";
 
 export function DayList({ articles, taxonomy }: { articles: ArticleCard[]; taxonomy: Topic[] }) {
   const groups = useMemo(() => groupAllItems(articles), [articles]);
-  return <div className={styles.days}>{groups.map(group => <section key={group.key} aria-label={group.day ?? "日期待核"}>
-    <DayHeader day={group.day} />
-    <ol className={styles.slots}>{group.items.map(article => {
-      const moment = articleMoment(article);
-      return <TimelineSlot key={article.id} at={moment.at} dataKey={article.id} discovered={moment.discovered}><FeedItem article={article} taxonomy={taxonomy} showTags /></TimelineSlot>;
-    })}</ol>
+  return <div className={styles.days}>{groups.map(group => <section key={group.key} aria-label={group.day ?? undefined}>
+    {group.day && <DayHeader day={group.day} />}
+    <ol className={styles.slots}>{group.items.map(article => (
+      <TimelineSlot key={article.id} at={articleMoment(article).at} dataKey={article.id}><FeedItem article={article} taxonomy={taxonomy} showTags /></TimelineSlot>
+    ))}</ol>
   </section>)}</div>;
 }

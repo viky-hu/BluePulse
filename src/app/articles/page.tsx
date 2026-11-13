@@ -40,6 +40,7 @@ function ArticleRow({ article, index, topicNames, mock }: {
   index: number;
   topicNames: Map<string, string>;
 }) {
+  const date = formatArticleTimeline(article);
   return (
     <article className={`${styles.articleRow} ${index === 0 ? styles.leadRow : ""}`}>
       <Link className={styles.rowLink} href={`/articles/${article.id}${mock ? "?mock=1" : ""}`} aria-label={`阅读：${article.title}`}>
@@ -49,8 +50,7 @@ function ArticleRow({ article, index, topicNames, mock }: {
             <span>{formatRegion(article.region)}</span>
             <span className={styles.metaDot} aria-hidden="true" />
             <span>{article.source.name}</span>
-            <span className={styles.metaDot} aria-hidden="true" />
-            <time>{formatArticleTimeline(article)}</time>
+            {date && <><span className={styles.metaDot} aria-hidden="true" /><time>{date}</time></>}
           </div>
           <h2>{article.title}</h2>
           {article.source_title !== article.title ? (

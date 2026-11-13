@@ -29,7 +29,7 @@ export const FeedItem = memo(function FeedItem({ article, taxonomy, showTags = f
   return <article className={styles.card} data-read={read} data-item-id={article.id}>
     <header className={styles.cardMeta}>
       <SourceLine article={article} />
-      <time dateTime={moment.at ?? undefined} className={styles.inlineTime} title={moment.discovered ? `原文日期待核，发现于 ${moment.at}` : undefined}>· {moment.discovered ? "待核" : moment.time ?? "待核"}</time>
+      {moment.time && <time dateTime={moment.at ?? undefined} className={styles.inlineTime}>· {moment.time}</time>}
       {article.selected && <span className={styles.selectedMark}>{article.sameEvent ? <SameEventBadge /> : <SelectedBadge />}</span>}
       <span className={styles.cardActions}><span className={styles.desktopScore}><ScoreLabel score={article.importance_score} /></span><span className={styles.mobileScore}><ScoreLabel score={article.importance_score} compact /></span><span className={styles.bookmarkWrap}><StarButton article={article} /></span></span>
     </header>

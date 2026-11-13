@@ -4,6 +4,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RouteReady, useMainShell } from "../../_components/home/MainShell";
 import { useBrowserState } from "../../_lib/use-browser-state";
+import { articlePublicationDate, isCalendarDate } from "../../_lib/article-dates";
 import type { FeedArticle } from "../../_lib/feed-types";
 import { SameEventBadge, SelectedBadge } from "../../_components/feed/Badge";
 import { ScoreLabel } from "../../_components/feed/parts";
@@ -34,7 +35,7 @@ function readingCard(item: ReaderArticle): FeedArticle {
   const article = item.article;
   return {
     id: article.id, title: article.title, source_title: article.source_title, summary: article.summary,
-    published_at: article.published_at, first_seen_at: article.first_seen_at,
+    published_at: article.published_at, published_date: article.published_date, first_seen_at: article.first_seen_at,
     language: article.language, url: article.url, importance_score: article.importance_score,
     parse_status: article.parse_status, body_status: article.body_status, translation_status: article.translation_status,
     region: article.region === "domestic" || article.region === "foreign" ? article.region : null,
@@ -99,8 +100,8 @@ export function ArticleLoading() {
 
 function ItemPreview({ article }: { article: FeedArticle }) {
   const shell = useMainShell(), star = useReaderStar(article), [toast, setToast] = useReaderToast();
-  const isX = article.channel === "x" && !!article.x, at = article.published_at ?? article.first_seen_at;
-  return <div className={styles.reader} data-article-status="preview"><ReaderHeader title={isX ? article.x!.authorName : article.title} selected={article.selected} /><article className={styles.preview} aria-busy="true"><div className={styles.inlineMeta}>{article.source.name} · {!article.published_at && "收录于 "}{fullDateTime(at)}</div>{!isX && <h1 className={styles.title} data-page-title>{article.title}</h1>}{article.summary && <section className={styles.summary}><h2>AI 导读</h2><p>{article.summary}</p></section>}{article.featured_reason && <section className={styles.mobileReason}><h2>推荐理由</h2><p>{article.featured_reason}</p></section>}<div className={styles.previewSkeleton} aria-hidden="true">{[92, 100, 96, 88, 98, 64].map((width, index) => <div key={index} style={{ width: `${width}%` }} />)}</div></article><ReaderToolbar saved={star.on} toggle={star.toggle} onShare={() => { void shareArticle(article.id, article.title, shell.href).then(result => { if (result === "copied") setToast("链接已复制"); }); }} originalLabel={isX ? "原推" : "原文"} wide={false} /><Toast text={toast} /></div>;
+  const isX = article.channel === "x" && !!article.x, published = articlePublicationDate(article);
+  return <div className={styles.reader} data-article-status="preview"><ReaderHeader title={isX ? article.x!.authorName : article.title} selected={article.selected} /><article className={styles.preview} aria-busy="true"><div className={styles.inlineMeta}>{article.source.name}{published && <> · <time dateTime={published}>{fullDateTime(published)}</time></>}</div>{!isX && <h1 className={styles.title} data-page-title>{article.title}</h1>}{article.summary && <section className={styles.summary}><h2>AI 导读</h2><p>{article.summary}</p></section>}{article.featured_reason && <section className={styles.mobileReason}><h2>推荐理由</h2><p>{article.featured_reason}</p></section>}<div className={styles.previewSkeleton} aria-hidden="true">{[92, 100, 96, 88, 98, 64].map((width, index) => <div key={index} style={{ width: `${width}%` }} />)}</div></article><ReaderToolbar saved={star.on} toggle={star.toggle} onShare={() => { void shareArticle(article.id, article.title, shell.href).then(result => { if (result === "copied") setToast("链接已复制"); }); }} originalLabel={isX ? "原推" : "原文"} wide={false} /><Toast text={toast} /></div>;
 }
 
 async function shareArticle(id: string, title: string, href: (value: string) => string): Promise<"shared" | "copied" | null> {
@@ -136,7 +137,8 @@ function ItemView({ item, taxonomy }: { item: ReaderArticle; taxonomy: ArticlePa
     } catch { setToast("复制失败，请在浏览器中打开后导出"); }
   };
   const isX = item.channel === "x" && !!item.x, summaryOnly = item.readingMode === "summary-only", showOutline = item.outline.length >= 3;
-  const sourceUrl = safeSourceUrl(article.url), shownAt = article.published_at ?? article.first_seen_at;
+  const sourceUrl = safeSourceUrl(article.url), published = articlePublicationDate(article);
+  const dateOnly = isCalendarDate(published);
   const score = summaryOnly ? null : article.importance_score;
   const bodyLabel = item.zhKind === "translation" && item.bodyLanguage === "zh" ? "正文 · AI 翻译" : item.bodyLanguage === "original" && item.hasTranslation ? "正文 · 原文" : "正文";
   const weChat = typeof navigator !== "undefined" && /MicroMessenger/i.test(navigator.userAgent);
@@ -146,7 +148,7 @@ function ItemView({ item, taxonomy }: { item: ReaderArticle; taxonomy: ArticlePa
     ...(item.markdownAvailable ? [{ key: "markdown", label: weChat ? "复制 Markdown" : "导出 Markdown", icon: actionIcons.markdown, ...(weChat || shell.mock ? { onSelect: () => void copyMarkdown() } : { href: `/api/bluepulse/articles/${article.id}/markdown`, download: true }) }] : []),
   ];
   const verdict = (item.selected || Number.isFinite(score)) && <div className={styles.verdict}>{item.selected && (item.sameEvent ? <SameEventBadge /> : <SelectedBadge />)}{score !== null && <ScoreLabel score={score} />}</div>;
-  const facts = <RailSection title="来源"><div className={styles.sourceName}>{isX ? item.x!.authorName : article.source.name}</div><div className={styles.sourceAuthor}>{isX ? `@${item.x!.handle} · X` : article.author ?? hostOf(article.url)}</div><div className={styles.timeLabel}>{article.published_at ? "发布时间" : "收录时间"}</div><time dateTime={shownAt ?? undefined} className={styles.sourceTime}>{fullDateTime(shownAt)}</time><div className={styles.relative} suppressHydrationWarning>{relativeTime(shownAt)}</div></RailSection>;
+  const facts = <RailSection title="来源"><div className={styles.sourceName}>{isX ? item.x!.authorName : article.source.name}</div><div className={styles.sourceAuthor}>{isX ? `@${item.x!.handle} · X` : article.author ?? hostOf(article.url)}</div>{published && <><div className={styles.timeLabel}>{dateOnly ? "发布日期" : "发布时间"}</div><time dateTime={published} className={styles.sourceTime}>{fullDateTime(published)}</time>{!dateOnly && <div className={styles.relative} suppressHydrationWarning>{relativeTime(published)}</div>}</>}</RailSection>;
   const outline = showOutline && <RailSection title="本文目录"><nav aria-label="本文目录"><ol className={styles.outline}>{item.outline.map(entry => <li key={entry.id}><a href={`#${entry.id}`} data-nested={entry.level > 2} onClick={event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); scrollToSection(entry.id); } }}>{entry.text}</a></li>)}</ol></nav></RailSection>;
   const topicName = (topic: string) => CONTENT_FILTERS.find(filter => filter.key === topic)?.label ?? taxonomy.find(entry => entry.slug === topic)?.name_zh ?? ARTICLE_TOPIC_LABELS[topic] ?? topic;
   const chips = (limit: number) => <div className={styles.chips}>{article.topics.map(topic => <IntentLink key={topic} href={shell.href(`/all?topic=${encodeURIComponent(topic)}`)}>{topicName(topic)}</IntentLink>)}{item.tags.slice(0, limit).map(tag => <IntentLink key={tag} href={shell.href(`/all?tag=${encodeURIComponent(tag)}`)}>#{tag}</IntentLink>)}</div>;
@@ -159,7 +161,7 @@ function ItemView({ item, taxonomy }: { item: ReaderArticle; taxonomy: ArticlePa
     <ArticleLayout left={<><ReaderBack selected={item.selected} />{facts}{outline}</>} right={<>{actions}{notes}<div className={styles.middleOutline}>{outline}</div></>}>
       <div className={styles.middleBack}><ReaderBack selected={item.selected} /></div>
       <article className={styles.article}>
-        <div className={styles.inlineMeta}><strong>{isX ? item.x!.authorName : article.source.name}</strong>{isX && <span>· @{item.x!.handle} · X</span>}{article.author && !isX && <span>· {article.author}</span>}<span>·</span>{!article.published_at && <span>收录于</span>}<time dateTime={shownAt ?? undefined}>{fullDateTime(shownAt)}</time><span suppressHydrationWarning>· {relativeTime(shownAt)}</span><span className={styles.inlineVerdict}>{verdict}</span></div>
+        <div className={styles.inlineMeta}><strong>{isX ? item.x!.authorName : article.source.name}</strong>{isX && <span>· @{item.x!.handle} · X</span>}{article.author && !isX && <span>· {article.author}</span>}{published && <><span>·</span><time dateTime={published}>{fullDateTime(published)}</time>{!dateOnly && <span suppressHydrationWarning>· {relativeTime(published)}</span>}</>}<span className={styles.inlineVerdict}>{verdict}</span></div>
         {!isX && <h1 className={styles.title} data-page-title>{article.title}</h1>}
         {!isX && article.source_title && article.source_title !== article.title && <p className={styles.originalTitle}>{article.source_title}</p>}
         {article.summary && (!isX || article.summary.replace(/\s+/g, " ").trim() !== article.title) && <section className={styles.summary} data-x={isX}><h2>{summaryOnly ? "摘要" : "AI 导读"}</h2><p>{article.summary}</p></section>}

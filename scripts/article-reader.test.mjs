@@ -3,6 +3,16 @@ import { test } from 'node:test';
 const id = '4ed2a8d4-efb7-4ce6-8a43-4ee36f27d001';
 const raw = () => ({ id, title: 'Article', source: {name:'Source'}, url:'https://example.org/report', importance_score:75, language: 'en', source_body: '<script>literal</script>\n\nNext', zh_body: null, topics: [], media: [] });
 const reader = (body = { zh: '<h2>标题</h2><p>正文</p>', original: null, zhKind: 'translation', complete: false }) => ({ readingMode: 'full', body, bodyLanguage: 'zh', hasTranslation: true, outline: [], relatedStories: [], tags: [], indexable: true, markdownAvailable: true, group: null, story: null, x: null });
+test('article detail preserves a source calendar date and displays it without a clock time', async () => {
+    const { normalizeArticle } = await import('../src/app/articles/_reader/data.ts');
+    const { fullDateTime } = await import('../src/app/articles/_reader/format.ts');
+    const { formatArticleTimeline } = await import('../src/app/articles/_data.ts');
+    const { article } = normalizeArticle({ ...raw(), published_date: '2026-10-29', first_seen_at: '2026-11-08T04:23:45Z' });
+    assert.equal(article.published_date, '2026-10-29');
+    assert.equal(fullDateTime(article.published_date), '2026-10-29');
+    assert.equal(formatArticleTimeline(article), '2026/10/29');
+    assert.equal(formatArticleTimeline({ ...article, published_date: null }), null);
+});
 test('legacy body escapes markup, explicit null/malformed never resurrects it', async () => { const { normalizeArticle } = await import('../src/app/articles/_reader/data.ts'); assert.match(normalizeArticle(raw()).bodyHtml, /&lt;script&gt;/); for (const value of [null, {}, false])
     assert.throws(() => normalizeArticle({ ...raw(), reader: value })); assert.equal(normalizeArticle({ ...raw(), reader: reader(null) }).bodyHtml, null); });
 test('summary restrictions and selected language are authoritative', async () => { const { normalizeArticle } = await import('../src/app/articles/_reader/data.ts'); let item = normalizeArticle({ ...raw(), reader: { ...reader(), readingMode: 'summary-only', reason: 'hidden', selected: true } }); assert.equal(item.bodyHtml, null); assert.equal(item.reason, null); assert.equal(item.selected, false); item = normalizeArticle({ ...raw(), reader: reader() }); assert.equal(item.complete, false); assert.equal(item.hasTranslation, true); assert.match(normalizeArticle({ ...raw(), reader: reader() }, 'original').bodyHtml, /<p>/); });

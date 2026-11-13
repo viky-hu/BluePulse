@@ -1,4 +1,5 @@
 import type { ArticleReader } from './_reader/types';
+import { articlePublicationDate, isCalendarDate, type ArticleDates } from '../_lib/article-dates.ts';
 
 export interface SourceInfo {
   id: string;
@@ -12,6 +13,7 @@ export interface ArticleCard {
   title: string;
   source_title: string;
   published_at: string | null;
+  published_date?: string | null;
   first_seen_at?: string | null;
   language: string;
   region: string | null;
@@ -82,6 +84,7 @@ export async function readApi<T>(path: string): Promise<{ status: number; data: 
 
 export function formatArticleDate(value: string | null | undefined): string {
   if (!value) return "时间待核";
+  if (isCalendarDate(value)) return value.replaceAll("-", "/");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "时间待核";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -89,9 +92,9 @@ export function formatArticleDate(value: string | null | undefined): string {
   }).format(date);
 }
 
-export function formatArticleTimeline(article: Pick<ArticleCard, "published_at" | "first_seen_at">): string {
-  if (article.published_at) return formatArticleDate(article.published_at);
-  return article.first_seen_at ? `发现于 ${formatArticleDate(article.first_seen_at)}` : "时间待核";
+export function formatArticleTimeline(article: ArticleDates): string | null {
+  const published = articlePublicationDate(article);
+  return published ? formatArticleDate(published) : null;
 }
 
 export function formatRegion(value: string | null | undefined): string {

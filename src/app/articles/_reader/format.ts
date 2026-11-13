@@ -1,6 +1,9 @@
 // AIHOT lib/format.ts (MIT), with explicit unknown-time handling for legacy Pulse records.
 // Copyright (c) 2026 数字生命卡兹克. See THIRD_PARTY_NOTICES.md.
+import { isCalendarDate } from "../../_lib/article-dates.ts";
+
 export function fullDateTime(value: string | null | undefined) {
+    if (isCalendarDate(value)) return value;
     if (!value || !Number.isFinite(Date.parse(value)))
         return "时间待核";
     return new Intl.DateTimeFormat("sv-SE", {

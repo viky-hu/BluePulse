@@ -7,6 +7,7 @@ import styles from "./home.module.css";
 
 export type ArticleSnapshotInput = {
   id: string; title: string; summary?: string | null; published_at: string | null;
+  published_date?: string | null;
   importance_score: number; source: { name: string }; source_title?: string; url?: string;
   language?: string; region?: string | null; first_seen_at?: string | null;
 };
@@ -18,7 +19,7 @@ export function ArticleActions({ article, recordRead = false }: { article: Artic
     if (!recordRead) return;
     store.recordRead({
       id: article.id, title: article.title, summary: article.summary ?? null,
-      published_at: article.published_at, first_seen_at: article.first_seen_at ?? null, importance_score: article.importance_score,
+      published_at: article.published_at, published_date: article.published_date, first_seen_at: article.first_seen_at ?? null, importance_score: article.importance_score,
       source_title: article.source_title ?? article.title, url: article.url ?? "",
       language: article.language ?? "zh", region: article.region === "domestic" || article.region === "foreign" ? article.region : null,
       country_code: null, processing_status: "processed", parse_status: "parsed",
