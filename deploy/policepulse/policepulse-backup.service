@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up the PolicePulse SQLite database
+
+[Service]
+Type=oneshot
+User=policepulse
+Group=policepulse
+WorkingDirectory=/opt/policepulse/current/backend
+EnvironmentFile=/etc/policepulse/site.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/policepulse/current/backend/.venv/bin/python -m bluepulse_backend.cli backup
+NoNewPrivileges=yes
+UMask=0077

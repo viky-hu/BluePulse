@@ -1,0 +1,19 @@
+[Unit]
+Description=PolicePulse FastAPI
+After=network.target
+
+[Service]
+User=policepulse
+Group=policepulse
+WorkingDirectory=/opt/policepulse/current/backend
+EnvironmentFile=/etc/policepulse/site.env
+EnvironmentFile=/etc/policepulse/api.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/policepulse/current/backend/.venv/bin/python -m uvicorn bluepulse_backend.api:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

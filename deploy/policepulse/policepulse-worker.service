@@ -1,0 +1,22 @@
+[Unit]
+Description=PolicePulse collection and editorial worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=policepulse
+Group=policepulse
+WorkingDirectory=/opt/policepulse/current/backend
+EnvironmentFile=/etc/policepulse/site.env
+EnvironmentFile=/etc/policepulse/worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ExecStartPre=/opt/policepulse/current/backend/.venv/bin/python -m bluepulse_backend.worker --check-config
+ExecStart=/opt/policepulse/current/backend/.venv/bin/python -m bluepulse_backend.worker
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10min
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

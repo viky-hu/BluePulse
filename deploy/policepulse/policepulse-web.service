@@ -1,0 +1,19 @@
+[Unit]
+Description=PolicePulse Next.js
+Wants=policepulse-api.service
+After=policepulse-api.service
+
+[Service]
+User=policepulse
+Group=policepulse
+WorkingDirectory=/opt/policepulse/current
+EnvironmentFile=/etc/policepulse/site.env
+Environment=NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+ExecStart=/usr/local/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
