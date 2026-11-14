@@ -27,7 +27,7 @@ from .hotspots import load_hot_strip
 from .publication import selected, visible
 from .public_metadata import entity_links, entity_page, with_metadata_match
 from .public_reads import listed_query, visible_page, with_public_text_match, within_publication_window
-from .reading import apply_reader, availability_item, register_reading, representative_key
+from .reading import apply_reader, availability_item, public_reading_value, register_reading, representative_key
 from .schemas import (
     AgentListOut, ArticleCardOut, ArticleDetailOut, ArticleListOut, AvailabilityOut, EntityListOut,
     AutoPublicationJobOut, AutoPublicationRequest, FeaturedOut, GroupReportsOut,
@@ -67,7 +67,7 @@ def _source(source: Source) -> dict:
             "topics": source.topics}
 
 
-def _card(article: Material) -> dict:
+def _card(article: Material, *, reason=None) -> dict:
     return {
         "id": article.id, "title": article.zh_title or article.source_title,
         "source_title": article.source_title, "published_at": iso(article.published_at),
@@ -80,7 +80,7 @@ def _card(article: Material) -> dict:
         "processing_status": "completed" if article.state == "publication_pool" else article.state,
         "parse_status": article.body_status, "body_status": article.body_status,
         "translation_status": article.translation_status,
-        "topics": article.topics, "summary": article.zh_summary,
+        "topics": article.topics, "summary": article.zh_summary, "featured_reason": reason,
         "media_preview": None, "entities": entity_links(article),
     }
 
@@ -284,16 +284,17 @@ def create_app(database: str | None = None) -> FastAPI:
             else:
                 candidate_ok = article.featured_candidate and visible(article) and article.grouping_status == "complete"
             if candidate_ok:
-                items.append({"slot": slot.slot, "article": _card(slot.article),
+                reason = public_reading_value(session, article)
+                items.append({"slot": slot.slot, "article": _card(article, reason=reason),
                               "importance_score": slot.importance_score,
-                              "featured_reason": slot.featured_reason})
+                              "featured_reason": reason})
         return {"generated_at": iso(edition.generated_at), "window_policy": edition.window_policy, "items": items}
 
     @router.get("/home/recently-collected", response_model=ItemsOut[ArticleCardOut])
     def recently_collected(session: Session = Depends(session_dep)):
         rows, _ = visible_page(session, listed_query().order_by(
             Material.first_seen_at.desc(), Material.id), 6)
-        return {"items": [_card(row) for row in rows]}
+        return {"items": [_card(row, reason=public_reading_value(session, row)) for row in rows]}
 
     @router.get("/site/timeline", response_model=TimelineOut)
     def site_timeline(
@@ -361,7 +362,8 @@ def create_app(database: str | None = None) -> FastAPI:
         for anchor, group_id, row, members in page:
             additional = len({item.source_id for item in members if item.source_id != row.source_id})
             cards.append({"key": group_id, "anchorAt": iso(anchor),
-                          "item": {**_card(row), "selected": row.id in selected_ids},
+                          "item": {**_card(row, reason=public_reading_value(session, row)),
+                                   "selected": row.id in selected_ids},
                           "group": ({"factId": group_id, "additionalSourceCount": additional,
                                      "reportCount": len(members)} if len(members) > 1 else None)})
         return {"filters": filters, "cards": cards,
@@ -441,7 +443,7 @@ def create_app(database: str | None = None) -> FastAPI:
         else:
             query = query.order_by(effective.desc(), Material.id)
         rows, more = visible_page(session, query, limit)
-        return {"items": [_card(row) for row in rows],
+        return {"items": [_card(row, reason=public_reading_value(session, row)) for row in rows],
                 "next_cursor": _cursor_for(rows[-1], sort, key) if more else None,
                 "limit": limit}
 

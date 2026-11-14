@@ -95,6 +95,31 @@ def test_other_news_has_its_own_daily_section(db, report):
     assert [row["itemId"] for row in section["items"]] == [item.id]
 
 
+def test_daily_copy_correction_keeps_original_issue_and_versions(db, report):
+    from bluepulse_backend.daily_reports import compose_daily, correct_article_summary, load_daily
+    from bluepulse_backend.edition_models import DailyIssue, DailyIssueRevision
+
+    at = datetime(2026, 11, 7, 20, tzinfo=UTC)
+    lead, *_ = report(at, score=95)
+    other, *_ = report(at, score=80)
+    compose_daily(db, "2026-11-08", now=NOW)
+    issue = db.get(DailyIssue, "2026-11-08")
+    old_copy = lead.zh_summary
+    old_generated_at = issue.generated_at
+    old_order = [item["itemId"] for item in issue.content["main"]]
+    lead.zh_summary = "警队启动调度试点。"
+    correct_article_summary(db, lead, NOW + timedelta(hours=1))
+    correct_article_summary(db, lead, NOW + timedelta(hours=1))
+    db.commit()
+
+    assert issue.version == 2 and issue.generated_at == old_generated_at
+    assert [item["itemId"] for item in issue.content["main"]] == old_order
+    assert db.get(DailyIssueRevision, (issue.key, 1)).content["main"][0]["summary"] == old_copy
+    view = load_daily(db, issue.key, NOW + timedelta(hours=1))
+    assert view["lead"]["leadParagraph"].startswith(lead.zh_summary)
+    assert view["highlights"][0]["summary"] == other.zh_summary
+
+
 def test_late_release_updates_same_issue_and_replaces_withdrawn_lead(db, report):
     from bluepulse_backend.daily_reports import compose_daily, load_daily
     from bluepulse_backend.edition_models import DailyIssueRevision

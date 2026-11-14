@@ -4,6 +4,7 @@ Copyright (c) 2026 数字生命卡兹克. MIT. See THIRD_PARTY_NOTICES.md.
 """
 
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from math import floor, log2
@@ -52,6 +53,25 @@ def _all_citations(content: dict):
     for entry in [*content["main"], *content["flashes"]]:
         yield entry
         yield from entry.get("related", [])
+
+
+def correct_article_summary(session: Session, article: Material, now: datetime) -> None:
+    """Revise matching citations while preserving the published issue's selection and date."""
+    issues = session.scalars(select(DailyIssue).where(DailyIssue.generated_at <= now))
+    for issue in issues:
+        content = deepcopy(issue.content)
+        for citation in _all_citations(content):
+            if citation["itemId"] == article.id and citation["revision"] == article.revision:
+                citation["summary"] = article.zh_summary
+        if content == issue.content:
+            continue
+        session.add(DailyIssueRevision(
+            issue_key=issue.key, version=issue.version, generated_at=issue.generated_at,
+            corrected_at=now, actor="maintenance", reason="更新引用稿件的 AI 导读",
+            content=issue.content,
+        ))
+        issue.content = content
+        issue.version += 1
 
 
 def _current_groupings(session: Session, article_ids: set[str]) -> dict[str, tuple[str, str | None]]:

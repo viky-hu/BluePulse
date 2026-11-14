@@ -220,6 +220,40 @@ def test_public_story_uses_current_fact_evidence_and_representative(public_story
     assert story_detail(session, story, now) is None
 
 
+def test_public_reading_value_comes_from_current_selected_representative(public_story_db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from bluepulse_backend.api import create_app
+    from bluepulse_backend.fact_grouping import CONFIRMED_WINDOW
+
+    session, url, _, root, sibling, _, _, _ = public_story_db
+    monkeypatch.setenv("BLUEPULSE_SITE_ORIGIN", "http://127.0.0.1:3000")
+    edition = models.FeaturedEdition(window_policy=CONFIRMED_WINDOW)
+    session.add(edition)
+    session.flush()
+    session.add(models.FeaturedSlot(edition_id=edition.id, article_id=root.id, slot="p0",
+                                    importance_score=80, featured_reason="近期自动编排；未进行五轴评分"))
+    reason = "官方公告交代了野外测试安排。"
+    root.editorial_data = {"reason": reason}
+    sibling.editorial_data = {"reason": "新闻稿概括了测试安排。"}
+    session.commit()
+
+    with TestClient(create_app(url)) as client:
+        home = client.get("/api/v1/home/featured").json()["items"][0]
+        assert home["featured_reason"] == home["article"]["featured_reason"] == reason
+        cards = {item["id"]: item for item in client.get("/api/v1/articles?period=all").json()["items"]}
+        assert cards[root.id]["featured_reason"] == reason
+        assert cards[sibling.id]["featured_reason"] is None
+        assert client.get(f"/api/v1/articles/{root.id}").json()["reader"]["reason"] == reason
+        assert reason in client.get(f"/api/v1/articles/{root.id}/markdown").text
+        assert "推荐理由" not in client.get(f"/api/v1/articles/{sibling.id}/markdown").text
+
+        root.editorial_data = {"reason": "本站把这篇报道列为精选，评分达到门槛。"}
+        session.commit()
+        assert client.get("/api/v1/home/featured").json()["items"][0]["featured_reason"] is None
+        assert client.get(f"/api/v1/articles/{root.id}").json()["reader"]["reason"] is None
+
+
 def test_metadata_is_exact_scoped_to_current_revision_and_license(public_story_db):
     from bluepulse_backend.public_metadata import entity_links, entity_page, entity_slug, with_metadata_match
     from bluepulse_backend.public_reads import listed_query

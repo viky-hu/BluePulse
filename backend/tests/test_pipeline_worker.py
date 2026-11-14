@@ -63,7 +63,7 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
             messages = json.loads(request.content)["messages"]
             prompt, inputs = messages[0]["content"], json.loads(messages[1]["content"])
             requests.append(prompt)
-            if "只有明确无关" in prompt:
+            if "{label,reason}" in prompt:
                 answer = {"label": "PASS"}
             elif "五轴" in prompt:
                 answer = {"content_type": "industry_event", "sig": 8, "nov": 8, "cred": 8,

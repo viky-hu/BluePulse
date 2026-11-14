@@ -12,12 +12,18 @@ from .publication import selected, visible
 from .work_queue import utc
 
 
-GROUP = SAFETY + """为每个候选 C1、C2…各给一次关系判断。SAME_OCCURRENCE 同一次发生，SAME_STORY 同一事件的直接后续（须对根事实成立），ROUNDUP 只是综合提及，UNRELATED 其余。
-同主体、技术名或主题不表示是同一次发生。判断新报道相对已经公开精选的报道是否增加有意义的事实；换皮、同一来源镜像、只转述的稿件通常不增加。
-返回 JSON {decisions:[{id,relation,confidence}],selection:{addsValue,reason}}。confidence 范围 0–1。"""
-PAIR = SAFETY + """复核两篇报道的具体行动是否为同一次发生、同一事件的直接进展、综合提及或无关。
-区分发生的时间、地区、主体和项目阶段。返回 JSON {relation,confidence}。
-relation 取 SAME_OCCURRENCE、SAME_STORY、ROUNDUP、UNRELATED；confidence 范围 0–1。"""
+RELATION_RULES = """
+先识别每篇报道的具体发生（主体、动作、对象、时间、地域和阶段），再逐对判断。摘要漏写的条件用附带的原文引文核对。
+SAME_OCCURRENCE：同一个主体在同一时点对同一具体对象做的同一件事。不同语言、报道角度、发布媒介或内容详略不改变发生身份。
+SAME_STORY：围绕同一个具体发生且有证据支持的直接后续，如某项目招标之后的成交、同一试点后续的验收、明确针对该项目的评估或回应。必须能连到根事实；同一主体的两个独立项目、同一产品的日常更新，不能只凭主题或时间先后归并。
+ROUNDUP：一篇材料实质汇集多个可独立成条的发生，只把另一方作为其中一项。先检查是否为综合提及，综合稿不能替代事实或成为合并理由。用其他事情做背景或对比不算综合稿。
+UNRELATED：缺乏具体发生或直接后续的联系，包括只共享机构、时间、地点、议题、装备名称或会议。
+区分同一次与后续时，问两篇都成立时，是同一件事，还是先后发生了两件有直接关系的事。证据不全时降低置信度，不凭名称补足联系。"""
+GROUP = SAFETY + RELATION_RULES + """
+每个候选 C1、C2…恰好一项。另判断 selection：与标为 selected 的公开精选对照，实际出现的新动作、证据、结论、适用条件或可复用方法才算新增。未精选的候选只用于身份判断；没有已精选对照时 addsValue=true。同一次发生如已有精选代表，其他独立来源或更完整的一手报道保留代表竞争资格。换措辞或转载不构成新增；信息增量与事件身份分别判断。
+只输出 JSON {decisions:[{id,relation,confidence}],selection:{addsValue,reason}}。confidence 范围 0–1，reason 只写一句具体新增或已覆盖的事实，供内部使用。"""
+PAIR = SAFETY + RELATION_RULES + """
+按同样规则复核当前两篇材料。只输出 JSON {relation,confidence}，confidence 范围 0–1。"""
 RELATIONS = {"SAME_OCCURRENCE", "SAME_STORY", "ROUNDUP", "UNRELATED"}
 
 
@@ -30,6 +36,13 @@ class CandidateFact:
     similarity: float
     root: bool
     selected: bool
+    frame: dict | None = None
+
+
+def _frame(article):
+    if article.editorial_revision == article.revision:
+        return (article.editorial_data or {}).get("fact")
+    return None
 
 
 @dataclass(frozen=True)
@@ -96,10 +109,10 @@ def recall(session, material, now, vectors=None) -> list[CandidateFact]:
         previous = candidates.get(fact.id)
         candidate = CandidateFact(fact.id, fact.story_id, fact.title, other.zh_summary or "",
                                   similarity, first[fact.story_id] == fact.id,
-                                  selected(other, at=now) or bool(previous and previous.selected))
+                                  selected(other, at=now) or bool(previous and previous.selected), _frame(other))
         if previous and previous.similarity > similarity:
             candidate = CandidateFact(previous.fact_id, previous.story_id, previous.title, previous.summary,
-                                      previous.similarity, previous.root, candidate.selected)
+                                      previous.similarity, previous.root, candidate.selected, previous.frame)
         candidates[fact.id] = candidate
     return sorted(candidates.values(), key=lambda x: (-x.similarity, x.fact_id))[:4 if signal_only else 10]
 
@@ -128,7 +141,7 @@ def decide(material, candidates: list[CandidateFact], step) -> Decision:
         return Decision(creates_fact=creates_fact, adds_value=creates_fact)
     index = {f"C{n}": candidate for n, candidate in enumerate(candidates, 1)}
     output, _ = step("group", "group", GROUP, {"article": query, "candidates": [
-        {"id": id, "title": item.title, "summary": item.summary,
+        {"id": id, "title": item.title, "summary": item.summary, "fact": item.frame,
          "storyRoot": item.root, "selected": item.selected} for id, item in index.items()
     ]}, 2200)
     decisions = output.get("decisions")
@@ -158,7 +171,8 @@ def decide(material, candidates: list[CandidateFact], step) -> Decision:
             relation = "SAME_OCCURRENCE"
         else:
             review, _ = step("groupReview", f"pair:{id}", PAIR,
-                             {"article": query, "candidate": {"title": candidate.title, "summary": candidate.summary}}, 450)
+                             {"article": query, "candidate": {"title": candidate.title, "summary": candidate.summary,
+                                                                "fact": candidate.frame}}, 450)
             relation, confidence = _verdict(review)
             if confidence < .75:
                 continue

@@ -45,8 +45,7 @@ def create_confirmed_featured(session: Session, *, now: datetime | None = None) 
     session.flush()
     for index, article in enumerate(picked):
         session.add(FeaturedSlot(edition_id=edition.id, article_id=article.id,
-                                 slot=f"p{index}", importance_score=article.importance_score,
-                                 featured_reason=(article.editorial_data or {}).get("reason")))
+                                 slot=f"p{index}", importance_score=article.importance_score))
     session.commit()
     return {"edition_id": edition.id, "created": True, "selected": len(picked)}
 
@@ -148,7 +147,6 @@ def create_recent_featured(session: Session, *, now: datetime | None = None,
     session.flush()
     for index, article in enumerate(picked):
         session.add(FeaturedSlot(edition_id=edition.id, article_id=article.id,
-                                 slot=f"p{index}", importance_score=0,
-                                 featured_reason="近期自动编排；未进行五轴评分"))
+                                 slot=f"p{index}", importance_score=0))
     session.commit()
     return {"edition_id": edition.id, "created": True, "selected": len(ids)}

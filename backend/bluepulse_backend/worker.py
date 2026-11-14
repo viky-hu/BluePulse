@@ -30,7 +30,7 @@ from .live_sources import SourceFetchError
 from .model_steps import Steps, environment_models
 from .models import AnalysisAttempt, AutoPublicationJob, FactGroup, FactReport, Material, Source, SourceRun, now_utc
 from .pipeline import ingest
-from .publication import translation_needed
+from .publication import translation_needed, visible
 from .receipts import Budget, BudgetWait, ReceiptUnknown, recover_receipts
 from .source_collection import SOURCES, build_adapter
 from .source_worker import RETRYABLE
@@ -45,6 +45,9 @@ class LeaseLost(RuntimeError):
 
 class SourceRetry(RuntimeError):
     pass
+
+
+REWRITE_SUMMARY = "rewrite_summary"
 
 
 def _material_key(material):
@@ -245,17 +248,19 @@ class Worker:
         if self.collect_enabled:
             kinds.update(("collect", "extract"))
         if self.budget:
-            kinds.update(("analyze", "group", "translate", "digest"))
+            kinds.update(("analyze", "group", "translate", "digest", REWRITE_SUMMARY))
             if self.editions_enabled:
                 kinds.add("digest_sweep")
         if self.editions_enabled:
             kinds.update(("hot", "heat", "daily", "featured"))
         return kinds
 
-    def run_one(self, run_key=None, *, kinds=None) -> bool:
+    def run_one(self, run_key=None, *, kinds=None, preview=None) -> bool:
         allowed = self.allowed_kinds()
         kinds = allowed if kinds is None else allowed & kinds
-        work = claim(self.engine, self.clock(), kinds, run_key=run_key)
+        if preview is None:
+            kinds = kinds - {REWRITE_SUMMARY}
+        work = claim(self.engine, self.clock(), kinds, run_key=run_key, preview=preview)
         if work is None:
             return False
         try:
@@ -298,6 +303,8 @@ class Worker:
             return self._extract(work)
         if work.kind in {"analyze", "group", "translate"}:
             return self._editorial(work)
+        if work.kind == REWRITE_SUMMARY:
+            return self._rewrite_summary(work)
         if work.kind == "digest":
             return self._digest(work)
         if work.kind == "digest_sweep":
@@ -499,6 +506,7 @@ class Worker:
                 "analyze": ("prefilter", "score", "structure", "understand", "summarize"),
                 "group": ("group", "groupReview"),
                 "translate": ("translate",), "digest": ("digest",),
+                REWRITE_SUMMARY: ("understand", "summarize"),
             }[work.kind]
             aliases = {settings.get(capability, "default") for capability in capabilities}
             if work.kind == "group" and "embedding" in settings:
@@ -513,7 +521,72 @@ class Worker:
         batch = session.get(AutoPublicationJob, run_key) if run_key else None
         if batch:
             budget = Budget(budget.minute, budget.hour, budget.day, batch.max_model_calls)
+        if work.kind == REWRITE_SUMMARY:
+            budget = Budget(budget.minute, budget.hour, budget.day, work.payload["max_attempts"])
         return settings, pins, run_key, budget
+
+    def _rewrite_summary(self, work):
+        from .daily_reports import correct_article_summary
+        from .reading import can_show_reading_value
+        from .summary_backfill import has_manual_summary
+
+        payload = work.payload
+        material_id, revision = payload["material_id"], payload["revision"]
+
+        def skip(session, article, now):
+            if not article or article.revision != revision or payload["copy_version"] != editorial.COPY_VERSION:
+                return "superseded"
+            if not visible(article, at=now) or article.collection_state == "pending":
+                return "not_public"
+            if has_manual_summary(session, article.id):
+                return "manual_summary"
+            if (article.editorial_data or {}).get("copy_version") == editorial.COPY_VERSION:
+                return "already_current"
+            return None
+
+        with serialized(self.engine) as session:
+            now = self.clock()
+            if not owns(session, work, now):
+                raise LeaseLost()
+            article = session.get(Material, material_id, options=[joinedload(Material.source)])
+            if reason := skip(session, article, now):
+                return {"skipped": reason}
+            previous_summary = article.zh_summary
+            previous_editorial = article.editorial_data
+            inputs = editorial.rewrite_input(article)
+            input_hash = editorial.input_hash(json.dumps(inputs, ensure_ascii=False, sort_keys=True))
+            reviewed = payload.get("reviewed_copy")
+            if reviewed and reviewed.get("input_hash") != input_hash:
+                return {"skipped": "copy_changed"}
+            with_reason = can_show_reading_value(session, article, at=now)
+            if reviewed and with_reason and not reviewed.get("with_reason", payload.get("with_reason")):
+                reviewed = None
+            if not reviewed:
+                settings, pins, run_key, budget = self._model_configuration(session, work)
+        if reviewed:
+            summary, reason = reviewed["summary"], reviewed["reason"]
+        else:
+            with self.client_factory() as client:
+                step = Steps(self.engine, client, self.presets, settings, f"article:{material_id}:{revision}",
+                             budget, run_key, self.clock, pins=pins)
+                summary, reason = editorial.rewrite_summary(inputs, step, with_reason=with_reason,
+                                                            repair=bool(payload.get("repair")))
+        with serialized(self.engine) as session:
+            now = self.clock()
+            if not owns(session, work, now):
+                raise LeaseLost()
+            current = session.get(Material, material_id)
+            if skipped := skip(session, current, now):
+                return {"skipped": skipped}
+            if current.zh_summary != previous_summary or current.editorial_data != previous_editorial:
+                return {"skipped": "copy_changed"}
+            if payload["preview"]:
+                return {"preview": True, "summary": summary, "reason": reason, "input_hash": input_hash,
+                        "with_reason": with_reason}
+            is_representative = can_show_reading_value(session, current, at=now)
+            editorial.save_summary_copy(current, summary, reason if is_representative else None)
+            correct_article_summary(session, current, now)
+            return {"material_id": material_id, "revision": revision}
 
     def _digest(self, work):
         story_id, key = work.payload["story_id"], work.payload["input_hash"]

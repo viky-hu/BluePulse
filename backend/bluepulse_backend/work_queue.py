@@ -65,7 +65,8 @@ def enqueue_translation(session: Session, material, now: datetime, run_key: str 
         job.status, job.due_at, job.result = "pending", now, None
 
 
-def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | None = None) -> Claim | None:
+def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | None = None,
+          *, preview: bool | None = None) -> Claim | None:
     with serialized(engine) as session:
         query = select(WorkItem).where(or_(
             and_(WorkItem.status == "pending", WorkItem.due_at <= now),
@@ -75,6 +76,8 @@ def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | N
             query = query.where(WorkItem.kind.in_(kinds))
         if run_key is not None:
             query = query.where(WorkItem.payload["run_key"].as_string() == run_key)
+        if preview is not None:
+            query = query.where(WorkItem.payload["preview"].as_boolean().is_(preview))
         running = session.scalars(select(WorkItem).where(
             WorkItem.status == "running", WorkItem.expires_at > now))
         resources = set().union(*(_resources(job) for job in running))

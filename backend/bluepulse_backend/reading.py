@@ -153,6 +153,35 @@ def representative_key(article, fact=None):
             _aware(_timeline_at(article)), article.id)
 
 
+def representative_for_article(session, article, *, at=None):
+    member = session.get(FactReport, article.id)
+    if member is None and article.standalone and publication.selected(article, at=at):
+        return article
+    if not member or member.revision != article.revision or member.relation not in ("primary", "report"):
+        return None
+    fact = session.get(FactGroup, member.fact_id)
+    if fact is None:
+        return None
+    return min((row for row in _fact_reports(session, fact.id) if publication.selected(row, at=at)),
+               key=lambda row: representative_key(row, fact), default=None)
+
+
+def can_show_reading_value(session, article, *, at=None) -> bool:
+    if not article.source.full_text_allowed or not publication.selected(article, at=at):
+        return False
+    representative = representative_for_article(session, article, at=at)
+    return representative is not None and representative.id == article.id
+
+
+def public_reading_value(session, article, *, at=None):
+    from .editorial_copy import grounded_reading_value
+
+    if can_show_reading_value(session, article, at=at):
+        return grounded_reading_value(_editorial(article).get("reason"), article.source_title,
+                                      article.source_body or "", summary=article.zh_summary)
+    return None
+
+
 def _public_story(session, story_id):
     story = session.get(Story, story_id) if story_id else None
     return story if story and not story.merged_into_id else None
@@ -185,6 +214,8 @@ def reader_projection(session, article, body_language="zh"):
             result["relatedStories"].append(_story_ref(related, title))
     member = session.get(FactReport, article.id)
     if not member or member.revision != article.revision or article.grouping_status != "complete":
+        if not member and article.standalone:
+            result["reason"] = public_reading_value(session, article)
         return result
     fact = session.get(FactGroup, member.fact_id)
     if fact is None or member.relation not in ("primary", "report"):
@@ -202,8 +233,11 @@ def reader_projection(session, article, body_language="zh"):
     }
     if representative and representative.id != article.id:
         result["sameEvent"] = {"id": representative.id, "title": _title(representative)}
-    elif selected:
-        result["reason"] = _editorial(article).get("reason")
+    elif representative and selected:
+        from .editorial_copy import grounded_reading_value
+
+        result["reason"] = grounded_reading_value(_editorial(article).get("reason"), article.source_title,
+                                                 article.source_body or "", summary=article.zh_summary)
     result["indexable"] = selected
     return result
 
@@ -231,7 +265,7 @@ def _md(text):
     return html.escape(text, quote=False).replace("[", r"\[").replace("]", r"\]")
 
 
-def export_markdown(article, origin):
+def export_markdown(article, origin, *, reason=None):
     lines = [f"# {_md(_title(article))}", ""]
     if article.zh_title and article.zh_title != article.source_title:
         lines.extend((f"> 原标题：{_md(article.source_title)}", ""))
@@ -244,10 +278,8 @@ def export_markdown(article, origin):
     lines.extend((f"- Pulse：{origin}/articles/{article.id}", f"- 原文：{_md(article.source_url)}", ""))
     if article.zh_summary:
         lines.extend(("## 摘要", "", _md(article.zh_summary), ""))
-    if article.source.full_text_allowed and article.selected_at and publication.selected(article):
-        reason = _editorial(article).get("reason")
-        if reason:
-            lines.extend(("## 推荐理由", "", _md(reason), ""))
+    if reason:
+        lines.extend(("## 推荐理由", "", _md(reason), ""))
     if _original(article) and article.source.syndicate_full_text_allowed:
         translation = _translation(article)
         if translation:
@@ -437,7 +469,8 @@ def register_reading(router, session_dep, ApiError):
         origin = site_origin(os.environ.get("BLUEPULSE_SITE_ORIGIN"))
         if origin is None:
             raise ApiError(503, "share_origin_unconfigured", "公开站点地址尚未配置。")
-        return PlainTextResponse(export_markdown(article, origin), media_type="text/markdown",
+        return PlainTextResponse(export_markdown(article, origin, reason=public_reading_value(session, article)),
+                                 media_type="text/markdown",
                                  headers={"Content-Disposition": f'attachment; filename="pulse-{article_id}.md"'})
 
     def share(request, article_id, session, mode):

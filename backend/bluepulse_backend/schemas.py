@@ -68,6 +68,7 @@ class ArticleCardOut(Contract):
     translation_status: str
     topics: list[str]
     summary: str | None
+    featured_reason: str | None = None
     media_preview: MediaPreview | None
     entities: list[EntityLink]
 
