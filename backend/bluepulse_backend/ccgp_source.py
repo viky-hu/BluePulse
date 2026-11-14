@@ -17,13 +17,14 @@ from .source_listing import linked_pages
 
 HOST = "www.ccgp.gov.cn"
 LISTING = "https://www.ccgp.gov.cn/cggg/zygg/gkzb/"
+LOCAL_LISTING = "https://www.ccgp.gov.cn/cggg/dfgg/gkzb/"
 USER_AGENT = "BluePulseResearch/0.1"
 ARTICLE_PATH = re.compile(r"^/cggg/(?:zygg|dfgg)/gkzb/\d{6}/t\d{8}_\d+\.htm$")
 PAGER = re.compile(r"Pager\(\{\s*size:\s*(\d+),\s*current:\s*(\d+),\s*prefix:\s*'index',\s*suffix:\s*'htm'\s*\}\)")
-DATE = re.compile(r"(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(\d{1,2}):(\d{2})")
+DATE = re.compile(r"(?<!\d)(20\d{2})(?:年|-)[ \t]*(\d{1,2})(?:月|-)[ \t]*(\d{1,2})(?:日\s*|\s+)(\d{1,2}):(\d{2})")
 POLICE = ("公安", "警务", "交警", "刑侦", "治安", "边境管理", "警察", "公共安全")
 TECH = ("人工智能", "大模型", "智能", "信息化", "视频", "监控", "数据", "网络", "软件",
-        "平台", "系统", "通信", "无人机", "机器人", "电子物证", "科技")
+        "平台", "系统", "通信", "无人机", "机器人", "电子物证", "科技", "vpn")
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "wbr"}
 
 
@@ -145,7 +146,8 @@ def _published_at(text: str) -> datetime | None:
 
 def _rank(context: str) -> int:
     police = any(word in context for word in POLICE)
-    tech = any(word in context for word in TECH)
+    normalized = context.casefold()
+    tech = any(word in normalized for word in TECH)
     return 0 if police and tech else 1 if police else 2 if tech else 3
 
 
@@ -229,10 +231,18 @@ class CcgpAdapter:
                 if current + 1 < size:
                     yield f"index_{current + 1}.htm"
 
-        yield from linked_pages(LISTING, lambda url: _decode(self._fetch(url)), self._listing_candidates,
-                                lambda parts: not parts.query and re.fullmatch(
-                                    r"/cggg/zygg/gkzb/index_[1-9]\d*\.htm", parts.path),
-                                start=start, extra_links=pager_links)
+        index = 0
+        for entry in (LISTING, LOCAL_LISTING):
+            archive = urlsplit(entry).path
+            pages = linked_pages(entry, lambda url: _decode(self._fetch(url)), self._listing_candidates,
+                                 lambda parts: not parts.query and re.fullmatch(
+                                     re.escape(archive) + r"index_[1-9]\d*\.htm", parts.path),
+                                 extra_links=pager_links)
+            for items, following in pages:
+                if index >= start:
+                    checkpoint = index + 1 if following is not None or entry == LISTING else None
+                    yield items, checkpoint
+                index += 1
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         if not _valid_article_url(candidate.url):

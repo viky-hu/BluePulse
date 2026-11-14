@@ -139,6 +139,40 @@ def test_ccgp_prioritizes_listing_context_and_extracts_bounded_evidence():
                                    "detail_parsed": 1, "detail_failed": 0, "detail_skipped": 1}
 
 
+def test_ccgp_scheduled_listing_traverses_both_archives_and_parses_live_date_format():
+    local = LISTING.replace("/zygg/", "/dfgg/")
+    detail = local + "202611/t20261114_27686532.htm"
+    vpn = local + "202611/t20261114_27686439.htm"
+    requests = []
+
+    def handler(request):
+        url = str(request.url)
+        requests.append(url)
+        if url == local:
+            return httpx.Response(200, text=(
+                "<li><a href='./202611/t20261114_27686659.htm'>高校设备采购</a>"
+                "发布时间：2026-11-14 19:38</li>"
+                "<script>Pager({size: 2, current: 0, prefix: 'index', suffix: 'htm'})</script>"
+            ))
+        if url == local + "index_1.htm":
+            return httpx.Response(200, text=(
+                "<li><a href='./202611/t20261114_27686532.htm'>思南路99号音视频系统的公开招标公告</a>"
+                "发布时间：2026-11-14 18:39 地域：上海 采购人：上海市公安局（主管）</li>"
+                "<li><a href='./202611/t20261114_27686439.htm'>警务通VPN租赁服务项目</a>"
+                "发布时间：2026-11-14 17:55 地域：浙江 采购人：绍兴市公安局越城区分局</li>"
+            ))
+        return _fixture(request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                               request_delay_seconds=0)
+        pages = list(adapter.iter_listing_pages())
+    assert requests == ["https://www.ccgp.gov.cn/robots.txt", LISTING, local, local + "index_1.htm"]
+    assert [checkpoint for _, checkpoint in pages] == [1, 2, None]
+    assert [item.url for page, _ in pages for item in page] == [DETAIL, detail, vpn]
+    assert pages[-1][0][0].published_at == datetime(2026, 11, 14, 10, 39, tzinfo=UTC)
+
+
 def test_ccgp_robots_disallow_fails_before_listing():
     requests = []
 

@@ -72,7 +72,11 @@ _DEPLOYMENT_EVIDENCE = re.compile(
     r"(?:(?:already|successfully|officially|fully|operationally|formally|now)\s+){0,2}(?:deployed|launched|rolled out|in use)\b",
     re.IGNORECASE,
 )
-_MONEY = re.compile(r"(?:\d+(?:\.\d+)?\s*(?:万|亿)?元|[$£€]\s*\d)")
+_YUAN = re.compile(
+    rf"(?:人民币|[¥￥]|\(元\)\s*[:：]\s*)(?P<prefix>{_NUMBER.pattern})"
+    rf"|(?P<amount>{_NUMBER.pattern})\s*(?P<scale>万|亿)?元"
+)
+_MONEY = re.compile(r"(?:\d+(?:\.\d+)?\s*(?:万|亿)?(?:元|英镑|美元|欧元)|[$£€]\s*\d)")
 _MONEY_SOURCE = re.compile(r"元|人民币|美元|英镑|欧元|[$£€]|\b(?:USD|GBP|EUR|dollars?|pounds?|euros?)\b", re.I)
 _TRIAL = re.compile(r"试点|试用|试验|概念验证|\b(?:trial|pilot|proof of concept)\b", re.I)
 
@@ -112,6 +116,11 @@ def _numbers(value: str) -> set[str]:
     return {str(Decimal(part.replace(",", "")).normalize()) for part in _NUMBER.findall(normalized)}
 
 
+def _yuan_amount(match):
+    scale = {"万": 10_000, "亿": 100_000_000}.get(match["scale"], 1)
+    return Decimal((match["amount"] or match["prefix"]).replace(",", "")) * scale
+
+
 def _contains_process(value: str) -> bool:
     return any(_PROCESS.search(sentence) for sentence in _sentences(value))
 
@@ -136,7 +145,14 @@ def _validate_facts(copy: str, original: str) -> None:
     for number in _WRITTEN_PERCENT.finditer(original):
         first, last = number[1].casefold(), (number[2] or "").casefold()
         original_numbers.add(str(Decimal(_UNITS.get(first, _TENS.get(first, 0)) + _UNITS.get(last, 0)).normalize()))
-    if _numbers(copy) - original_numbers:
+    normalized_source = unicodedata.normalize("NFKC", original)
+    normalized_copy = unicodedata.normalize("NFKC", copy)
+    yuan_amounts = {_yuan_amount(match) for match in _YUAN.finditer(normalized_source)}
+    for match in _YUAN.finditer(normalized_copy):
+        if _yuan_amount(match) not in yuan_amounts:
+            raise ValueError("invalid_editorial_copy")
+    other_copy = _YUAN.sub("", normalized_copy)
+    if _numbers(other_copy) - original_numbers:
         raise ValueError("invalid_editorial_copy")
     if _MONEY.search(copy) and not _MONEY_SOURCE.search(original):
         raise ValueError("invalid_editorial_copy")

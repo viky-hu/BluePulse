@@ -147,6 +147,18 @@ def test_copy_keeps_legitimate_system_recommendation_and_negative_stage():
     assert summary_copy(copy, "分析软件试点", copy) == copy
 
 
+def test_copy_accepts_exact_yuan_to_ten_thousand_yuan_but_keeps_currency_and_amount():
+    from bluepulse_backend.editorial_copy import summary_copy
+
+    body = "警队公开招标采购调度系统。预算金额（元）：1,200,000.00。"
+    copy = "警队公开招标采购调度系统，预算120万元。"
+    assert summary_copy(copy, "调度系统公开招标", body) == copy
+    for invalid in (copy.replace("120", "121"), copy.replace("万元", "万英镑"),
+                    "警队公开招标采购120套调度系统。"):
+        with pytest.raises(ValueError, match="invalid_editorial_copy"):
+            summary_copy(invalid, "调度系统公开招标", body)
+
+
 @pytest.mark.parametrize(("title", "body", "summary"), [
     ("New drone pilot", "The drone was not deployed.", "无人机已经部署。"),
     ("New drone pilot", "Radios were deployed last year.\nThe drone remains in trial.", "无人机已经部署。"),

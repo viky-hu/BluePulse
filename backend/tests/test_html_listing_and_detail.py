@@ -100,6 +100,7 @@ def test_worker_adapters_follow_the_published_archive_link(kind, host, listing, 
     }[kind]
     listing = f"https://{host}{listing}"
     next_page = f"https://{host}{next_page}"
+    local = listing.replace("/zygg/", "/dfgg/") if kind == "ccgp" else None
     visited = []
 
     def handler(request):
@@ -107,6 +108,10 @@ def test_worker_adapters_follow_the_published_archive_link(kind, host, listing, 
             return httpx.Response(200, text="User-agent: *\nAllow: /")
         url = str(request.url)
         visited.append(url)
+        if url == local:
+            return httpx.Response(200, text=(
+                '<li><a href="./202611/t20261114_27686659.htm">高校设备采购</a></li>'
+            ))
         second = url == next_page
         assert url in {listing, next_page}
         item = f'<li><h2><a href="{paths[second]}">公安通信系统</a></h2></li>'
@@ -128,8 +133,8 @@ def test_worker_adapters_follow_the_published_archive_link(kind, host, listing, 
         else:
             adapter = BoundedHtmlSourceAdapter(http, kind=kind, **options)
         pages = [items for items, _ in adapter.iter_listing_pages()]
-    assert visited == [listing, next_page]
-    assert [items[0].url for items in pages] == [f"https://{host}{path}" for path in paths]
+    assert visited == [listing, next_page] + ([local] if local else [])
+    assert [item.url for items in pages for item in items] == [f"https://{host}{path}" for path in paths]
 
 
 def test_pds_dates_belong_to_the_same_article_and_self_closing_images_keep_body():
