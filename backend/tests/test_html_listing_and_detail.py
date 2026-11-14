@@ -8,6 +8,7 @@ from bluepulse_backend.htx_source import HtxNewsAdapter, HOST as HTX_HOST
 from bluepulse_backend.live_sources import BoundedHTTP, SourceFetchError
 from bluepulse_backend.police_science_source import PoliceScienceAdapter, HOST as SCIENCE_HOST
 from bluepulse_backend.source_expansion import BoundedHtmlSourceAdapter
+from bluepulse_backend.top5_probe import HtmlEvidenceProbe
 
 
 def test_htx_listing_reads_reported_pages_without_requesting_articles():
@@ -80,3 +81,52 @@ def test_html_lists_are_uncapped_and_new_detail_workers_apply_robots(
             adapter(client).fetch_detail(candidates[1])
 
     assert requested == ["/robots.txt", listing_path, "/robots.txt"]
+
+
+@pytest.mark.parametrize("kind,host,listing,next_page", [
+    ("npcc", "news.npcc.police.uk", "/releases", "/releases?page=2"),
+    ("biometric", "www.biometricupdate.com", "/biometric-news/law-enforcement",
+     "/biometric-news/law-enforcement/page/2"),
+    ("ccgp", CCGP_HOST, "/cggg/zygg/gkzb/", "/cggg/zygg/gkzb/index_1.htm"),
+    ("jiangsu", "gat.jiangsu.gov.cn", "/col/col6372/index.html",
+     "/module/web/jpage/dataproxy.jsp?page=1&columnid=6372&webid=29&unitid=405595"),
+])
+def test_worker_adapters_follow_the_published_archive_link(kind, host, listing, next_page):
+    paths = {
+        "npcc": ["/releases/one", "/releases/two"],
+        "biometric": ["/202611/one", "/202611/two"],
+        "ccgp": ["/cggg/zygg/gkzb/202611/t20261101_111.htm", "/cggg/zygg/gkzb/202611/t20261102_222.htm"],
+        "jiangsu": ["/art/2026/11/1/art_6372_111.html", "/art/2026/11/2/art_6372_222.html"],
+    }[kind]
+    listing = f"https://{host}{listing}"
+    next_page = f"https://{host}{next_page}"
+    visited = []
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        url = str(request.url)
+        visited.append(url)
+        second = url == next_page
+        assert url in {listing, next_page}
+        item = f'<li><h2><a href="{paths[second]}">公安通信系统</a></h2></li>'
+        if kind == "ccgp":
+            return httpx.Response(200, text=item + f"<script>Pager({{size:2, current:{int(second)}, prefix:'index',suffix:'htm'}});</script>")
+        if kind == "jiangsu":
+            more = "" if second else f'<nextgroup><![CDATA[<a href="{next_page}"></a>]]></nextgroup>'
+            return httpx.Response(200, text=f"{more}<record><![CDATA[{item}]]></record>")
+        more = "" if second else f'<a rel="next" href="{next_page}">Next</a>'
+        return httpx.Response(200, text=item + more)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        http = BoundedHTTP(client, allowed_hosts={host}, delay_seconds=0)
+        options = {"max_items": 1, "sleeper": lambda _: None}
+        if kind in {"npcc", "jiangsu"}:
+            adapter = HtmlEvidenceProbe(http, kind=kind, **options)
+        elif kind == "ccgp":
+            adapter = CcgpAdapter(http, **options)
+        else:
+            adapter = BoundedHtmlSourceAdapter(http, kind=kind, **options)
+        pages = [items for items, _ in adapter.iter_listing_pages()]
+    assert visited == [listing, next_page]
+    assert [items[0].url for items in pages] == [f"https://{host}{path}" for path in paths]

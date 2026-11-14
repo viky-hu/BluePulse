@@ -51,3 +51,27 @@ def test_listing_reads_all_items_without_detail_and_fresh_detail_reader_checks_r
         with pytest.raises(SourceFetchError, match="robots_disallowed"):
             fresh.fetch_detail(candidates[-1])
         assert calls[-1] == f"https://{host}/robots.txt"
+
+
+def test_spf_worker_reads_all_archive_items_with_source_dates():
+    from datetime import date
+
+    from bluepulse_backend.spf_source import ARCHIVE
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        assert request.method == "POST" and str(request.url) == ARCHIVE
+        return httpx.Response(200, json={"totalItems": 50, "items": [
+            {"title": f"Digital evidence {index}", "date": "06 Nov 2026",
+             "dateTime": "2026-11-06T00:00:00", "url": f"/Media-Hub/Police-Life/2026/11/digital-{index}"}
+            for index in range(50)
+        ]})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = SpfPoliceLifeAdapter(BoundedHTTP(client, allowed_hosts={httpx.URL(SPF_LISTING).host}),
+                                     max_items=1, sleeper=lambda _: None)
+        [(items, following)] = list(adapter.iter_listing_pages())
+    assert following is None
+    assert len(items) == 50 and all(item.published_date == date(2026, 11, 6) for item in items)
+    assert all(item.published_at is None for item in items)

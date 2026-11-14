@@ -117,3 +117,133 @@ def test_detail_retries_twice_then_releases_real_excerpt_for_analysis(tmp_path, 
         item = session.scalar(select(Material))
         assert item.collection_state == "unconfirmed" and item.source_summary == "Actual source excerpt"
         assert session.scalar(select(WorkItem).where(WorkItem.kind == "analyze")).status == "pending"
+
+
+def test_worker_recovery_checks_enabled_sources_despite_old_backoff(tmp_path):
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'recovery.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        for spec in SOURCES.values():
+            source = ensure_source(session, spec)
+            source.next_fetch_at = NOW + timedelta(hours=2)
+            source.enabled = source.slug != "ccgp-policing-tech"
+        session.commit()
+
+    worker = worker_module.Worker(engine, None, clock=lambda: NOW, collect_enabled=True)
+    worker.tick()
+    with Session(engine) as session:
+        assert session.scalars(select(WorkItem).where(WorkItem.kind == "collect")).first() is None
+    worker.tick(recover_collection=True)
+    worker.tick(recover_collection=True)
+    with Session(engine) as session:
+        jobs = session.scalars(select(WorkItem).where(WorkItem.kind == "collect")).all()
+        assert len(jobs) == len(SOURCES) - 1
+        assert {job.payload["slug"] for job in jobs} == set(SOURCES) - {"ccgp-policing-tech"}
+
+
+def test_partial_listing_is_replayed_from_head_to_recover_shifted_entries(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.live_sources import SourceFetchError
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    starts = []
+    clock = [NOW]
+
+    class Adapter:
+        def iter_listing_pages(self, *, start=0):
+            starts.append(start)
+            def item(key):
+                return Candidate(f"https://www.gov.uk/government/news/{key}", key,
+                                 published_at=NOW - timedelta(days=5), body=key * 350)
+            if len(starts) == 1:
+                yield [item("known")], 1
+                raise SourceFetchError("timeout")
+            if start == 0:
+                yield [item("new-head")], 1
+            yield [item("known"), item("archive")], None
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'interrupted.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = ensure_source(session, SOURCES["govuk"])
+        source.collection_initialized_at = NOW - timedelta(days=30)
+        session.commit()
+
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: clock[0],
+                                  slugs=["govuk"], collect_enabled=True)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        assert session.scalar(select(SourceRun)).status == "failed"
+    clock[0] += timedelta(hours=1)
+    worker.tick(recover_collection=True)
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        assert starts == [0, 0]
+        assert {(row.source_title, row.revision) for row in session.scalars(select(Material))} == {
+            ("new-head", 1), ("known", 1), ("archive", 1),
+        }
+        assert set(session.scalars(select(SourceRun.status))) == {"failed", "completed"}
+
+
+def test_worker_stop_preserves_committed_pages_and_does_not_fetch_more(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    class Adapter:
+        def iter_listing_pages(self, *, start=0):
+            worker.stopping.set()
+            yield [Candidate("https://www.gov.uk/government/news/first", "First", published_at=NOW)], 1
+            raise AssertionError("the worker should stop before requesting another page")
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'shutdown.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        ensure_source(session, SOURCES["govuk"])
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: NOW,
+                                  slugs=["govuk"], collect_enabled=True)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        assert session.scalar(select(Material)).source_title == "First"
+        assert session.scalar(select(SourceRun)).error_code == "worker_interrupted"
+        assert session.scalar(select(Source)).collection_initialized_at is None
+
+
+def test_transient_listing_and_detail_failures_are_retried(tmp_path):
+    from bluepulse_backend.collection_flow import admit_page, schedule_after_fetch
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'retry.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = Source(slug="fixture", name="Fixture", allowed_hosts=["example.test"],
+                        collection_initialized_at=NOW, interval_minutes=60)
+        session.add(source)
+        session.flush()
+        schedule_after_fetch(source, NOW, success=False, error="transport_error")
+        assert source.next_fetch_at == NOW + timedelta(minutes=10)
+
+        run = SourceRun(source_id=source.id)
+        session.add(run)
+        session.flush()
+        rows = [candidate("failed"), candidate("denied")]
+        admit_page(session, source, run, rows, NOW, {})
+        jobs = {job.payload["url"].rsplit("/", 1)[-1]: job for job in session.scalars(select(WorkItem))}
+        for name, error in (("failed", "timeout"), ("denied", "robots_disallowed")):
+            job = jobs[name]
+            job.status, job.attempts, job.result = "done", 3, {"error": error}
+            session.get(Material, job.payload["material_id"]).collection_state = "unconfirmed"
+        run = SourceRun(source_id=source.id)
+        session.add(run)
+        session.flush()
+        admit_page(session, source, run, rows, NOW + timedelta(hours=1), {})
+        assert (jobs["failed"].status, jobs["failed"].attempts) == ("pending", 0)
+        assert (jobs["denied"].status, jobs["denied"].attempts) == ("done", 3)

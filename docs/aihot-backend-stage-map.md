@@ -71,6 +71,8 @@ AIHOT 来源：`D:/AIHOT/apps/api/src/routes/site.ts: registerSite`、`publicati
 
 ### 阶段 B：材料版本、时间与统一发布政策
 
+2026-11-14 补采交接：Pulse 沿用 AIHOT `sources/collect.ts` 的逐源调度、失败不算成功、完整列表按身份去重和持久处理机制。Windows 本机启动和休眠唤醒会主动检查所有启用信源。补采重扫原站公开分页，保留已提交的逐页记录和正文任务，再走现有研判、发布许可和日报恢复。各入口的覆盖范围和退避见 [后端运行手册](../backend/README.md#一键真实运行)。
+
 依赖 A。先统一各入口，再增加事件和机器出口。
 
 AIHOT 原路径：`D:/AIHOT/packages/backend/src/content/materials.ts: upsertMaterial,contentHash,decideTimeline,fillPublicationTime`、`content/provenance.ts`、`publication/{rules,scope,publish}.ts`。可移植 material 身份、原始/发现/更新/公开时间分离、revision 与分析输入绑定、历史/未知日期规则、站内全文/再分发许可、暂停与撤回分离。SQLite 不支持原 SQL 中的 advisory lock/JSONB，需 SQLAlchemy 事务和唯一约束实现；若选 Postgres 另提供迁移与并发证据，不默认换库。

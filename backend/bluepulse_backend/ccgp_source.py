@@ -12,12 +12,14 @@ from urllib.robotparser import RobotFileParser
 
 from .live_sources import BoundedHTTP, SourceFetchError, plain_text
 from .pipeline import Candidate
+from .source_listing import linked_pages
 
 
 HOST = "www.ccgp.gov.cn"
 LISTING = "https://www.ccgp.gov.cn/cggg/zygg/gkzb/"
 USER_AGENT = "BluePulseResearch/0.1"
 ARTICLE_PATH = re.compile(r"^/cggg/(?:zygg|dfgg)/gkzb/\d{6}/t\d{8}_\d+\.htm$")
+PAGER = re.compile(r"Pager\(\{\s*size:\s*(\d+),\s*current:\s*(\d+),\s*prefix:\s*'index',\s*suffix:\s*'htm'\s*\}\)")
 DATE = re.compile(r"(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(\d{1,2}):(\d{2})")
 POLICE = ("公安", "警务", "交警", "刑侦", "治安", "边境管理", "警察", "公共安全")
 TECH = ("人工智能", "大模型", "智能", "信息化", "视频", "监控", "数据", "网络", "软件",
@@ -194,25 +196,43 @@ class CcgpAdapter:
             self.sleeper(self._delay)
         return self.http.get(url, accept="text/html,application/xhtml+xml;q=0.9")
 
-    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
-        self._reset_diagnostics()
-        self._policy = None
+    def _listing_candidates(self, html, page_url):
         links = _Links()
-        links.feed(_decode(self._fetch(LISTING)))
+        links.feed(html)
         unique: dict[str, tuple[str, str]] = {}
         for raw_url, title, context in links.items:
-            url = _valid_article_url(raw_url)
+            url = _valid_article_url(raw_url, page_url)
             if url and url not in unique:
                 unique[url] = (title, context)
-        self.diagnostics["listing_links"] = len(unique)
+        self.diagnostics["listing_links"] += len(unique)
         if not unique:
             raise SourceFetchError("listing_no_article_links")
         # A broad technology word alone produced unrelated university and industry tenders.
         # Keep only listings that identify both a policing buyer/task and a technology.
         ranked = [item for item in unique.items() if _rank(" ".join(item[1])) == 0]
-        self.diagnostics["topic_filtered"] = len(unique) - len(ranked)
+        self.diagnostics["topic_filtered"] += len(unique) - len(ranked)
         return [Candidate(url=url, title=title, published_at=_published_at(context), language="zh")
                 for url, (title, context) in ranked]
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        self._reset_diagnostics()
+        self._policy = None
+        return self._listing_candidates(_decode(self._fetch(LISTING)), LISTING)
+
+    def iter_listing_pages(self, *, start=0):
+        self._reset_diagnostics()
+        self._policy = None
+
+        def pager_links(html):
+            if pager := PAGER.search(html):
+                size, current = map(int, pager.groups())
+                if current + 1 < size:
+                    yield f"index_{current + 1}.htm"
+
+        yield from linked_pages(LISTING, lambda url: _decode(self._fetch(url)), self._listing_candidates,
+                                lambda parts: not parts.query and re.fullmatch(
+                                    r"/cggg/zygg/gkzb/index_[1-9]\d*\.htm", parts.path),
+                                start=start, extra_links=pager_links)
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         if not _valid_article_url(candidate.url):

@@ -17,6 +17,8 @@ FIRST_IMPORT_AGE = timedelta(days=12 * 30)
 STALE_ON_DISCOVERY = timedelta(hours=48)
 DETAIL_RETRY = timedelta(minutes=10)
 DETAIL_MAX_ATTEMPTS = 3
+TRANSIENT_FETCH_ERRORS = {"timeout", "transport_error", "robots_transport_error", "http_408",
+                          "http_500", "http_502", "http_503", "http_504"}
 
 
 def _pack(item):
@@ -57,7 +59,7 @@ def _merge(item, previous, *, listing):
         body=(previous.source_body if not item.body else item.body),
         summary=previous.source_summary if verified and previous.source_summary else item.summary or previous.source_summary,
         published_at=utc(exact) if exact else None,
-        published_date=(previous.published_date if verified and previous.published_date else
+        published_date=(previous.published_date if verified and (previous.published_date or previous.published_at) else
                         item.published_date or previous.published_date),
         body_source_url=item.body_source_url or previous.body_source_url,
         media=item.media if item.media is not None else previous.source_media,
@@ -124,21 +126,30 @@ def admit_page(session, source, run, candidates, now, cursor):
                               material_id=material.id if material else None, outcome=outcome))
         counter = {"new": "added", "revised": "revised", "duplicate": "duplicates"}.get(outcome, "metadata_pending")
         metrics[counter] = metrics.get(counter, 0) + 1
-        if needs_detail and (not material or material.collection_state != "unconfirmed" or changed):
+        if needs_detail:
             identity = f"{source.slug}:{hashlib.sha256(url.encode()).hexdigest()}:{listing_hash}"
             existing = session.scalar(select(WorkItem).where(WorkItem.kind == "extract", WorkItem.identity == identity))
-            if existing is None:
-                enqueue(session, "extract", identity, {
-                    "slug": source.slug, "url": url, "candidate": listing, "listing_hash": listing_hash,
-                    "material_id": material.id if material else None,
-                    "revision": material.revision if material else None,
-                    "run_id": run.id, "discovered_at": now.isoformat(), "first_import": first,
-                    "historical": bool(material and material.timeline_kind == "historical" or
-                                       _before(item, now - STALE_ON_DISCOVERY)),
-                }, now)
-                if material and incomplete:
-                    material.collection_state = "pending"
-                metrics["detail_queued"] = metrics.get("detail_queued", 0) + 1
+            retry = (existing is not None and existing.status in {"done", "failed"}
+                     and ((existing.result or {}).get("error") or existing.error) in TRANSIENT_FETCH_ERRORS)
+            if not retry and (existing is not None or material and material.collection_state == "unconfirmed" and not changed):
+                continue
+            payload = {
+                "slug": source.slug, "url": url, "candidate": listing, "listing_hash": listing_hash,
+                "material_id": material.id if material else None,
+                "revision": material.revision if material else None,
+                "run_id": run.id, "discovered_at": now.isoformat(), "first_import": first,
+                "historical": bool(material and material.timeline_kind == "historical" or
+                                   _before(item, now - STALE_ON_DISCOVERY)),
+            }
+            if retry:
+                payload["first_import"] = existing.payload["first_import"]
+                existing.payload, existing.due_at = payload, now
+                existing.status, existing.attempts, existing.result, existing.error = "pending", 0, None, None
+            else:
+                enqueue(session, "extract", identity, payload, now)
+            if material and incomplete:
+                material.collection_state = "pending"
+            metrics["detail_queued"] = metrics.get("detail_queued", 0) + 1
     if first:
         cursor["imported"] = sorted(imported)
     run.fetch_metrics = metrics
@@ -191,10 +202,11 @@ def apply_detail(session, source, payload, candidate, now):
     return item
 
 
-def schedule_due_sources(session, now, slugs=None):
-    due = select(Source).where(Source.enabled.is_(True), Source.slug.in_(slugs or ()),
-                                or_(Source.next_fetch_at.is_(None), Source.next_fetch_at <= now))
-    for source in session.scalars(due.order_by(Source.next_fetch_at, Source.slug).limit(40)):
+def schedule_due_sources(session, now, slugs=None, *, recover=False):
+    due = select(Source).where(Source.enabled.is_(True), Source.slug.in_(slugs or ()))
+    if not recover:
+        due = due.where(or_(Source.next_fetch_at.is_(None), Source.next_fetch_at <= now)).limit(40)
+    for source in session.scalars(due.order_by(Source.next_fetch_at, Source.slug)):
         active = session.scalar(select(WorkItem.id).where(
             WorkItem.kind == "collect", WorkItem.status.in_(("pending", "running")),
             WorkItem.payload["slug"].as_string() == source.slug,
@@ -204,12 +216,15 @@ def schedule_due_sources(session, now, slugs=None):
         source.next_fetch_at = now + timedelta(minutes=10)
 
 
-def schedule_after_fetch(source, now, *, success):
+def schedule_after_fetch(source, now, *, success, error=None):
     if success:
         source.collection_failures = 0
         delay = source.interval_minutes
     else:
-        delay = min(source.interval_minutes * (source.collection_failures + 2), 360)
+        if error in TRANSIENT_FETCH_ERRORS:
+            delay = min(10 * 2 ** min(source.collection_failures, 6), 360)
+        else:
+            delay = min(source.interval_minutes * (source.collection_failures + 2), 360)
         source.collection_failures += 1
     source.next_fetch_at = now + timedelta(minutes=delay)
 

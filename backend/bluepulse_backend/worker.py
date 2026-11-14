@@ -96,17 +96,18 @@ class Worker:
         self.budget, self.collect_enabled = budget, collect_enabled
         self.slugs, self.run_key, self.max_items = slugs, run_key, max_items
         self.clock, self.editions_enabled = clock, editions_enabled
+        self.stopping = Event()
         self._hosts_lock = Lock()
         self._hosts = {}
 
-    def tick(self, *, schedule_daily=True):
+    def tick(self, *, schedule_daily=True, recover_collection=False):
         now = self.clock()
         if schedule_daily:
             self.schedule_daily()
         recover_receipts(self.engine, now)
         with serialized(self.engine) as session:
             if self.collect_enabled:
-                self._schedule_collection(session, now)
+                self._schedule_collection(session, now, recover=recover_collection)
                 if not self.run_key:
                     self.sync_requested_batches(session, now)
                     if self.max_items is None:
@@ -167,9 +168,9 @@ class Worker:
             ),
         ).order_by(Material.timeline_kind == "historical", Material.first_seen_at, Material.id).limit(300)
 
-    def _schedule_collection(self, session, now):
+    def _schedule_collection(self, session, now, *, recover=False):
         if self.max_items is None and not self.run_key:
-            schedule_due_sources(session, now, self.slugs or list(SOURCES))
+            schedule_due_sources(session, now, self.slugs or list(SOURCES), recover=recover)
             return
         for source in session.scalars(select(Source).where(Source.enabled.is_(True))):
             if source.slug not in SOURCES or self.slugs and source.slug not in self.slugs:
@@ -366,16 +367,24 @@ class Worker:
             session.add(run)
             session.flush()
             run_id = run.id
-            cursor = dict(source.collection_cursor or {})
+            saved_cursor = source.collection_cursor or {}
+            cursor = {"imported": saved_cursor.get("imported", [])}
             first = source.collection_initialized_at is None
         code = None
         with self._source_client() as client:
             adapter = build_adapter(SOURCES[slug], client, max_items=2)
             try:
                 paged = getattr(adapter, "iter_listing_pages", None)
-                pages = (paged(start=cursor.get("offset", 0)) if paged else
+                # Offsets into mutable listings are unsafe after a failure or shutdown.
+                # Previously committed material and extraction jobs make replay idempotent.
+                pages = (paged(start=0) if paged else
                          [(adapter.list_candidates(first_import=first), None)])
-                for items, offset in pages:
+                page_iterator = iter(pages)
+                while not self.stopping.is_set():
+                    page = next(page_iterator, None)
+                    if page is None:
+                        raise SourceFetchError("listing_incomplete")
+                    items, offset = page
                     with serialized(self.engine) as session:
                         source = self._locked_source(session, work, slug)
                         if source is None:
@@ -383,13 +392,15 @@ class Worker:
                             break
                         run = session.get(SourceRun, run_id)
                         admit_page(session, source, run, items, self.clock(), cursor)
-                        cursor["offset"] = offset or 0
-                        source.collection_cursor = dict(cursor)
+                        if first:
+                            source.collection_cursor = dict(cursor)
                         # Set the successful checkpoint in the same transaction as the last page.
                         if offset is None or first and len(cursor.get("imported", ())) >= FIRST_IMPORT_LIMIT:
                             source.collection_initialized_at = source.collection_initialized_at or self.clock()
                             source.collection_cursor = None
                             break
+                else:
+                    code = "worker_interrupted"
             except LeaseLost:
                 raise
             except Exception as exc:
@@ -401,7 +412,7 @@ class Worker:
             run = session.get(SourceRun, run_id)
             now = self.clock()
             if source:
-                schedule_after_fetch(source, now, success=code is None)
+                schedule_after_fetch(source, now, success=code is None, error=code)
             run.status = "failed" if code else "completed" if run.candidate_count else "no_candidates"
             run.error_code, run.finished_at = code, now
             run.fetch_metrics = {**diagnostics, **run.fetch_metrics}
@@ -692,7 +703,7 @@ def _run_daemon(handle, config, budget):
     engine = make_engine()
     worker = Worker(engine, _client, budget=budget, editions_enabled=True,
                     collect_enabled=config["collection"])
-    stopping = Event()
+    stopping = worker.stopping
 
     def stop(*_):
         stopping.set()
@@ -701,6 +712,7 @@ def _run_daemon(handle, config, budget):
     signal.signal(signal.SIGTERM, stop)
     active = [set() for _ in WORKER_LANES]
     next_tick = 0.0
+    last_tick = None
     daily_slot = None
     try:
         with ThreadPoolExecutor(max_workers=sum(capacity for _, capacity in WORKER_LANES)) as executor:
@@ -711,12 +723,15 @@ def _run_daemon(handle, config, budget):
                         worker.schedule_daily(startup=daily_slot is None)
                         daily_slot = slot
                         _dispatch(worker, executor, active)
-                    if time.monotonic() >= next_tick:
-                        worker.tick(schedule_daily=False)
+                    now = worker.clock()
+                    recover_collection = last_tick is None or now - last_tick > timedelta(minutes=2)
+                    if recover_collection or time.monotonic() >= next_tick:
+                        worker.tick(schedule_daily=False, recover_collection=recover_collection)
                         if next_tick == 0:
                             _write_worker_ready(handle, config)
                             print("worker_ready", flush=True)
                         next_tick = time.monotonic() + 60
+                        last_tick = now
                     if not stopping.is_set():
                         _dispatch(worker, executor, active)
                 except OperationalError:

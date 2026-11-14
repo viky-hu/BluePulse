@@ -10,8 +10,9 @@ from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .ccgp_source import USER_AGENT, _decode
-from .live_sources import BoundedHTTP, SourceFetchError
+from .live_sources import BoundedHTTP, SourceFetchError, parse_time
 from .pipeline import Candidate, canonical_url
+from .source_listing import linked_pages
 
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "wbr"}
@@ -51,9 +52,13 @@ class _ArticleLinks(HTMLParser):
         self.anchor: str | None = None
         self.words: list[str] = []
         self.items: list[tuple[str, str]] = []
+        self.dates: dict[str, str] = {}
+        self.last_article: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
+        if tag == "time" and self.last_article and values.get("datetime"):
+            self.dates.setdefault(self.last_article, values["datetime"])
         if tag in {"h2", "h3"}:
             self.heading = tag
             self.heading_classes = (values.get("class") or "").split()
@@ -74,6 +79,7 @@ class _ArticleLinks(HTMLParser):
             title = " ".join("".join(self.words).split())
             if title:
                 self.items.append((self.anchor, title))
+                self.last_article = self.anchor
             self.anchor = None
         if tag == self.heading:
             self.heading = None
@@ -239,21 +245,66 @@ class BoundedHtmlSourceAdapter:
         except ValueError:
             return None
 
-    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+    def _listing_candidates(self, html, page_url):
         config = self.config
+        links = _ArticleLinks(config)
+        links.feed(html)
+        selected: dict[str, Candidate] = {}
+        for raw_url, title in links.items:
+            url = self._article_url(urljoin(page_url, raw_url))
+            if url:
+                raw = links.dates.get(raw_url, "")
+                exact = parse_time(raw)
+                try:
+                    day = date.fromisoformat(raw) if not exact and len(raw) == 10 else None
+                except ValueError:
+                    day = None
+                selected.setdefault(url, Candidate(url=url, title=title, language="en",
+                                                   published_at=exact, published_date=day))
+        self.diagnostics["listing_links"] += len(selected)
+        return list(selected.values())
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
         self._reset_diagnostics()
         self._policy = None
-        links = _ArticleLinks(config)
-        links.feed(self._fetch(config.listing))
-        selected: dict[str, str] = {}
-        for raw_url, title in links.items:
-            url = self._article_url(urljoin(config.listing, raw_url))
-            if url:
-                selected.setdefault(url, title)
-        self.diagnostics["listing_links"] = len(selected)
-        if not selected:
+        listing = self.config.listing
+        items = self._listing_candidates(self._fetch(listing), listing)
+        if not items:
             raise SourceFetchError("listing_links_missing")
-        return [Candidate(url=url, title=title, language="en") for url, title in selected.items()]
+        return items
+
+    def iter_listing_pages(self, *, start=0):
+        if self.config.link_mode == "h2":
+            self._reset_diagnostics()
+            self._policy = None
+            listing = self.config.listing
+            for items, offset in linked_pages(listing, self._fetch, self._listing_candidates,
+                    lambda parts: not parts.query and re.fullmatch(
+                        r"/biometric-news/law-enforcement/page/[1-9]\d*/?", parts.path), start=start):
+                if not items:
+                    raise SourceFetchError("listing_links_missing")
+                yield items, offset
+        elif self.config.link_mode == "post_h2":
+            items = self.list_candidates()
+            page, seen = 1, set()
+            while items:
+                signature = tuple(item.url for item in items)
+                if signature in seen:
+                    raise SourceFetchError("listing_pagination_stalled")
+                seen.add(signature)
+                if page > start:
+                    yield items, page
+                page += 1
+                url = f"{self.config.listing}page/{page}/"
+                try:
+                    items = self._listing_candidates(self._fetch(url), url)
+                except SourceFetchError as exc:
+                    if exc.code != "http_404":
+                        raise
+                    break
+            yield [], None
+        else:
+            yield self.list_candidates(), None
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         if not self._article_url(candidate.url):

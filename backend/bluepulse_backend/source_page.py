@@ -43,13 +43,20 @@ class SourcePageReader:
         return self.policy
 
     def get(self, url: str, accept: str) -> bytes:
+        self._before_request(url)
+        return self.http.get(url, accept=accept)
+
+    def post_json(self, url: str, payload: dict) -> bytes:
+        self._before_request(url)
+        return self.http.post_json(url, payload)
+
+    def _before_request(self, url: str) -> None:
         if not self.prepare().can_fetch(USER_AGENT, url):
             raise SourceFetchError(self.denied_listing if url == self.listing else "robots_disallowed")
         if getattr(self.http.client, "pulse_host_pace", None):
             self.http.delay_seconds = max(self.http.delay_seconds, self.delay)
         else:
             self.sleeper(self.delay)
-        return self.http.get(url, accept=accept)
 
 
 class IncompleteArticle(SourceFetchError):

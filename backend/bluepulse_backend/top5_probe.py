@@ -10,19 +10,23 @@ from datetime import UTC, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
 from .ccgp_source import CcgpAdapter, USER_AGENT, _Links, _decode
 from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter, SourceFetchError
 from .pipeline import Candidate
+from .source_listing import linked_pages
 from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 
 
 NPCC_LIST = "https://news.npcc.police.uk/releases"
 JIANGSU_LIST = "https://gat.jiangsu.gov.cn/col/col6372/index.html"
 JIANGSU_RECORD = re.compile(r"<record>\s*<!\[CDATA\[(.*?)\]\]>\s*</record>", re.I | re.S)
+JIANGSU_NEXT = re.compile(r'<nextgroup>\s*<!\[CDATA\[\s*<a href="([^"]+)"', re.I)
+JIANGSU_DAY = re.compile(r"(?<!\d)20\d{2}-\d{2}-\d{2}(?!\d)")
+NPCC_DAY = re.compile(r"(?<!\d)\d{1,2} [A-Z][a-z]{2} 20\d{2}(?!\d)")
 JIANGSU_ARTICLE = re.compile(r"/art/\d{4}/\d{1,2}/\d{1,2}/art_6372_\d+\.html")
 NPCC_ARTICLE = re.compile(r"/releases/[a-z0-9-]+")
 TECH = re.compile(r"人工智能|大模型|智能|数智|无人机|机器人|科技|数字|算法|数据|视频|信息化|AI|drone|facial|digital|technology|cyber", re.I)
@@ -115,7 +119,7 @@ class HtmlEvidenceProbe:
         self.item_diagnostics: list[dict] = []
         self.stage = "not_started"
 
-    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+    def _start_listing(self):
         self.diagnostics = {"robots_unavailable": 0, "listing_links": 0,
                             "detail_attempts": 0, "detail_body": 0, "detail_failed": 0}
         self.item_diagnostics = []
@@ -124,23 +128,55 @@ class HtmlEvidenceProbe:
         self.reader.prepare()
         self.diagnostics["robots_unavailable"] = int(self.reader.robots_missing)
         self.stage = "listing"
-        html = _decode(self.reader.get(self.listing, "text/html,application/xhtml+xml;q=0.9"))
+
+    def _read_listing(self, url):
+        return _decode(self.reader.get(url, "text/html,application/xhtml+xml;q=0.9"))
+
+    def _listing_candidates(self, html, page_url):
         fragments = JIANGSU_RECORD.findall(html) if self.kind == "jiangsu" else []
         if self.kind == "jiangsu" and not fragments:
             raise SourceFetchError("listing_records_missing")
-        links: dict[str, tuple[str, str]] = {}
+        links: dict[str, Candidate] = {}
+        language = "en" if self.kind == "npcc" else "zh"
+        date_pattern, date_format = ((NPCC_DAY, "%d %b %Y") if self.kind == "npcc" else (JIANGSU_DAY, "%Y-%m-%d"))
         for fragment in fragments or [html]:
             parser = _Links()
             parser.feed(fragment)
             for raw_url, title, context in parser.items:
-                url = _valid_detail(raw_url, self.listing, self.pattern)
+                url = _valid_detail(raw_url, page_url, self.pattern)
                 if url and url not in links:
-                    links[url] = (title, context)
-        self.diagnostics["listing_links"] = len(links)
+                    match = date_pattern.search(context)
+                    day = None
+                    if match:
+                        try:
+                            day = datetime.strptime(match[0], date_format).date()
+                        except ValueError:
+                            pass
+                    links[url] = Candidate(url=url, title=title, language=language, published_date=day)
+        self.diagnostics["listing_links"] += len(links)
         if not links:
             raise SourceFetchError("listing_links_missing")
-        language = "en" if self.kind == "npcc" else "zh"
-        return [Candidate(url=url, title=title, language=language) for url, (title, _) in links.items()]
+        return list(links.values())
+
+    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        self._start_listing()
+        return self._listing_candidates(self._read_listing(self.listing), self.listing)
+
+    def iter_listing_pages(self, *, start=0):
+        self._start_listing()
+        if self.kind == "npcc":
+            yield from linked_pages(self.listing, self._read_listing, self._listing_candidates,
+                                    lambda parts: parts.path == "/releases" and re.fullmatch(r"page=[1-9]\d*", parts.query),
+                                    start=start)
+        else:
+            def is_archive_page(parts):
+                query = parse_qs(parts.query)
+                return (parts.path == "/module/web/jpage/dataproxy.jsp" and query.get("columnid") == ["6372"]
+                        and query.get("webid") == ["29"] and query.get("unitid") == ["405595"]
+                        and len(query.get("page", [])) == 1 and query["page"][0].isdigit())
+
+            yield from linked_pages(self.listing, self._read_listing, self._listing_candidates, is_archive_page,
+                                    start=start, extra_links=JIANGSU_NEXT.findall)
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         url = candidate.url
@@ -162,7 +198,8 @@ class HtmlEvidenceProbe:
         parsed_date = _date(self.kind, parser)
         return replace(candidate, title=title, body=body,
                        published_at=parsed_date if self.kind == "jiangsu" else None,
-                       published_date=parsed_date.date() if self.kind == "npcc" and parsed_date else None)
+                       published_date=(parsed_date.date() if self.kind == "npcc" and parsed_date
+                                       else candidate.published_date))
 
     def candidates(self) -> list[Candidate]:
         ranked = self.list_candidates()

@@ -156,6 +156,12 @@ class BoundedHTTP:
 
     def get(self, url: str, *, params: dict | None = None,
             accept: str = "application/json, application/rss+xml;q=0.9") -> bytes:
+        return self._request("GET", url, params, accept)
+
+    def post_json(self, url: str, payload: dict) -> bytes:
+        return self._request("POST", url, None, "application/json", payload)
+
+    def _request(self, method, url, params, accept, payload=None):
         parts = urlsplit(url)
         if (parts.scheme != "https" or parts.hostname not in self.allowed_hosts or
                 parts.port not in {None, 443} or parts.username or parts.password):
@@ -163,14 +169,14 @@ class BoundedHTTP:
         pace = getattr(self.client, "pulse_host_pace", None)
         if pace:
             with pace(parts.hostname, self.delay_seconds):
-                return self._read(url, params, accept)
+                return self._read(method, url, params, accept, payload)
         if self.delay_seconds:
             time.sleep(self.delay_seconds)
-        return self._read(url, params, accept)
+        return self._read(method, url, params, accept, payload)
 
-    def _read(self, url, params, accept):
+    def _read(self, method, url, params, accept, payload):
         try:
-            with self.client.stream("GET", url, params=params, follow_redirects=False,
+            with self.client.stream(method, url, params=params, json=payload, follow_redirects=False,
                                     headers={"Accept": accept}) as response:
                 if response.status_code != 200:
                     raise SourceFetchError(f"http_{response.status_code}")

@@ -1,6 +1,7 @@
 """Bounded Singapore Police Force Police Life technology articles."""
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import replace
@@ -9,7 +10,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 from .ccgp_source import USER_AGENT
-from .live_sources import BoundedHTTP, SourceFetchError
+from .live_sources import BoundedHTTP, SourceFetchError, plain_text
 from .pipeline import Candidate, canonical_url
 from .source_images import ArticleImages
 from .source_page import IncompleteArticle, SourcePageReader, bounded_details
@@ -18,6 +19,7 @@ from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 HOST = "www.police.gov.sg"
 ROOT = f"https://{HOST}"
 LISTING = ROOT + "/Media-Hub/Police-Life"
+ARCHIVE = ROOT + "/api/GetLifeArticles"
 ARTICLE_PATH = re.compile(r"/Media-Hub/Police-Life/20\d{2}/\d{2}/[A-Za-z0-9-]+", re.I)
 TOPIC = re.compile(r"digital|cyber|crypto|technology|\bAI\b|artificial|blockchain|drone|robot|data|"
                    r"forensic|scam|innovation", re.I)
@@ -158,6 +160,39 @@ class SpfPoliceLifeAdapter:
             self.diagnostics["topic_matches"] += 1
             candidates.append(Candidate(url=url, title=listed_title, language="en"))
         return candidates
+
+    def iter_listing_pages(self, *, start=0):
+        self.reader.refresh()
+        try:
+            data = json.loads(self.reader.post_json(ARCHIVE, {}))
+            entries = data["items"]
+            total = data["totalItems"]
+            if not isinstance(entries, list) or type(total) is not int or total != len(entries):
+                raise ValueError("incomplete_archive")
+        except (ValueError, TypeError, KeyError) as exc:
+            raise SourceFetchError("invalid_listing_payload") from exc
+        candidates = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise SourceFetchError("invalid_listing_payload")
+            href, raw_title = entry.get("url"), entry.get("title")
+            if not isinstance(href, str) or not isinstance(raw_title, str):
+                continue
+            url = urljoin(LISTING, href)
+            if not self._valid_article(url):
+                continue
+            title = plain_text(raw_title, max_chars=500)
+            summary = entry.get("description")
+            summary = plain_text(summary, max_chars=1000) if isinstance(summary, str) else None
+            if not TOPIC.search(f"{title} {urlsplit(url).path} {summary or ''}"):
+                continue
+            try:
+                day = datetime.strptime(entry.get("date"), "%d %b %Y").date()
+            except (ValueError, TypeError):
+                day = None
+            candidates.append(Candidate(url=url, title=title, summary=summary, published_date=day, language="en"))
+        self.diagnostics = {"listing_links": total, "topic_matches": len(candidates), "coverage": "archive"}
+        yield candidates, None
 
     @staticmethod
     def _valid_article(url: str) -> bool:
