@@ -247,3 +247,47 @@ def test_transient_listing_and_detail_failures_are_retried(tmp_path):
         admit_page(session, source, run, rows, NOW + timedelta(hours=1), {})
         assert (jobs["failed"].status, jobs["failed"].attempts) == ("pending", 0)
         assert (jobs["denied"].status, jobs["denied"].attempts) == ("done", 3)
+
+
+def test_dated_archive_scan_finishes_after_complete_older_page(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    slug = "biometric-update-law-enforcement"
+    spec = SOURCES[slug]
+
+    class Adapter:
+        listing_newest_first = True
+
+        def iter_listing_pages(self, *, start=0):
+            def item(key, days, body):
+                return Candidate(f"https://{spec.host}/202611/{key}", key,
+                                 published_at=NOW - timedelta(days=days), body=body)
+
+            yield [item("older-pinned", 12, "A long article. " * 30),
+                   item("missed", 3, "A different article. " * 30)], 1
+            yield [item("last-in-window", 8, "More news. " * 30),
+                   item("below-window", 10, "Another long article. " * 30)], 2
+            yield [item("archive-only", 11, "Archived news. " * 30)], 3
+            raise AssertionError("the dated page already covers the end of the window")
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'dated-archive.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = ensure_source(session, spec)
+        source.collection_initialized_at = NOW - timedelta(days=7)
+        session.commit()
+
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: NOW,
+                                  slugs=[slug], collect_enabled=True)
+    worker.tick(recover_collection=True)
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        run = session.scalar(select(SourceRun))
+        job = session.scalar(select(WorkItem).where(WorkItem.kind == "collect"))
+        assert run.status == "completed", (job.error, run.fetch_metrics)
+        assert run.fetch_metrics["coverage"] == "publication_window"
+        assert set(session.scalars(select(Material.source_title))) == {"missed", "last-in-window"}

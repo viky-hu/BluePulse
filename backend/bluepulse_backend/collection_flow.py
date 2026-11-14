@@ -44,6 +44,15 @@ def _before(item, cutoff):
     return bool(item.published_date and item.published_date < cutoff.date())
 
 
+def admission_floor(source):
+    initialized = source.collection_initialized_at
+    return utc(initialized) - STALE_ON_DISCOVERY if initialized else None
+
+
+def page_precedes_floor(items, floor):
+    return bool(floor and items and all(_before(item, floor) for item in items))
+
+
 def _lookup(session, url):
     return session.scalar(select(Material).where(Material.canonical_url == url))
 
@@ -68,7 +77,8 @@ def _merge(item, previous, *, listing):
 
 
 def admit_page(session, source, run, candidates, now, cursor):
-    first = source.collection_initialized_at is None
+    floor = admission_floor(source)
+    first = floor is None
     imported = set(cursor.get("imported", ()))
     unique = {}
     metrics = dict(run.fetch_metrics or {})
@@ -94,7 +104,7 @@ def admit_page(session, source, run, candidates, now, cursor):
             if len(imported) >= FIRST_IMPORT_LIMIT or not previous and _before(item, now - FIRST_IMPORT_AGE):
                 continue
             imported.add(url)
-        elif not previous and _before(item, utc(source.collection_initialized_at) - STALE_ON_DISCOVERY):
+        elif not previous and _before(item, floor):
             metrics["history_skipped"] = metrics.get("history_skipped", 0) + 1
             continue
 
@@ -131,7 +141,8 @@ def admit_page(session, source, run, candidates, now, cursor):
             existing = session.scalar(select(WorkItem).where(WorkItem.kind == "extract", WorkItem.identity == identity))
             retry = (existing is not None and existing.status in {"done", "failed"}
                      and ((existing.result or {}).get("error") or existing.error) in TRANSIENT_FETCH_ERRORS)
-            if not retry and (existing is not None or material and material.collection_state == "unconfirmed" and not changed):
+            blocked = material and material.collection_state == "unconfirmed" and not changed
+            if not retry and (existing is not None or blocked):
                 continue
             payload = {
                 "slug": source.slug, "url": url, "candidate": listing, "listing_hash": listing_hash,

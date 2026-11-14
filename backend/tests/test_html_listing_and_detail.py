@@ -130,3 +130,27 @@ def test_worker_adapters_follow_the_published_archive_link(kind, host, listing, 
         pages = [items for items, _ in adapter.iter_listing_pages()]
     assert visited == [listing, next_page]
     assert [items[0].url for items in pages] == [f"https://{host}{path}" for path in paths]
+
+
+def test_pds_dates_belong_to_the_same_article_and_self_closing_images_keep_body():
+    body = "The police service tested a documented digital evidence workflow. " * 12
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        if request.url.path == "/welcome/blog/":
+            return httpx.Response(200, text=(
+                '<article><time datetime="2026-11-08"></time><h2 class="post-title">'
+                '<a href="/one/">One</a></h2></article>'
+                '<article><h2 class="post-title"><a href="/two/">Two</a></h2></article>'
+                '<article><time datetime="2021-11-07"></time><h2 class="post-title">'
+                '<a href="/three/">Three</a></h2></article>'))
+        assert request.url.path == "/one/"
+        return httpx.Response(200, text=f'<h1>One</h1><div class="entry-content"><p><img src="/image.jpg" /></p><p>{body}</p></div>')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = BoundedHtmlSourceAdapter(BoundedHTTP(client, allowed_hosts={"pds.police.uk"}),
+                                           kind="pds", sleeper=lambda _: None)
+        listed = adapter.list_candidates()
+        assert [item.published_date for item in listed] == [date(2026, 11, 8), None, date(2021, 11, 7)]
+        assert adapter.fetch_detail(listed[0]).body == body.strip()

@@ -54,11 +54,16 @@ class _ArticleLinks(HTMLParser):
         self.items: list[tuple[str, str]] = []
         self.dates: dict[str, str] = {}
         self.last_article: str | None = None
+        self.card_date: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
-        if tag == "time" and self.last_article and values.get("datetime"):
-            self.dates.setdefault(self.last_article, values["datetime"])
+        if tag == "time" and (raw_date := values.get("datetime")):
+            if self.config.link_mode == "post_h2":
+                self.card_date = raw_date
+            elif self.last_article:
+                self.dates.setdefault(self.last_article, raw_date)
+                self.last_article = None
         if tag in {"h2", "h3"}:
             self.heading = tag
             self.heading_classes = (values.get("class") or "").split()
@@ -80,10 +85,15 @@ class _ArticleLinks(HTMLParser):
             if title:
                 self.items.append((self.anchor, title))
                 self.last_article = self.anchor
+                if self.card_date:
+                    self.dates.setdefault(self.anchor, self.card_date)
+                    self.card_date = None
             self.anchor = None
         if tag == self.heading:
             self.heading = None
             self.heading_classes = []
+        if tag == "article":
+            self.last_article = self.card_date = None
 
 
 class _Detail(HTMLParser):
@@ -146,6 +156,8 @@ class _Detail(HTMLParser):
             self.date_parts.append(data)
 
     def handle_endtag(self, tag: str) -> None:
+        if tag in VOID:
+            return
         if self.skip_depth:
             self.skip_depth -= 1
             return
@@ -202,6 +214,7 @@ class BoundedHtmlSourceAdapter:
         if kind not in SITES or not 1 <= max_items <= 5:
             raise ValueError("invalid_html_source_configuration")
         self.http, self.config, self.max_items, self.sleeper = http, SITES[kind], max_items, sleeper
+        self.listing_newest_first = kind == "biometric"
         self._policy: RobotFileParser | None = None
         self._delay = 0.0
         self._reset_diagnostics()

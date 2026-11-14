@@ -21,8 +21,8 @@ from . import editorial, grouping
 from .admin_models import AdminContentOverride, AdminModelSetting
 from .ccgp_source import USER_AGENT
 from .collection_flow import (DETAIL_MAX_ATTEMPTS, DETAIL_RETRY, FIRST_IMPORT_LIMIT, adapt_intervals,
-                              admit_page, apply_detail, detail_is_current, schedule_after_fetch,
-                              schedule_due_sources, unpack)
+                              admission_floor, admit_page, apply_detail, detail_is_current,
+                              page_precedes_floor, schedule_after_fetch, schedule_due_sources, unpack)
 from .db import database_url, make_engine
 from .editorial_models import PaidAttempt, Story, WorkItem
 from .live_model import ProviderRejected, load_local_credentials, model_listed
@@ -369,12 +369,14 @@ class Worker:
             run_id = run.id
             saved_cursor = source.collection_cursor or {}
             cursor = {"imported": saved_cursor.get("imported", [])}
-            first = source.collection_initialized_at is None
+            floor = admission_floor(source)
+            first = floor is None
         code = None
         with self._source_client() as client:
             adapter = build_adapter(SOURCES[slug], client, max_items=2)
             try:
                 paged = getattr(adapter, "iter_listing_pages", None)
+                date_ordered = getattr(adapter, "listing_newest_first", False)
                 # Offsets into mutable listings are unsafe after a failure or shutdown.
                 # Previously committed material and extraction jobs make replay idempotent.
                 pages = (paged(start=0) if paged else
@@ -394,8 +396,11 @@ class Worker:
                         admit_page(session, source, run, items, self.clock(), cursor)
                         if first:
                             source.collection_cursor = dict(cursor)
+                        covered_window = date_ordered and page_precedes_floor(items, floor)
+                        if covered_window:
+                            run.fetch_metrics = {**run.fetch_metrics, "coverage": "publication_window"}
                         # Set the successful checkpoint in the same transaction as the last page.
-                        if offset is None or first and len(cursor.get("imported", ())) >= FIRST_IMPORT_LIMIT:
+                        if covered_window or offset is None or first and len(cursor.get("imported", ())) >= FIRST_IMPORT_LIMIT:
                             source.collection_initialized_at = source.collection_initialized_at or self.clock()
                             source.collection_cursor = None
                             break
