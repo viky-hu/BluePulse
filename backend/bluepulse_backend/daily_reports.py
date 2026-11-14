@@ -5,45 +5,29 @@ Copyright (c) 2026 数字生命卡兹克. MIT. See THIRD_PARTY_NOTICES.md.
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta
 from math import floor, log2
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session, joinedload
 
-from . import publication
-from .edition_evidence import current_signals, public_at, story_reports, timeline_at, title_of, utc
+from .daily_inputs import BEIJING, DAY, RECOVERY_WINDOW, daily_inputs, daily_window, edition_key
+from .edition_evidence import _participant_key, public_at, story_reports, timeline_at, title_of, utc
 from .edition_models import DailyIssue, DailyIssueRevision
 from .editorial_models import FactMention, Story
-from .models import FactGroup, FactReport, Material, now_utc
+from .models import FactGroup, FactReport, Material, SourceRun, now_utc
 
 
-BEIJING = timezone(timedelta(hours=8))
-DAY = timedelta(days=1)
 MAIN_LIMIT = 12
-FLASH_LIMIT = 10
 SOURCE_LIMIT = 2
 INDEX_LIMIT = 400
-VERSION = "daily-v1-rule-based"
+VERSION = "daily-v2-collection"
 SECTIONS = {
     "product": "产品发布与更新", "practice": "警务实战应用", "paper": "论文研究进展",
     "law": "法制政策动态", "embodied": "具身智能装备", "public-opinion": "舆情治理观察",
     "low-altitude": "低空警务应用", "other": "其它警务科技", "unclassified": "其他警务科技",
 }
-JUDGED = {"qualified", "below_threshold", "uncalibrated", "complete"}
-
-
-class DailyUnjudged(ValueError):
-    """There is no completed upstream editorial judgement in the issue's window."""
-
-
-def daily_window(key: str) -> tuple[datetime, datetime]:
-    day = date.fromisoformat(key)
-    if day.isoformat() != key:
-        raise ValueError("invalid_daily_date")
-    end = datetime.combine(day, time(8), BEIJING).astimezone(UTC)
-    return end - DAY, end
 
 
 @dataclass(slots=True)
@@ -52,7 +36,6 @@ class FactCandidate:
     reports: list[tuple[Material, FactGroup | None]]
     coverage: dict[str, int]
     sources: set[str]
-    selected: bool
 
 
 @dataclass(slots=True)
@@ -104,96 +87,17 @@ def _memory(session: Session, key: str) -> tuple[set[str], dict[str, str]]:
     return facts, stories
 
 
-def _coverage(session: Session, fact_ids: set[str], cutoff: datetime) -> dict[str, list[Material]]:
-    rows = session.execute(
-        select(FactReport.fact_id, Material).options(joinedload(Material.source))
-        .join(Material, and_(FactReport.material_id == Material.id, FactReport.revision == Material.revision))
-        .where(FactReport.fact_id.in_(fact_ids), FactReport.relation.in_(("primary", "report")),
-               Material.grouping_status == "complete")
-    )
-    result = defaultdict(list)
-    for fact_id, item in rows:
-        if (item.source.participation_mode == "editorial" and item.editorial_scope != "composite"
-                and timeline_at(item) < cutoff and public_at(item, cutoff - timedelta(microseconds=1))):
-            result[fact_id].append(item)
-    return result
-
-
-def _fact_rows(session: Session, start: datetime, end: datetime):
-    timeline = func.coalesce(Material.published_at, Material.published_sort_at, Material.first_seen_at)
-    query = (
-        select(Material, FactGroup).options(joinedload(Material.source))
-        .outerjoin(FactReport, and_(FactReport.material_id == Material.id, FactReport.revision == Material.revision,
-                                   FactReport.relation.in_(("primary", "report"))))
-        .outerjoin(FactGroup, FactGroup.id == FactReport.fact_id)
-        .where(Material.timeline_kind == "fresh", Material.backfill_reason.is_(None),
-               Material.public.is_(True), Material.withdrawn.is_(False),
-               timeline >= start - DAY, timeline < end)
-    )
-    cutoff = end - timedelta(microseconds=1)
-    return [(article, fact if article.editorial_scope != "composite" else None)
-            for article, fact in session.execute(query)
-            if article.source.participation_mode == "editorial" and public_at(article, cutoff)]
-
-
-def _report_groups(session: Session, start: datetime, end: datetime):
-    from .reading import representative_key
-
-    rows = _fact_rows(session, start, end)
+def _report_groups(rows):
     picked = defaultdict(list)
-    selected_count = 0
-    judged = 0
+    participants = defaultdict(set)
     for article, fact in rows:
-        timeline = timeline_at(article)
-        if (start <= timeline and article.editorial_revision == article.revision
-                and article.selection_status in JUDGED):
-            judged += 1
-        if article.selected_at is None or not publication.selected(article, at=end):
-            continue
-        # The issue observes the later of source time, arrival, and actual release/confirmation.
-        times = (article.first_seen_at, article.published_public_at, article.visible_after, article.selected_at)
-        assigned = max(timeline, *(utc(moment) for moment in times if moment is not None))
-        if start <= assigned < end:
-            picked[fact.id if fact else f"a:{article.id}"].append((article, fact))
-            selected_count += 1
-
-    signals = current_signals(session, start - DAY, end, visible_at=end - timedelta(microseconds=1))
-    by_fact, by_story = defaultdict(list), defaultdict(set)
-    for signal in signals:
-        if signal.fact_id and signal.at < end:
-            by_fact[signal.fact_id].append(signal)
-        if start <= signal.at < end:
-            by_story[signal.story_id].add(signal.participant)
-
-    possible = {}
-    for article, fact in rows:
-        if fact and article.grouping_status == "complete" and start <= timeline_at(article) < end:
-            possible[fact.id] = fact
-    fact_ids = set(possible) | {key for key in picked if not key.startswith("a:")}
-    coverage = _coverage(session, fact_ids, end)
-    fillins = set()
-    for fact_id, fact in possible.items():
-        if fact_id in picked or utc(fact.anchor_at) < start - DAY:
-            continue
-        members = coverage[fact_id]
-        if any(article.selected_at is not None and utc(article.selected_at) < end
-               and publication.selected(article, at=end) for article in members):
-            continue
-        independent = {signal.participant for signal in by_fact[fact_id]}
-        eligible = [article for article in members if article.source.tier != "EXCLUDE_MP"]
-        if (len(independent) >= 3 and eligible
-                and any(representative_key(article, fact)[0] < 3 for article in eligible)):
-            picked[fact_id] = [(article, fact) for article in eligible]
-            fillins.add(fact_id)
-
-    facts = []
-    for key, members in picked.items():
-        cited = {article.id: article.revision for article in coverage[key]}
-        cited.update({article.id: article.revision for article, _ in members})
-        facts.append(FactCandidate(key, members, cited,
-                                   {article.source_id for article in coverage[key]}
-                                   | {article.source_id for article, _ in members}, key not in fillins))
-    return facts, by_story, judged, selected_count
+        picked[fact.id if fact else f"a:{article.id}"].append((article, fact))
+        if fact and fact.story_id:
+            participants[fact.story_id].add(_participant_key(article.source))
+    return [FactCandidate(key, members,
+                          {article.id: article.revision for article, _ in members},
+                          {article.source_id for article, _ in members})
+            for key, members in picked.items()], participants
 
 
 def _citation(article: Material, fact: FactGroup | None, coverage: dict[str, int]) -> dict:
@@ -203,7 +107,7 @@ def _citation(article: Material, fact: FactGroup | None, coverage: dict[str, int
         "factId": fact.id if fact else None, "storyId": fact.story_id if fact else None,
         "title": title_of(article), "summary": article.zh_summary or "",
         "sourceId": article.source_id, "sourceUrl": article.source_url,
-        "publishedAt": timeline_at(article).isoformat(),
+        "publishedAt": utc(article.published_at).isoformat() if article.published_at else None,
         "category": category, "coverage": coverage,
     }
 
@@ -222,10 +126,10 @@ def _mentioned_stories(session: Session, ids: set[str]) -> dict[str, set[str]]:
     return by_article
 
 
-def _ranked_entries(session: Session, key: str, start: datetime, end: datetime):
+def _ranked_entries(session: Session, key: str, rows):
     from .reading import representative_key
 
-    facts, participants, judged, selected = _report_groups(session, start, end)
+    facts, participants = _report_groups(rows)
     seen, previous_stories = _memory(session, key)
     events = defaultdict(list)
     for fact in facts:
@@ -251,8 +155,7 @@ def _ranked_entries(session: Session, key: str, start: datetime, end: datetime):
         previous = previous_stories.get(story_id)
         if previous:
             citation["followUp"] = previous
-        score = max(article.importance_score, *(item.importance_score
-                    for fact in event if fact.selected for item, _ in fact.reports), 0)
+        score = max(item.importance_score for fact in event for item, _ in fact.reports)
         authority = representative_key(article, group)[0]
         official = any(representative_key(item, fact)[0] < 3 for member in event for item, fact in member.reports)
         voices = len(participants.get(story_id) or source_ids)
@@ -260,7 +163,7 @@ def _ranked_entries(session: Session, key: str, start: datetime, end: datetime):
         mentions = set().union(*(mention_by_article[item.id] for member in event for item, _ in member.reports))
         result.append(DailyCandidate(citation, story_id, mentions, source_ids, authority, importance))
     result.sort(key=lambda entry: (-entry.importance, entry.citation["itemId"]))
-    return result, {"judgedReports": judged, "selectedReports": selected, "events": len(result)}
+    return result
 
 
 def _arrange(entries: list[DailyCandidate]) -> tuple[list[dict], list[dict]]:
@@ -292,41 +195,61 @@ def _arrange(entries: list[DailyCandidate]) -> tuple[list[dict], list[dict]]:
         if len(main) < MAIN_LIMIT and quotas[source] < SOURCE_LIMIT and (not any_earned or earned(entry)):
             main.append(entry.citation)
             quotas[source] += 1
-        elif len(flashes) < FLASH_LIMIT:
+        else:
             flashes.append(entry.citation)
     return main, flashes
 
 
-def _quiet_lead(start: datetime, end: datetime) -> dict[str, str]:
+def _empty_lead(start: datetime, end: datetime, coverage: str | None) -> dict[str, str]:
     start, end = start.astimezone(BEIJING), end.astimezone(BEIJING)
+    window = (f"{start.month} 月 {start.day} 日 08:00 至 {end.month} 月 {end.day} 日 08:00，")
     return {
-        "title": "警务科技动态平静",
-        "leadParagraph": f"{start.month} 月 {start.day} 日 08:00 至 {end.month} 月 {end.day} 日 08:00，"
-                         "本刊已完成资讯研判，暂无需要进入日报的重大进展。",
+        "title": "本期资讯待补" if coverage else "警务科技动态平静",
+        "leadParagraph": window + (coverage or "本期采集与研判已完成，暂无可刊资讯。"),
     }
+
+
+def _coverage_note(stats):
+    notes = []
+    if stats["pendingReports"]:
+        notes.append(f'{stats["pendingReports"]} 篇稿件仍待处理或公开。')
+    if not stats["sourcesExpected"] or stats["sourcesCovered"] < stats["sourcesExpected"]:
+        notes.append(f'截止前两小时，{stats["sourcesCovered"]}/{stats["sourcesExpected"]} 个编辑信源完成采集。')
+    return "".join(notes) or None
+
+
+def prepare_daily(session: Session, key: str, now: datetime):
+    start, end = daily_window(key)
+    if end > now:
+        raise ValueError("daily_not_due")
+    rows, candidates, stats = daily_inputs(session, start, end, now)
+    ranked = _ranked_entries(session, key, rows)
+    main, flashes = _arrange(ranked)
+    coverage = _coverage_note(stats)
+    content = {"main": main, "flashes": flashes, "coverageNote": coverage,
+               "quietLead": _empty_lead(start, end, coverage) if not main else None,
+               "generator": {"version": VERSION, "eligibleReports": len(rows), "events": len(ranked), **stats}}
+    return content, candidates
 
 
 def compose_daily(
     session: Session, key: str, *, now: datetime | None = None, reason: str | None = None,
-    actor: str | None = None, expected_version: int | None = None, commit: bool = True,
+    actor: str | None = None, expected_version: int | None = None, commit: bool = True, refresh: bool = False,
 ) -> dict:
     now = utc(now or now_utc())
     start, end = daily_window(key)
     if end > now:
         raise ValueError("daily_not_due")
     issue = session.get(DailyIssue, key)
-    if issue is not None and reason is None:
-        return {"key": key, "entries": len(issue.content["main"]), "written": False, "version": issue.version}
-    if reason is not None and (not reason.strip() or not actor or not actor.strip()):
+    if (reason is not None or actor is not None) and (not reason or not reason.strip() or not actor or not actor.strip()):
         raise ValueError("daily_correction_requires_actor_and_reason")
     if expected_version is not None and (issue is None or issue.version != expected_version):
         raise ValueError("daily_version_changed")
-    ranked, stats = _ranked_entries(session, key, start, end)
-    if not ranked and not stats["judgedReports"]:
-        raise DailyUnjudged("daily_nothing_judged")
-    main, flashes = _arrange(ranked)
-    content = {"main": main, "flashes": flashes, "quietLead": _quiet_lead(start, end) if not main else None,
-               "generator": {"version": VERSION, **stats}}
+    if issue is not None and reason is None and not refresh:
+        return _compose_result(issue.key, issue.content, issue.version, False)
+    content, _ = prepare_daily(session, key, now)
+    if issue is not None and issue.content == content:
+        return _compose_result(issue.key, issue.content, issue.version, False)
     written = True
     next_version = 1
     if issue is None:
@@ -341,13 +264,19 @@ def compose_daily(
         if not changed:
             raise ValueError("daily_version_changed")
         session.add(DailyIssueRevision(issue_key=key, version=version, generated_at=generated_at,
-                                       corrected_at=now, actor=actor.strip(), reason=reason.strip(),
+                                       corrected_at=now, actor=actor.strip() if actor else "worker",
+                                       reason=reason.strip() if reason else "补入已完成采集或研判的资讯",
                                        content=old_content))
     if commit:
         session.commit()
     else:
         session.flush()
-    return {"key": key, "entries": len(main), "written": written, "version": next_version}
+    return _compose_result(key, content, next_version, written)
+
+
+def _compose_result(key, content, version, written):
+    return {"key": key, "entries": len(content["main"]), "written": written, "version": version,
+            "pending": bool(content.get("coverageNote"))}
 
 
 def compose_due_reports(session: Session, now: datetime | None = None, limit: int = 8, *,
@@ -355,24 +284,36 @@ def compose_due_reports(session: Session, now: datetime | None = None, limit: in
     now = utc(now or now_utc())
     local = now.astimezone(BEIJING)
     due = local.date() if local.hour >= 8 else local.date() - DAY
-    have = set(session.scalars(select(DailyIssue.key)))
-    key = date.fromisoformat(min(have)) if have else due
+    have = {row.key: row.content.get("generator", {}).get("version") == VERSION
+            for row in session.scalars(select(DailyIssue))}
+    # With no issues, use the first recorded collection day as the service start.
+    first_run = session.scalar(select(func.min(SourceRun.started_at)))
+    first_covered = date.fromisoformat(edition_key(first_run)) if first_run else None
+    key = min([due, *(date.fromisoformat(label) for label in have), *([first_covered] if first_covered else [])])
     if retry_from:
-        key = min(key, date.fromisoformat(retry_from))
-    generated, failed = [], []
-    while key <= due and len(generated) < limit:
+        retry = date.fromisoformat(retry_from)
+        key = min(key, max(retry, first_covered) if first_covered else retry)
+    session.rollback()
+    generated, updated, pending, failed = [], [], [], []
+    errors = {}
+    while key <= due and len(generated) + len(updated) < limit:
         label = key.isoformat()
-        if label not in have:
+        if label not in have or (have[label] and due - key <= RECOVERY_WINDOW):
             try:
-                result = compose_daily(session, label, now=now)
-            except DailyUnjudged:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                result = compose_daily(session, label, now=now, refresh=label in have)
+                session.commit()
+            except Exception as exc:
                 session.rollback()
                 failed.append(label)
+                errors[label] = type(exc).__name__
             else:
+                if result["pending"]:
+                    pending.append(label)
                 if result["written"]:
-                    generated.append(label)
+                    (updated if label in have else generated).append(label)
         key += DAY
-    return {"generated": generated, "failed": failed}
+    return {"generated": generated, "updated": updated, "pending": pending, "failed": failed, "errors": errors}
 
 
 def _current_materials(session: Session, ids: set[str]) -> dict[str, Material]:
@@ -458,7 +399,8 @@ def load_daily(session: Session, key: str, now: datetime | None = None) -> dict 
     cover = None
     lead = issue.content["quietLead"]
     if raw_lead is not None:
-        lead = {"title": raw_lead["title"], "leadParagraph": raw_lead["summary"]}
+        lead = {"title": raw_lead["title"], "leadParagraph": " ".join(filter(None, (
+            raw_lead["summary"], issue.content.get("coverageNote"))))}
         cover = _lead_cover(session, current[raw_lead["itemId"]], now)
     main = issue.content["main"]
     projected = [_public_citation(raw, current, now) for raw in main]

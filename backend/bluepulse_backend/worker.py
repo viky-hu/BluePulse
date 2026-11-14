@@ -99,8 +99,10 @@ class Worker:
         self._hosts_lock = Lock()
         self._hosts = {}
 
-    def tick(self):
+    def tick(self, *, schedule_daily=True):
         now = self.clock()
+        if schedule_daily:
+            self.schedule_daily()
         recover_receipts(self.engine, now)
         with serialized(self.engine) as session:
             if self.collect_enabled:
@@ -207,9 +209,18 @@ class Worker:
     @staticmethod
     def _schedule_editions(session, now):
         epoch = int(now.timestamp())
-        for kind, seconds in (("hot", 300), ("heat", 3600), ("daily", 1800), ("featured", 300)):
+        for kind, seconds in (("hot", 300), ("heat", 3600), ("featured", 300)):
             enqueue(session, kind, str(epoch // seconds), {}, now)
         enqueue(session, "digest_sweep", str(epoch // 300), {}, now)
+
+    def schedule_daily(self, *, startup=False):
+        if not self.editions_enabled:
+            return
+        now = self.clock()
+        with serialized(self.engine) as session:
+            job = enqueue(session, "daily", str(int(now.timestamp()) // 1800), {}, now)
+            if startup and job.status in {"done", "failed"}:
+                enqueue(session, "daily", f"startup:{now.isoformat()}", {}, now)
 
     @contextmanager
     def _heartbeat(self, work):
@@ -249,7 +260,9 @@ class Worker:
         try:
             with self._heartbeat(work):
                 result = self._execute(work)
-            error = "daily_nothing_judged" if work.kind == "daily" and result["failed"] else None
+            if work.kind == "daily":
+                result["finishedAt"] = self.clock().isoformat()
+            error = "daily_compose_failed" if work.kind == "daily" and result["failed"] else None
             finish(self.engine, work, self.clock(), result=result, error=error)
         except LeaseLost:
             pass
@@ -301,12 +314,13 @@ class Worker:
         from .hotspots import compute_hot_ranking, snapshot_heat
 
         if work.kind == "daily":
+            started = self.clock()
             with Session(self.engine) as session:
                 previous = session.scalar(select(WorkItem.result).where(
-                    WorkItem.kind == "daily", or_(WorkItem.status == "done", WorkItem.error == "daily_nothing_judged"),
+                    WorkItem.kind == "daily", WorkItem.status.in_(("done", "failed")), WorkItem.result.is_not(None),
                 ).order_by(WorkItem.due_at.desc(), WorkItem.id).limit(1))
                 retry_from = min((previous or {}).get("failed", []), default=None)
-                return compose_due_reports(session, self.clock(), retry_from=retry_from)
+                return {"startedAt": started.isoformat(), **compose_due_reports(session, started, retry_from=retry_from)}
         handler = {"hot": compute_hot_ranking, "heat": snapshot_heat,
                    "featured": lambda session, now: create_confirmed_featured(session, now=now)}[work.kind]
         with Session(self.engine) as session:
@@ -644,10 +658,11 @@ def _worker_ready(config):
 
 
 WORKER_LANES = (
+    ({"daily"}, 1),
     ({"collect"}, 8),
     ({"extract"}, 4),
     ({"analyze"}, 6),
-    ({"group", "translate", "digest", "digest_sweep", "hot", "heat", "daily", "featured"}, 1),
+    ({"group", "translate", "digest", "digest_sweep", "hot", "heat", "featured"}, 1),
 )
 
 
@@ -686,12 +701,18 @@ def _run_daemon(handle, config, budget):
     signal.signal(signal.SIGTERM, stop)
     active = [set() for _ in WORKER_LANES]
     next_tick = 0.0
+    daily_slot = None
     try:
         with ThreadPoolExecutor(max_workers=sum(capacity for _, capacity in WORKER_LANES)) as executor:
             while not stopping.is_set():
                 try:
+                    slot = int(worker.clock().timestamp()) // 1800
+                    if slot != daily_slot:
+                        worker.schedule_daily(startup=daily_slot is None)
+                        daily_slot = slot
+                        _dispatch(worker, executor, active)
                     if time.monotonic() >= next_tick:
-                        worker.tick()
+                        worker.tick(schedule_daily=False)
                         if next_tick == 0:
                             _write_worker_ready(handle, config)
                             print("worker_ready", flush=True)

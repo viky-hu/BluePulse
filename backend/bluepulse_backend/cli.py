@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+import json
 from pathlib import Path
 import sqlite3
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
 
 from .db import database_url, make_engine, make_session_factory
 from .models import Topic
@@ -132,13 +134,64 @@ def initialize(*, local_live: bool = False) -> None:
     sync_sources(local_live=local_live)
 
 
+def daily_range(start: date, end: date, *, execute: bool, reason: str | None):
+    from .admin_security import audit
+    from .daily_reports import compose_daily, daily_window, prepare_daily
+    from .edition_models import DailyIssue
+
+    now = datetime.now(UTC)
+    if start > end or daily_window(end.isoformat())[1] > now:
+        raise ValueError("daily_range_not_due")
+    if execute and not (reason or "").strip():
+        raise ValueError("daily_correction_requires_reason")
+    path = _database_file()
+    if path is None:
+        raise ValueError("daily_requires_existing_sqlite_database")
+    engine = make_engine() if execute else create_engine(
+        "sqlite://", creator=lambda: sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30))
+    try:
+        for offset in range((end - start).days + 1):
+            key = (start + timedelta(days=offset)).isoformat()
+            if not execute:
+                with Session(engine) as session:
+                    content, candidates = prepare_daily(session, key, now)
+                print(json.dumps({"key": key, "main": len(content["main"]), "flashes": len(content["flashes"]),
+                                  **content["generator"], "candidates": candidates}, ensure_ascii=False))
+                continue
+            with serialized(engine) as session:
+                issue = session.get(DailyIssue, key)
+                previous = issue.version if issue else None
+                result = compose_daily(session, key, now=now, reason=reason, actor="maintenance",
+                                       expected_version=previous, commit=False)
+                if result["written"]:
+                    audit(session, "daily.correct" if issue else "daily.recover", f"daily:{key}", reason=reason,
+                          changes={"before": previous, "after": result["version"]})
+            print(json.dumps(result, ensure_ascii=False))
+    finally:
+        engine.dispose()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Blue Pulse backend local setup")
-    parser.add_argument("command", choices=["migrate", "sync-taxonomy", "sync-sources", "initialize", "backup"])
+    parser.add_argument("command", choices=["migrate", "sync-taxonomy", "sync-sources", "initialize", "backup", "daily-range"])
     parser.add_argument("--local-live", action="store_true", help="apply the approved local publication defaults")
+    parser.add_argument("--from-date", type=date.fromisoformat)
+    parser.add_argument("--through-date", type=date.fromisoformat)
+    parser.add_argument("--execute", action="store_true", help="write or revise daily editions")
+    parser.add_argument("--reason", help="audit reason for a daily maintenance run")
     args = parser.parse_args()
     if args.local_live and args.command != "initialize":
         parser.error("--local-live requires initialize")
+    if args.command == "daily-range":
+        if args.from_date is None or args.through_date is None:
+            parser.error("daily-range requires --from-date and --through-date")
+        try:
+            daily_range(args.from_date, args.through_date, execute=args.execute, reason=args.reason)
+        except ValueError as exc:
+            parser.error(str(exc))
+        return
+    if any((args.from_date, args.through_date, args.execute, args.reason)):
+        parser.error("daily range options require daily-range")
     if args.command == "migrate":
         migrate()
     elif args.command == "sync-taxonomy":

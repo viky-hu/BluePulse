@@ -373,7 +373,10 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
                 "pending_due": due_count, "unknown_receipts": unknown_count,
                 "jobs": [{"id": row.id, "kind": row.kind, "status": row.status, "attempts": row.attempts,
                           "error": row.error, "due_at": row.due_at,
-                          **({"failed_editions": (row.result or {}).get("failed", [])} if row.kind == "daily" else {})}
+                          **({"failed_editions": (row.result or {}).get("failed", []),
+                              "pending_editions": (row.result or {}).get("pending", []),
+                              "generated_editions": (row.result or {}).get("generated", []),
+                              "updated_editions": (row.result or {}).get("updated", [])} if row.kind == "daily" else {})}
                          for row in jobs],
                 "receipts": [{"key": row.key, "subject": row.subject, "purpose": row.purpose, "status": row.status,
                               "attempts": row.latest_attempt, "updated_at": row.updated_at, "error": attempt.error,
@@ -468,7 +471,7 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
 
     @router.post("/admin/daily/{key}/correct", dependencies=protected)
     def daily_correct(key: date, body: DailyCorrection, session: Session = Depends(session_dep)):
-        from .daily_reports import DailyUnjudged, compose_daily
+        from .daily_reports import compose_daily
         from .edition_models import DailyIssue
 
         why = reason(body)
@@ -480,10 +483,11 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
         try:
             issue = compose_daily(session, day, reason=why, actor=ACTOR,
                                   expected_version=body.version, commit=False)
-        except (DailyUnjudged, ValueError) as exc:
+        except ValueError as exc:
             raise error(409, "daily_unavailable", "刊期无法订正，检查分析和归组状态。") from exc
         version = issue["version"]
-        audit(session, "daily.correct", f"daily:{day}", reason=why,
-              changes={"before": body.version, "after": version})
+        if issue["written"]:
+            audit(session, "daily.correct", f"daily:{day}", reason=why,
+                  changes={"before": body.version, "after": version})
         session.commit()
         return {"key": day, "version": version}

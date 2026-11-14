@@ -213,7 +213,8 @@ function Feedback({ rows, bans, request, reload }: DataProps & { rows: FeedbackR
 
 type RunData = {
   queue: { kind: string; status: string; count: number }[]; pending_due: number; unknown_receipts: number;
-  jobs: { id: string; kind: string; status: string; error: string | null; attempts: number; failed_editions?: string[] }[];
+  jobs: { id: string; kind: string; status: string; error: string | null; attempts: number;
+    failed_editions?: string[]; pending_editions?: string[]; generated_editions?: string[]; updated_editions?: string[] }[];
   receipts: { key: string; subject: string; purpose: string; status: string; error: string | null; attempts: number }[];
 };
 
@@ -229,7 +230,10 @@ function Runs({ jobs, receipts, queue, pending_due, unknown_receipts, request, r
       <summary>{row.kind} · {row.status} · {row.attempts} 次</summary>
       <p className={styles.meta}>{row.id} {row.error}</p>
       {row.error === "invalid_structure_category" && <p role="alert">分类处理异常：模型没有返回有效分类，请检查模型结果后再处理任务。</p>}
-      {!!row.failed_editions?.length && <p className={styles.meta}>刊期缺少符合条件的研判稿件 · {row.failed_editions.join("、")}</p>}
+      {!!row.generated_editions?.length && <p className={styles.meta}>已出刊 · {row.generated_editions.join("、")}</p>}
+      {!!row.updated_editions?.length && <p className={styles.meta}>已更新 · {row.updated_editions.join("、")}</p>}
+      {!!row.pending_editions?.length && <p className={styles.meta}>覆盖待补 · {row.pending_editions.join("、")}</p>}
+      {!!row.failed_editions?.length && <p className={styles.meta}>出刊失败 · {row.failed_editions.join("、")}</p>}
       {["failed", "pending"].includes(row.status) && <Action label="重新排队" reload={reload}
         submit={form => request(`runs/${row.id}/requeue`, "POST", reason(form))}><ReasonField /></Action>}
     </details></li>)}</ul>

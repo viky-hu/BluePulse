@@ -44,7 +44,7 @@ def provider_error(code, response=None):
                'provider_invalid_json', 'provider_invalid_schema', 'provider_output_truncated',
                'provider_empty_content', 'worker_interrupted', 'sensitive_words_detected',
                'request_budget_60', 'request_budget_3600', 'request_budget_86400',
-               'request_budget_total', 'provider_backoff', 'daily_nothing_judged',
+               'request_budget_total', 'provider_backoff', 'daily_nothing_judged', 'daily_compose_failed',
                'timeout', 'transport_error', 'robots_timeout', 'robots_transport_error',
                'robots_disallowed', 'robots_disallowed_or_delayed', 'host_not_allowed',
                'asset_host_not_allowed', 'response_too_large', 'invalid_content_type',

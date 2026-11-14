@@ -71,14 +71,16 @@ def report(db):
     return add
 
 
-def test_window_is_beijing_eight_and_unjudged_cannot_publish(db):
-    from bluepulse_backend.daily_reports import DailyUnjudged, compose_daily, daily_window
+def test_window_is_beijing_eight_and_missing_coverage_is_visible(db):
+    from bluepulse_backend.daily_reports import compose_daily, daily_window, load_daily
 
     assert daily_window("2026-11-08") == (
         datetime(2026, 11, 7, tzinfo=UTC), datetime(2026, 11, 8, tzinfo=UTC),
     )
-    with pytest.raises(DailyUnjudged):
-        compose_daily(db, "2026-11-08", now=NOW)
+    with pytest.raises(ValueError, match="daily_not_due"):
+        compose_daily(db, "2026-11-08", now=daily_window("2026-11-08")[1] - timedelta(seconds=1))
+    assert compose_daily(db, "2026-11-08", now=NOW)["pending"]
+    assert load_daily(db, "2026-11-08", NOW)["lead"]["title"] == "本期资讯待补"
 
 
 def test_other_news_has_its_own_daily_section(db, report):
@@ -93,33 +95,35 @@ def test_other_news_has_its_own_daily_section(db, report):
     assert [row["itemId"] for row in section["items"]] == [item.id]
 
 
-def test_frozen_issue_assigns_post_cutoff_release_to_next_day_and_replaces_withdrawn_lead(db, report):
+def test_late_release_updates_same_issue_and_replaces_withdrawn_lead(db, report):
     from bluepulse_backend.daily_reports import compose_daily, load_daily
     from bluepulse_backend.edition_models import DailyIssueRevision
 
     cutoff = datetime(2026, 11, 8, tzinfo=UTC)
     first, *_ = report(cutoff - timedelta(hours=2), score=95)
     second, *_ = report(cutoff - timedelta(hours=1), score=80)
-    late, *_ = report(cutoff - timedelta(minutes=5), released=cutoff, score=90)
-    compose_daily(db, "2026-11-08", now=NOW)
+    late, *_ = report(cutoff - timedelta(minutes=1), released=cutoff + timedelta(minutes=3), score=90)
+    compose_daily(db, "2026-11-08", now=cutoff)
+    assert load_daily(db, "2026-11-08", cutoff)["highlights"][0]["itemId"] == second.id
+    compose_daily(db, "2026-11-08", now=NOW, refresh=True)
     compose_daily(db, "2026-11-09", now=NOW + timedelta(days=1))
     before = load_daily(db, "2026-11-08", now=NOW)
     assert before["leadItemId"] == first.id
-    assert [i["itemId"] for i in before["highlights"]] == [second.id]
-    assert load_daily(db, "2026-11-09", now=NOW + timedelta(days=1))["leadItemId"] == late.id
+    assert [i["itemId"] for i in before["highlights"]] == [late.id, second.id]
+    assert load_daily(db, "2026-11-09", now=NOW + timedelta(days=1))["leadItemId"] is None
 
     first.withdrawn = True
     db.commit()
     compose_daily(db, "2026-11-08", now=NOW)
     after = load_daily(db, "2026-11-08", now=NOW)
-    assert after["leadItemId"] == second.id
-    assert after["lead"]["leadParagraph"] == second.zh_summary
+    assert after["leadItemId"] == late.id
+    assert after["lead"]["leadParagraph"].startswith(late.zh_summary)
     hidden = next(i for s in after["sections"] for i in s["items"] if i["itemId"] == first.id)
     assert hidden["summary"] is None
     assert hidden["sourceUrl"] == ""
     assert hidden["available"] is False
     compose_daily(db, "2026-11-08", now=NOW, reason="纠正引文", actor="maintainer")
-    revision = db.scalar(select(DailyIssueRevision))
+    revision = db.scalar(select(DailyIssueRevision).order_by(DailyIssueRevision.version.desc()))
     assert revision.reason == "纠正引文"
     assert revision.actor == "maintainer"
     assert revision.content["main"][0]["itemId"] == first.id
@@ -143,17 +147,19 @@ def test_daily_keeps_one_event_and_two_main_entries_per_source(db, report):
     assert [i["itemId"] for i in issue["flashes"]] == [flash.id]
 
 
-def test_daily_later_visibility_release_governs_assignment_even_when_already_selected(db, report):
-    from bluepulse_backend.daily_reports import DailyUnjudged, compose_daily, load_daily
+def test_daily_respects_embargo_then_updates_original_issue(db, report):
+    from bluepulse_backend.daily_reports import compose_daily, load_daily
 
     cutoff = datetime(2026, 11, 8, tzinfo=UTC)
     delayed, *_ = report(cutoff - timedelta(hours=1))
-    delayed.visible_after = cutoff
+    delayed.visible_after = cutoff + timedelta(minutes=1)
     db.commit()
-    with pytest.raises(DailyUnjudged):
-        compose_daily(db, "2026-11-08", now=NOW)
+    assert compose_daily(db, "2026-11-08", now=cutoff)["pending"]
+    assert load_daily(db, "2026-11-08", cutoff)["leadItemId"] is None
+    assert compose_daily(db, "2026-11-08", now=NOW, refresh=True)["written"]
     compose_daily(db, "2026-11-09", now=NOW + timedelta(days=1))
-    assert load_daily(db, "2026-11-09", NOW + timedelta(days=1))["leadItemId"] == delayed.id
+    assert load_daily(db, "2026-11-08", NOW)["leadItemId"] == delayed.id
+    assert load_daily(db, "2026-11-09", NOW + timedelta(days=1))["leadItemId"] is None
 
 
 def test_catchup_skips_an_unjudged_window_and_preserves_a_genuine_quiet_issue(db, report):
@@ -165,12 +171,10 @@ def test_catchup_skips_an_unjudged_window_and_preserves_a_genuine_quiet_issue(db
     report(first_cutoff + timedelta(days=1, hours=2), selected=False)
     newer, *_ = report(first_cutoff + timedelta(days=2, hours=1))
     result = compose_due_reports(db, NOW)
-    assert result == {"generated": ["2026-11-07", "2026-11-08"], "failed": ["2026-11-06"]}
-    quiet = load_daily(db, "2026-11-07", NOW)
-    assert quiet["leadItemId"] is None
-    assert quiet["lead"]["title"] == "警务科技动态平静"
-    assert quiet["prev"] == "2026-11-05"
-    assert quiet["next"] == "2026-11-08"
+    assert result["generated"] == ["2026-11-06", "2026-11-07", "2026-11-08"]
+    assert result["failed"] == []
+    assert "2026-11-06" in result["pending"]
+    assert load_daily(db, "2026-11-07", NOW)["leadItemId"] is not None
     assert load_daily(db, "2026-11-08", NOW)["leadItemId"] == newer.id
 
 
@@ -183,18 +187,17 @@ def test_worker_records_unjudged_edition_then_rechecks_on_next_tick(db, report):
     worker = Worker(db.get_bind(), httpx.Client, editions_enabled=True, clock=lambda: now)
     worker.tick()
     assert worker.run_one(kinds={"daily"})
-    failed = db.scalar(select(WorkItem).where(WorkItem.kind == "daily"))
-    assert (failed.status, failed.error, failed.result["failed"]) == (
-        "failed", "daily_nothing_judged", ["2026-11-08"],
-    )
-    assert load_daily(db, "2026-11-08", now) is None
+    job = db.scalar(select(WorkItem).where(WorkItem.kind == "daily"))
+    assert (job.status, job.error, job.result["pending"]) == ("done", None, ["2026-11-08"])
+    assert load_daily(db, "2026-11-08", now)["lead"]["title"] == "本期资讯待补"
 
     report(datetime(2026, 11, 7, 23, tzinfo=UTC), selected=False)
     now += timedelta(minutes=30)
     worker.tick()
     assert worker.run_one(kinds={"daily"})
     assert now.date().isoformat() == "2026-11-09"
-    assert load_daily(db, "2026-11-08", now)["lead"]["title"] == "警务科技动态平静"
+    db.expire_all()
+    assert load_daily(db, "2026-11-08", now)["leadItemId"] is not None
 
 
 def test_daily_remembers_related_facts_and_still_carries_day_of_only_followups(db, report):
@@ -227,7 +230,7 @@ def test_daily_fills_in_official_fact_only_after_three_independent_participants(
     second.owner_entity = " JOINT LAB "
     db.commit()
     compose_daily(db, "2026-11-08", now=NOW)
-    assert load_daily(db, "2026-11-08", NOW)["leadItemId"] is None
+    assert load_daily(db, "2026-11-08", NOW)["leadItemId"] == official.id
 
     second.participant_key = "another-organization"
     db.commit()
@@ -236,6 +239,91 @@ def test_daily_fills_in_official_fact_only_after_three_independent_participants(
     assert issue["leadItemId"] == official.id
     assert issue["sections"][0]["items"][0]["otherSources"] == 2
     assert official.selected_at is None
+
+
+@pytest.mark.parametrize("date_only", [False, True])
+def test_recovered_article_moves_to_missing_source_window_once(db, report, date_only):
+    from bluepulse_backend.daily_reports import compose_daily, load_daily
+    from bluepulse_backend.models import SourceRun
+
+    cutoff = datetime(2026, 11, 8, tzinfo=UTC)
+    published = cutoff - timedelta(hours=3)
+    late, source, *_ = report(published, selected=False)
+    late.first_seen_at = cutoff + timedelta(hours=1)
+    late.published_public_at = late.first_seen_at
+    if date_only:
+        late.published_at = None
+        late.published_date = published.date()
+    old, *_ = report(published - timedelta(days=20))
+    old.first_seen_at = published
+    old.backfill_reason = "first-import"
+    db.commit()
+    compose_daily(db, "2026-11-08", now=NOW)
+    compose_daily(db, "2026-11-09", now=NOW + timedelta(days=1))
+    assert load_daily(db, "2026-11-08", NOW)["leadItemId"] == late.id
+    assert old.id not in str(load_daily(db, "2026-11-08", NOW))
+    assert load_daily(db, "2026-11-09", NOW + timedelta(days=1))["leadItemId"] is None
+    db.add(SourceRun(source_id=source.id, started_at=cutoff - timedelta(hours=1),
+                     finished_at=cutoff - timedelta(minutes=50), status="no_candidates"))
+    db.commit()
+    compose_daily(db, "2026-11-08", now=NOW + timedelta(days=1), refresh=True)
+    compose_daily(db, "2026-11-09", now=NOW + timedelta(days=1), refresh=True)
+    assert load_daily(db, "2026-11-08", NOW + timedelta(days=1))["leadItemId"] is None
+    assert load_daily(db, "2026-11-09", NOW + timedelta(days=1))["leadItemId"] == late.id
+
+
+def test_daily_scheduler_enqueues_boundary_separately_from_other_editions(db):
+    from bluepulse_backend.editorial_models import WorkItem
+    from bluepulse_backend.worker import WORKER_LANES, Worker
+
+    cutoff = datetime(2026, 11, 8, tzinfo=UTC)
+    now = cutoff - timedelta(seconds=1)
+    worker = Worker(db.get_bind(), httpx.Client, editions_enabled=True,
+                    clock=lambda: now)
+    worker.schedule_daily()
+    assert worker.run_one(kinds={"daily"})
+    now = cutoff + timedelta(seconds=2)
+    worker.schedule_daily()
+    worker.schedule_daily()
+    assert worker.run_one(kinds={"daily"})
+    jobs = db.scalars(select(WorkItem).order_by(WorkItem.due_at)).all()
+    assert [job.kind for job in jobs] == ["daily", "daily"]
+    assert jobs[-1].result["startedAt"] == now.isoformat()
+    assert jobs[-1].result["generated"] == ["2026-11-08"]
+    assert ({"daily"}, 1) in WORKER_LANES
+
+
+def test_due_reports_keep_later_issues_running_and_quiet_requires_coverage(db, report, monkeypatch):
+    from bluepulse_backend import daily_reports as daily
+    from bluepulse_backend.edition_models import DailyIssueRevision
+    from bluepulse_backend.models import Source, SourceRun
+
+    source = Source(slug="covered", name="Covered", excerpt_allowed=True)
+    db.add(source)
+    db.flush()
+    start, cutoff = daily.daily_window("2026-11-08")
+    for end in (start, cutoff):
+        db.add(SourceRun(source_id=source.id, started_at=end - timedelta(hours=1),
+                         finished_at=end - timedelta(minutes=5), status="no_candidates"))
+    db.commit()
+    original = daily.compose_daily
+
+    def fail_one(session, key, **kwargs):
+        if key == "2026-11-07":
+            raise RuntimeError("synthetic single-issue failure")
+        return original(session, key, **kwargs)
+
+    monkeypatch.setattr(daily, "compose_daily", fail_one)
+    result = daily.compose_due_reports(db, cutoff)
+    assert result["generated"] == ["2026-11-08"]
+    assert result["failed"] == ["2026-11-07"]
+    assert daily.load_daily(db, "2026-11-08", cutoff)["lead"]["title"] == "警务科技动态平静"
+
+    item, *_ = report(cutoff - timedelta(minutes=1), source=source, selected=False)
+    assert daily.compose_due_reports(db, NOW)["updated"] == ["2026-11-08"]
+    assert daily.load_daily(db, "2026-11-08", NOW)["leadItemId"] == item.id
+    assert daily.compose_due_reports(db, NOW)["updated"] == []
+    assert [row.version for row in db.scalars(select(DailyIssueRevision))] == [1]
 
 
 def test_hot_strip_keeps_saved_rank_gaps_and_requires_three_visible_stories(db, report):

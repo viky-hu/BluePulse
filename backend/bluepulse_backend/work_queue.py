@@ -91,6 +91,8 @@ def claim(engine, now: datetime, kinds: set[str] | None = None, run_key: str | N
 def _resources(job):
     if job.kind == "collect":
         return {("source", job.payload.get("slug"))}
+    if job.kind == "daily":
+        return {("domain", "daily")}
     resources = set()
     if job.kind == "extract":
         resources.add(("url", job.payload["url"]))
