@@ -284,8 +284,7 @@ def compose_due_reports(session: Session, now: datetime | None = None, limit: in
     now = utc(now or now_utc())
     local = now.astimezone(BEIJING)
     due = local.date() if local.hour >= 8 else local.date() - DAY
-    have = {row.key: row.content.get("generator", {}).get("version") == VERSION
-            for row in session.scalars(select(DailyIssue))}
+    have = {row.key: row.content.get("generator", {}) for row in session.scalars(select(DailyIssue))}
     # With no issues, use the first recorded collection day as the service start.
     first_run = session.scalar(select(func.min(SourceRun.started_at)))
     first_covered = date.fromisoformat(edition_key(first_run)) if first_run else None
@@ -298,7 +297,10 @@ def compose_due_reports(session: Session, now: datetime | None = None, limit: in
     errors = {}
     while key <= due and len(generated) + len(updated) < limit:
         label = key.isoformat()
-        if label not in have or (have[label] and due - key <= RECOVERY_WINDOW):
+        stats = have.get(label)
+        refresh = (stats is not None and stats.get("version") == VERSION
+                   and (due - key <= RECOVERY_WINDOW or stats.get("pendingReports", 0) > 0))
+        if stats is None or refresh:
             try:
                 session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 result = compose_daily(session, label, now=now, refresh=label in have)

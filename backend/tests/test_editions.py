@@ -326,6 +326,16 @@ def test_due_reports_keep_later_issues_running_and_quiet_requires_coverage(db, r
     assert [row.version for row in db.scalars(select(DailyIssueRevision))] == [1]
 
 
+def test_known_pending_report_updates_after_collection_recovery_window(db, report):
+    from bluepulse_backend.daily_reports import compose_daily, compose_due_reports, load_daily
+
+    cutoff = datetime(2026, 11, 8, tzinfo=UTC)
+    item, *_ = report(cutoff - timedelta(minutes=1), released=cutoff + timedelta(days=10))
+    assert compose_daily(db, "2026-11-08", now=cutoff)["pending"]
+    assert compose_due_reports(db, cutoff + timedelta(days=10), limit=20)["updated"] == ["2026-11-08"]
+    assert load_daily(db, "2026-11-08", cutoff + timedelta(days=10))["leadItemId"] == item.id
+
+
 def test_hot_strip_keeps_saved_rank_gaps_and_requires_three_visible_stories(db, report):
     from bluepulse_backend.hotspots import compute_hot_ranking, load_hot, load_hot_strip
 
