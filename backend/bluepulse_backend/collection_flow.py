@@ -62,14 +62,15 @@ def _merge(item, previous, *, listing):
         return item
     verified = listing and bool(previous.source_body)
     exact = previous.published_at if verified and previous.published_at else item.published_at or previous.published_at
+    previous_date = previous.published_date if previous.published_date != date.min else None
     return replace(
         item,
         title=previous.source_title if verified or not item.title.strip() else item.title,
         body=(previous.source_body if not item.body else item.body),
         summary=previous.source_summary if verified and previous.source_summary else item.summary or previous.source_summary,
         published_at=utc(exact) if exact else None,
-        published_date=(previous.published_date if verified and (previous.published_date or previous.published_at) else
-                        item.published_date or previous.published_date),
+        published_date=(previous_date if verified and (previous_date or previous.published_at) else
+                        item.published_date or previous_date),
         body_source_url=item.body_source_url or previous.body_source_url,
         media=item.media if item.media is not None else previous.source_media,
         author=item.author or previous.author,

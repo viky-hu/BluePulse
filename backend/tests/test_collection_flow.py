@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -291,3 +291,28 @@ def test_dated_archive_scan_finishes_after_complete_older_page(tmp_path, monkeyp
         assert run.status == "completed", (job.error, run.fetch_metrics)
         assert run.fetch_metrics["coverage"] == "publication_window"
         assert set(session.scalars(select(Material.source_title))) == {"missed", "last-in-window"}
+
+
+def test_listing_clears_previously_saved_placeholder_date(tmp_path):
+    from bluepulse_backend.collection_flow import admit_page
+    from bluepulse_backend.pipeline import store_candidate
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'placeholder.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = Source(slug="fixture", name="Fixture", allowed_hosts=["example.test"])
+        session.add(source)
+        session.flush()
+        item = Candidate("https://example.test/police-archive", "Police archive", body="Original text. " * 50,
+                         published_date=date.min)
+        article, _ = store_candidate(session, source, item, NOW)
+        assert article.published_date == date.min
+        source.collection_initialized_at = NOW
+
+        run = SourceRun(source_id=source.id)
+        session.add(run)
+        session.flush()
+        admit_page(session, source, run, [Candidate(item.url, item.title)], NOW, {})
+        assert article.published_date is None
+        assert article.timeline_kind == "unknown"
+        assert article.source_body == item.body

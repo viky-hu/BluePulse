@@ -75,3 +75,27 @@ def test_spf_worker_reads_all_archive_items_with_source_dates():
     assert following is None
     assert len(items) == 50 and all(item.published_date == date(2026, 11, 6) for item in items)
     assert all(item.published_at is None for item in items)
+
+
+def test_npcc_placeholder_date_preserves_valid_listing_date():
+    from datetime import date
+
+    from bluepulse_backend.pipeline import Candidate
+
+    url = NPCC_LIST + "/digital-evidence"
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        assert str(request.url) == url
+        return httpx.Response(200, text='<div class="date">01 Jan 0001</div>'
+                              '<div class="content-title">Digital evidence</div>'
+                              f'<div class="content-body">{"Source text. " * 30}</div>')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        reader = HtmlEvidenceProbe(BoundedHTTP(client, allowed_hosts={httpx.URL(NPCC_LIST).host}),
+                                   kind="npcc", sleeper=lambda _: None)
+        unknown = Candidate(url, "Digital evidence")
+        dated = Candidate(url, "Digital evidence", published_date=date(2026, 11, 13))
+        assert reader.fetch_detail(unknown).published_date is None
+        assert reader.fetch_detail(dated).published_date == dated.published_date

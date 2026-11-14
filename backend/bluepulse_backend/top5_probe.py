@@ -99,7 +99,8 @@ def _date(kind: str, parser: _Region) -> datetime | None:
         if kind == "jiangsu":
             return datetime.strptime(raw, "%Y-%m-%d %H:%M").replace(
                 tzinfo=timezone(timedelta(hours=8))).astimezone(UTC)
-        return datetime.strptime(raw, "%d %b %Y").replace(tzinfo=UTC)
+        parsed = datetime.strptime(raw, "%d %b %Y")
+        return parsed.replace(tzinfo=UTC) if parsed != datetime.min else None
     except ValueError:
         return None
 
