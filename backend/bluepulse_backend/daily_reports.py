@@ -233,7 +233,8 @@ def _coverage_note(stats):
     notes = []
     if stats["pendingReports"]:
         notes.append(f'{stats["pendingReports"]} 篇稿件仍待处理或公开。')
-    if not stats["sourcesExpected"] or stats["sourcesCovered"] < stats["sourcesExpected"]:
+    if stats.get("coverageMeasured", True) and (
+            not stats["sourcesExpected"] or stats["sourcesCovered"] < stats["sourcesExpected"]):
         notes.append(f'截止前两小时，{stats["sourcesCovered"]}/{stats["sourcesExpected"]} 个编辑信源完成采集。')
     return "".join(notes) or None
 

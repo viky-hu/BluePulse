@@ -26,7 +26,8 @@ def test_history_uses_source_date_for_old_first_import_and_preserves_gates(db, r
     content, _ = prepare_daily(db, '2026-11-02', NOW, historical_source_dates=True)
     assert ids(content) == {old.id}
     assert content['generator']['pendingReports'] == 1
-    assert content['generator']['sourcesCovered'] == 0
+    assert content['coverageNote'] == '1 篇稿件仍待处理或公开。'
+    assert content['generator']['coverageMeasured'] is False
 
 
 def test_history_respects_eight_am_boundary_date_only_and_unknown(db, report):

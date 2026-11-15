@@ -113,4 +113,5 @@ def daily_inputs(session, start, end, now, *, historical_source_dates=False):
                         "firstSeenAt": seen.isoformat(), "sourceDate": exact.isoformat() if exact else day.isoformat() if day else None,
                         "assignment": reason, "available": available, "pending": pending})
     covered = sum(succeeded(source_id, end - COLLECTION_GAP, end) for source_id in sources)
-    return ready, details, {"sourcesExpected": len(sources), "sourcesCovered": covered, "pendingReports": waiting}
+    return ready, details, {"sourcesExpected": len(sources), "sourcesCovered": covered,
+                            "coverageMeasured": not historical_source_dates, "pendingReports": waiting}
