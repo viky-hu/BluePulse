@@ -17,13 +17,13 @@ FIRST_IMPORT_AGE = timedelta(days=12 * 30)
 STALE_ON_DISCOVERY = timedelta(hours=48)
 DETAIL_RETRY = timedelta(minutes=10)
 DETAIL_MAX_ATTEMPTS = 3
-TRANSIENT_FETCH_ERRORS = {"timeout", "transport_error", "robots_transport_error", "http_408",
+TRANSIENT_FETCH_ERRORS = {"timeout", "transport_error", "robots_transport_error", "http_408", "http_429",
                           "http_500", "http_502", "http_503", "http_504"}
 
 
 def _pack(item):
     payload = asdict(item)
-    for key in ("published_at", "published_date"):
+    for key in ("published_at", "published_date", "source_updated_at"):
         if payload[key] is not None:
             payload[key] = payload[key].isoformat()
     return payload
@@ -35,6 +35,8 @@ def unpack(payload):
         data["published_at"] = datetime.fromisoformat(data["published_at"])
     if data["published_date"]:
         data["published_date"] = date.fromisoformat(data["published_date"])
+    if data.get("source_updated_at"):
+        data["source_updated_at"] = datetime.fromisoformat(data["source_updated_at"])
     return Candidate(**data)
 
 
@@ -61,25 +63,29 @@ def _merge(item, previous, *, listing):
     if not previous:
         return item
     verified = listing and bool(previous.source_body)
-    exact = previous.published_at if verified and previous.published_at else item.published_at or previous.published_at
     previous_date = previous.published_date if previous.published_date != date.min else None
+    if verified and (previous.published_at or previous_date):
+        exact, day = previous.published_at, previous_date
+    elif not listing and item.published_date:
+        exact, day = item.published_at, item.published_date
+    else:
+        exact, day = item.published_at or previous.published_at, item.published_date or previous_date
     return replace(
         item,
         title=previous.source_title if verified or not item.title.strip() else item.title,
         body=(previous.source_body if not item.body else item.body),
         summary=previous.source_summary if verified and previous.source_summary else item.summary or previous.source_summary,
         published_at=utc(exact) if exact else None,
-        published_date=(previous_date if verified and (previous_date or previous.published_at) else
-                        item.published_date or previous_date),
+        published_date=day,
         body_source_url=item.body_source_url or previous.body_source_url,
         media=item.media if item.media is not None else previous.source_media,
         author=item.author or previous.author,
     )
 
 
-def admit_page(session, source, run, candidates, now, cursor):
+def admit_page(session, source, run, candidates, now, cursor, *, audit_items=None):
     floor = admission_floor(source)
-    first = floor is None
+    first = floor is None and audit_items is None
     imported = set(cursor.get("imported", ()))
     unique = {}
     metrics = dict(run.fetch_metrics or {})
@@ -89,6 +95,8 @@ def admit_page(session, source, run, candidates, now, cursor):
             url = canonical_url(item.url, source.allowed_hosts)
         except ValueError:
             metrics["rejected"] = metrics.get("rejected", 0) + 1
+            session.add(Discovery(run_id=run.id, source_id=source.id, url=item.url,
+                                  outcome="rejected", reason_code="invalid_candidate_url"))
             continue
         unique.setdefault(url, item)
     metrics["duplicates"] = metrics.get("duplicates", 0) + len(candidates) - len(unique) - (
@@ -99,14 +107,17 @@ def admit_page(session, source, run, candidates, now, cursor):
             metrics["duplicates"] += 1
             continue
         previous = _lookup(session, url)
+        historical = audit_items.get(url) if audit_items is not None else None
         if first:
             if url in imported:
                 continue
             if len(imported) >= FIRST_IMPORT_LIMIT or not previous and _before(item, now - FIRST_IMPORT_AGE):
                 continue
             imported.add(url)
-        elif not previous and _before(item, floor):
+        elif floor and not previous and audit_items is None and _before(item, floor):
             metrics["history_skipped"] = metrics.get("history_skipped", 0) + 1
+            session.add(Discovery(run_id=run.id, source_id=source.id, url=url, outcome="outside_window",
+                                  reason_code="before_admission_floor"))
             continue
 
         # A canonical URL owned by another channel keeps its original provenance.
@@ -116,12 +127,17 @@ def admit_page(session, source, run, candidates, now, cursor):
             metrics["duplicates"] += 1
             continue
         listing = _pack(item)
+        # Keep existing identities stable for candidates without an update hint.
+        if listing.get("source_updated_at") is None:
+            listing.pop("source_updated_at", None)
         listing_hash = hashlib.sha256(json.dumps(listing, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        changed = bool(previous and previous.listing_hash and previous.listing_hash != listing_hash)
+        changed = bool(previous and previous.listing_hash != listing_hash and
+                       (previous.listing_hash or item.source_updated_at))
         merged = _merge(item, previous, listing=True)
         material = previous
         outcome = "discovered"
-        if merged.title.strip():
+        if merged.title.strip() and historical is None and (previous or item.published_at or item.published_date
+                                                             or not item.source_updated_at):
             material, outcome = store_candidate(session, source, merged, now)
             material.listing_hash = listing_hash
             if outcome == "new" and first:
@@ -130,8 +146,8 @@ def admit_page(session, source, run, candidates, now, cursor):
                 material.backfill_reason = "stale-on-discovery"
         incomplete = not material or not material.source_body or not (
             material.published_at or material.published_date)
-        needs_detail = incomplete or changed
-        if material and (not incomplete or not needs_detail):
+        needs_detail = incomplete or changed or historical is not None
+        if material and historical is None and (not incomplete or not needs_detail):
             material.collection_state = "complete"
         session.add(Discovery(run_id=run.id, source_id=source.id, url=url,
                               material_id=material.id if material else None, outcome=outcome))
@@ -139,10 +155,14 @@ def admit_page(session, source, run, candidates, now, cursor):
         metrics[counter] = metrics.get(counter, 0) + 1
         if needs_detail:
             identity = f"{source.slug}:{hashlib.sha256(url.encode()).hexdigest()}:{listing_hash}"
+            if historical is not None:
+                identity += f":audit:{historical['evidence_sha256']}"
+                if historical.get("recheck_version"):
+                    identity += f":{historical['recheck_version']}"
             existing = session.scalar(select(WorkItem).where(WorkItem.kind == "extract", WorkItem.identity == identity))
             retry = (existing is not None and existing.status in {"done", "failed"}
                      and ((existing.result or {}).get("error") or existing.error) in TRANSIENT_FETCH_ERRORS)
-            blocked = material and material.collection_state == "unconfirmed" and not changed
+            blocked = historical is None and material and material.collection_state == "unconfirmed" and not changed
             if not retry and (existing is not None or blocked):
                 continue
             payload = {
@@ -150,16 +170,19 @@ def admit_page(session, source, run, candidates, now, cursor):
                 "material_id": material.id if material else None,
                 "revision": material.revision if material else None,
                 "run_id": run.id, "discovered_at": now.isoformat(), "first_import": first,
-                "historical": bool(material and material.timeline_kind == "historical" or
+                "historical": bool(historical is not None or material and material.timeline_kind == "historical" or
                                    _before(item, now - STALE_ON_DISCOVERY)),
             }
+            if historical is not None:
+                payload["collection_audit"] = historical
+                payload["previous_listing_hash"] = material.listing_hash if material else None
             if retry:
                 payload["first_import"] = existing.payload["first_import"]
                 existing.payload, existing.due_at = payload, now
                 existing.status, existing.attempts, existing.result, existing.error = "pending", 0, None, None
             else:
                 enqueue(session, "extract", identity, payload, now)
-            if material and incomplete:
+            if material and incomplete and historical is None:
                 material.collection_state = "pending"
             metrics["detail_queued"] = metrics.get("detail_queued", 0) + 1
     if first:
@@ -179,8 +202,9 @@ def detail_is_current(session, source, payload):
             WorkItem.payload["discovered_at"].as_string() > payload["discovered_at"],
         ).limit(1))
         return payload["material_id"] is None and newer is None
+    listing_hash = payload["previous_listing_hash"] if "collection_audit" in payload else payload["listing_hash"]
     return (previous.id == payload["material_id"] and previous.source_id == source.id and
-            previous.revision == payload["revision"] and previous.listing_hash == payload["listing_hash"] and
+            previous.revision == payload["revision"] and previous.listing_hash == listing_hash and
             not previous.withdrawn)
 
 
@@ -199,16 +223,19 @@ def apply_detail(session, source, payload, candidate, now):
         raise ValueError("title_missing")
     discovered = datetime.fromisoformat(payload["discovered_at"])
     item, outcome = store_candidate(session, source, merged, now if previous else discovered)
-    if outcome == "new" and payload["first_import"]:
+    if outcome == "new" and "collection_audit" in payload:
+        item.timeline_kind, item.backfill_reason = "historical", "collection-audit"
+    elif outcome == "new" and payload["first_import"]:
         item.backfill_reason = "first-import"
     elif outcome == "new" and item.timeline_kind == "historical":
         item.backfill_reason = "stale-on-discovery"
     item.fetched_at = now
-    item.listing_hash = payload["listing_hash"]
+    if "collection_audit" not in payload:
+        item.listing_hash = payload["listing_hash"]
     item.collection_state = "complete" if item.source_body else "unconfirmed"
     for discovery in session.scalars(select(Discovery).where(
             Discovery.run_id == payload["run_id"], Discovery.url == payload["url"])):
-        if discovery.material_id is None:
+        if discovery.material_id is None or "collection_audit" in payload:
             discovery.material_id = item.id
             discovery.outcome = outcome
     return item
@@ -228,7 +255,7 @@ def schedule_due_sources(session, now, slugs=None, *, recover=False):
         source.next_fetch_at = now + timedelta(minutes=10)
 
 
-def schedule_after_fetch(source, now, *, success, error=None):
+def schedule_after_fetch(source, now, *, success, error=None, retry_after=0):
     if success:
         source.collection_failures = 0
         delay = source.interval_minutes
@@ -238,7 +265,7 @@ def schedule_after_fetch(source, now, *, success, error=None):
         else:
             delay = min(source.interval_minutes * (source.collection_failures + 2), 360)
         source.collection_failures += 1
-    source.next_fetch_at = now + timedelta(minutes=delay)
+    source.next_fetch_at = now + max(timedelta(minutes=delay), timedelta(seconds=retry_after))
 
 
 def adapt_intervals(session, now, slugs):

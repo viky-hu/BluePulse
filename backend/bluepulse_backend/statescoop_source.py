@@ -1,14 +1,15 @@
 """Bounded StateScoop law-enforcement technology RSS and HTML extraction."""
 from __future__ import annotations
 
+import json
 import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
-from .live_sources import BoundedHTTP, SourceFetchError, parse_time, plain_text
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence, parse_time, plain_text
 from .pipeline import Candidate, canonical_url
 from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 
@@ -16,6 +17,9 @@ from .source_page import IncompleteArticle, SourcePageReader, bounded_details
 HOST = "statescoop.com"
 ROOT = f"https://{HOST}"
 FEED = ROOT + "/tag/law-enforcement-technology/feed/"
+ARCHIVE = ROOT + "/wp-json/wp/v2/posts"
+ARCHIVE_PARAMS = {"tags": 14, "per_page": 30, "orderby": "date", "order": "desc",
+                  "_fields": "link,date_gmt,title,excerpt"}
 ARTICLE_PATH = re.compile(r"/[a-z0-9-]+/")
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "wbr"}
 SKIP_TAGS = {"script", "style", "noscript", "nav", "footer", "form", "aside", "figure"}
@@ -78,6 +82,8 @@ class _Article(HTMLParser):
 
 
 class StateScoopAdapter:
+    listing_entries = {"law-enforcement": ARCHIVE + "?" + urlencode(ARCHIVE_PARAMS)}
+
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, sleeper=time.sleep):
         if not 1 <= max_items <= 5 or http.allowed_hosts != {HOST}:
             raise ValueError("invalid_statescoop_configuration")
@@ -121,6 +127,51 @@ class StateScoopAdapter:
 
     def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
         return self._listing()
+
+    def iter_entry_pages(self, entry: str, *, start=0):
+        if entry != "law-enforcement" or start < 0:
+            raise SourceFetchError("invalid_listing_offset")
+        page = start + 1
+        seen = set()
+        while True:
+            content, headers = self.reader.get_with_headers(
+                self.listing_entries[entry] + f"&page={page}", "application/json")
+            try:
+                rows = json.loads(content)
+                total = int(headers["X-WP-TotalPages"])
+                if not isinstance(rows, list) or total < 0:
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError) as exc:
+                raise SourceFetchError("invalid_listing_payload") from exc
+            following = page if page < total else None
+            if following is not None and not rows:
+                raise SourceFetchError("listing_pagination_stalled")
+            candidates, dates, urls = [], [], []
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise SourceFetchError("invalid_listing_payload")
+                raw_date = row.get("date_gmt")
+                # WordPress's date_gmt field omits the suffix despite being UTC.
+                published = parse_time(raw_date + "Z") if isinstance(raw_date, str) else None
+                dates.append(published)
+                url = row.get("link")
+                if not isinstance(url, str) or not self._valid_article(url):
+                    continue
+                urls.append(url)
+                title = plain_text(str((row.get("title") or {}).get("rendered") or ""), max_chars=500)
+                summary = plain_text(str((row.get("excerpt") or {}).get("rendered") or ""), max_chars=1000)
+                candidates.append(Candidate(url=url, title=title, summary=summary or None,
+                                            published_at=published, language="en"))
+            signature = tuple(urls)
+            if signature and signature in seen:
+                raise SourceFetchError("listing_pagination_stalled")
+            seen.add(signature)
+            self.listing_page_evidence = listing_evidence(
+                dates, ordered=True, terminal="exhausted" if following is None else None)
+            yield candidates, following
+            if following is None:
+                return
+            page += 1
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         if not self._valid_article(candidate.url):

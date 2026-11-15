@@ -136,6 +136,27 @@ def test_share_artifact_is_decodable_and_uses_requested_size():
             assert len(image.getcolors(100_000)) > 20
 
 
+def test_api_connection_does_not_reuse_a_previous_sqlite_read_snapshot(tmp_path):
+    from bluepulse_backend.api import create_app
+
+    url = f"sqlite:///{(tmp_path / 'reading-wal.db').as_posix()}"
+    writer = make_engine(url)
+    api = create_app(url)
+    reader = api.state.engine
+    with writer.begin() as connection:
+        assert connection.exec_driver_sql("PRAGMA journal_mode=WAL").scalar() == "wal"
+        connection.exec_driver_sql("CREATE TABLE visibility (id INTEGER)")
+        connection.exec_driver_sql("INSERT INTO visibility VALUES (1), (2)")
+
+    with reader.connect() as connection:
+        earlier = connection.exec_driver_sql("SELECT id FROM visibility ORDER BY id")
+        assert earlier.fetchone() == (1,)
+    with writer.begin() as connection:
+        connection.exec_driver_sql("INSERT INTO visibility VALUES (3)")
+    with reader.connect() as connection:
+        assert connection.exec_driver_sql("SELECT max(id) FROM visibility").scalar() == 3
+
+
 def test_police_science_ingests_only_body_images():
     from bluepulse_backend.police_science_source import parse_news_html
 

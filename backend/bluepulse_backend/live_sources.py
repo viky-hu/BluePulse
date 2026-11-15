@@ -9,11 +9,12 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from math import ceil
 from typing import Callable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.robotparser import RobotFileParser
@@ -24,9 +25,11 @@ from .pipeline import Candidate, canonical_url
 
 
 class SourceFetchError(Exception):
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, retry_after_seconds: int | None = None, release_at: datetime | None = None):
         super().__init__(code)
         self.code = code
+        self.retry_after_seconds = retry_after_seconds
+        self.release_at = release_at
 
 
 class _Text(HTMLParser):
@@ -132,7 +135,7 @@ def nist_article_text(html: str, *, max_chars: int = 12000) -> str:
 
 
 def parse_time(value: str | None) -> datetime | None:
-    if not value:
+    if not isinstance(value, str) or not (value := value.strip()):
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -142,6 +145,32 @@ def parse_time(value: str | None) -> datetime | None:
         except (ValueError, TypeError):
             return None
     return parsed.astimezone(UTC) if parsed.tzinfo else None
+
+
+def listing_evidence(dates, *, ordered=False, terminal=None, missing=0, local_zone=UTC):
+    """Derive a page boundary from raw source dates before topic filtering."""
+    values = list(dates)
+    known = [value for value in values if value is not None]
+    keys = [(value.astimezone(local_zone).date() if isinstance(value, datetime) else value,
+             value.timestamp() if isinstance(value, datetime) else 0) for value in known]
+    undated = len(values) - len(known) + missing
+    return {
+        "newest_at": known[max(range(len(keys)), key=keys.__getitem__)] if keys else None,
+        "oldest_at": known[min(range(len(keys)), key=keys.__getitem__)] if keys else None,
+        "undated": undated,
+        "ordered": ordered and not undated and all(a >= b for a, b in zip(keys, keys[1:])),
+        "terminal": terminal,
+    }
+
+
+def _retry_after(value: str | None) -> int | None:
+    if not value:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdigit() and len(value) <= 9:
+        return int(value)
+    parsed = parse_time(value)
+    return max(0, ceil((parsed - datetime.now(UTC)).total_seconds())) if parsed else None
 
 
 class BoundedHTTP:
@@ -158,10 +187,16 @@ class BoundedHTTP:
             accept: str = "application/json, application/rss+xml;q=0.9") -> bytes:
         return self._request("GET", url, params, accept)
 
+    def get_with_headers(self, url: str, *, params: dict | None = None, accept: str = "application/json"):
+        return self._request_with_headers("GET", url, params, accept)
+
     def post_json(self, url: str, payload: dict) -> bytes:
         return self._request("POST", url, None, "application/json", payload)
 
     def _request(self, method, url, params, accept, payload=None):
+        return self._request_with_headers(method, url, params, accept, payload)[0]
+
+    def _request_with_headers(self, method, url, params, accept, payload=None):
         parts = urlsplit(url)
         if (parts.scheme != "https" or parts.hostname not in self.allowed_hosts or
                 parts.port not in {None, 443} or parts.username or parts.password):
@@ -179,7 +214,9 @@ class BoundedHTTP:
             with self.client.stream(method, url, params=params, json=payload, follow_redirects=False,
                                     headers={"Accept": accept}) as response:
                 if response.status_code != 200:
-                    raise SourceFetchError(f"http_{response.status_code}")
+                    delay = (_retry_after(response.headers.get("retry-after"))
+                             if response.status_code in {429, 503} else None)
+                    raise SourceFetchError(f"http_{response.status_code}", retry_after_seconds=delay)
                 data = bytearray()
                 for chunk in response.iter_bytes():
                     data.extend(chunk)
@@ -188,7 +225,7 @@ class BoundedHTTP:
                 payload = bytes(data)
                 if self.on_body is not None:
                     self.on_body(url, payload)
-                return payload
+                return payload, response.headers
         except httpx.TimeoutException as exc:
             raise SourceFetchError("timeout") from exc
         except httpx.TransportError as exc:
@@ -297,6 +334,9 @@ def _html_csv_rows_match(html_body: str, csv_rows: list[list[str]]) -> bool:
 class GovUkAdapter:
     SEARCH = "https://www.gov.uk/api/search.json"
     CONTENT = "https://www.gov.uk/api/content"
+    ARCHIVE_PARAMS = {"filter_organisations": "home-office", "order": "-public_timestamp",
+                      "fields": "link,title,description,public_timestamp"}
+    listing_entries = {"default": SEARCH + "?" + urlencode(ARCHIVE_PARAMS)}
 
     @staticmethod
     def _html_attachment_path(attachment: object) -> str | None:
@@ -369,22 +409,24 @@ class GovUkAdapter:
         return parts.path
 
     @classmethod
-    def _listing_item(cls, result: object) -> Candidate | None:
+    def _listing_item(cls, result: object, *, archive: bool = False) -> Candidate | None:
         if not isinstance(result, dict) or (path := cls._article_path(result.get("link"))) is None:
             return None
         title = result.get("title")
         description = result.get("description")
-        timestamp = result.get("public_timestamp")
+        timestamp = parse_time(result.get("public_timestamp"))
         return Candidate(
             url="https://www.gov.uk" + path,
             title=plain_text(title, max_chars=1000) if isinstance(title, str) else "",
             summary=plain_text(description, max_chars=1000) if isinstance(description, str) else None,
-            published_at=parse_time(timestamp) if isinstance(timestamp, str) else None,
+            published_at=None if archive else timestamp,
+            source_updated_at=timestamp if archive else None,
             language="en",
         )
 
-    def _search_page(self, count: int, start: int | None = None) -> tuple[list, int | None]:
-        params = {"q": self.query, "count": count, "filter_organisations": "home-office"}
+    def _search_page(self, count: int, start: int | None = None, *, archive=False) -> tuple[list, int | None]:
+        params = ({"count": count, **self.ARCHIVE_PARAMS} if archive
+                  else {"q": self.query, "count": count, "filter_organisations": "home-office"})
         if start is not None:
             params["start"] = start
             params["fields"] = "link,title,description,public_timestamp"
@@ -404,16 +446,29 @@ class GovUkAdapter:
 
     def iter_listing_pages(self, *, start: int = 0) -> Iterator[tuple[list[Candidate], int | None]]:
         """Yield each listing page with a checkpoint for the next search offset."""
+        yield from self._iter_search_pages(start, archive=False)
+
+    def iter_entry_pages(self, entry: str, *, start: int = 0):
+        if entry != "default":
+            raise SourceFetchError("unknown_listing_entry")
+        yield from self._iter_search_pages(start, archive=True)
+
+    def _iter_search_pages(self, start: int, *, archive: bool):
         if start < 0:
             raise SourceFetchError("invalid_search_offset")
         self._reset_diagnostics()
         while True:
-            results, total = self._search_page(30, start)
+            results, total = self._search_page(30, start, archive=archive)
             next_offset = start + len(results)
             following = next_offset if total is not None and next_offset < total else None
             if following is not None and not results:
                 raise SourceFetchError("search_pagination_stalled")
-            yield [item for result in results if (item := self._listing_item(result)) is not None], following
+            self.listing_page_evidence = listing_evidence(
+                (parse_time(row.get("public_timestamp")) if isinstance(row, dict) else None for row in results),
+                ordered=archive, terminal="exhausted" if total is not None and following is None else
+                "truncated" if following is None else None,
+            )
+            yield [item for result in results if (item := self._listing_item(result, archive=archive)) is not None], following
             if following is None:
                 return
             start = following
@@ -459,6 +514,13 @@ class GovUkAdapter:
         description = plain_text(detail.get("description") or "", max_chars=1000)
         original_description_chars = len(description)
         details = detail.get("details") or {}
+        if not isinstance(details, dict):
+            self.diagnostics["detail_failed"] += 1
+            raise SourceFetchError("invalid_detail_payload")
+        release_at = parse_time(details.get("release_timestamp"))
+        if (path.startswith("/government/statistics/announcements/") and release_at
+                and release_at > datetime.now(UTC)):
+            raise SourceFetchError("statistics_not_yet_released", release_at=release_at)
         raw_body = details.get("body") or ""
         body = plain_text(raw_body) if isinstance(raw_body, str) else ""
         page_body_chars = len(body)
@@ -546,39 +608,148 @@ class GovUkAdapter:
             candidate, title=title, body=body or None, summary=description or candidate.summary,
             body_source_url=body_source_url,
             published_at=parse_time(detail.get("first_published_at")) or candidate.published_at,
+            source_updated_at=parse_time(detail.get("public_updated_at")) or candidate.source_updated_at,
         )
+
+
+class _NistNewsTeasers(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows: list[Candidate] = []
+        self.url: str | None = None
+        self.day: date | None = None
+        self.heading = False
+        self.title: list[str] = []
+        self.summary_depth = 0
+        self.summary: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "article":
+            path = values.get("about") or ""
+            if re.fullmatch(r"/news-events/news/20\d{2}/\d{2}/[a-z0-9-]+", path):
+                self.url = "https://www.nist.gov" + path
+                self.day, self.title, self.summary = None, [], []
+        if self.url and "nist-teaser__title" in (values.get("class") or "").split():
+            self.heading = True
+        if self.url and tag == "div":
+            if self.summary_depth or values.get("property") == "schema:text":
+                self.summary_depth += 1
+        if self.url and tag == "time" and self.day is None:
+            raw = values.get("datetime") or ""
+            try:
+                # Drupal's day-only content renders a synthetic time in the attribute.
+                self.day = date.fromisoformat(raw.split("T", 1)[0])
+            except ValueError:
+                pass
+
+    def handle_endtag(self, tag):
+        if tag in {"h2", "h3", "h4"}:
+            self.heading = False
+        if tag == "div" and self.summary_depth:
+            self.summary_depth -= 1
+        if tag == "article" and self.url:
+            self.rows.append(Candidate(url=self.url, title=" ".join("".join(self.title).split()),
+                                       summary=" ".join("".join(self.summary).split()) or None,
+                                       published_date=self.day, language="en"))
+            self.url, self.heading = None, False
+
+    def handle_data(self, data):
+        if self.heading:
+            self.title.append(data)
+        if self.summary_depth:
+            self.summary.append(data)
 
 
 class NistRssAdapter:
     FEED = "https://www.nist.gov/news-events/Public%20safety/rss.xml"
+    TOPIC_ARCHIVE = "https://www.nist.gov/news-events/news-updates/topic/"
     FOCUSED_TERMS = ("public safety", "first responder", "law enforcement", "police",
                      "forensic", "emergency communication", "digital evidence",
                      "biometric", "firefighter")
 
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, fetch_details: bool = True,
-                 feed: str | None = None, focused: bool = False):
+                 feed: str | None = None, focused: bool = False, topic_ids: tuple[str, ...] = ()):
         if not 1 <= max_items <= 5:
             raise ValueError("max_items_must_be_1_to_5")
         self.http, self.max_items, self.fetch_details = http, max_items, fetch_details
         self.feed = feed or self.FEED
         self.focused = focused
+        self.topic_ids = topic_ids
         self._reset_diagnostics()
+
+    @classmethod
+    def configured_entries(cls, feed, topic_ids=()):
+        return {**{f"news-{topic_id}": cls.TOPIC_ARCHIVE + topic_id for topic_id in topic_ids},
+                "default": feed}
+
+    @property
+    def listing_entries(self):
+        return self.configured_entries(self.feed, self.topic_ids)
+
+    @property
+    def supplemental_entries(self):
+        return frozenset({"default"}) if self.topic_ids else frozenset()
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry == "default" and start == 0:
+            yield self.list_candidates(scheduled=True), None
+        elif entry in self.listing_entries and start >= 0:
+            yield from self._news_pages(self.listing_entries[entry], start)
+        else:
+            raise SourceFetchError("invalid_listing_offset")
+
+    def _news_pages(self, entry_url, start):
+        from .source_listing import linked_pages
+
+        self._reset_diagnostics()
+
+        def valid_page(parts):
+            params = parse_qs(parts.query)
+            return (parts.path == urlsplit(entry_url).path and params.keys() == {"page"}
+                    and len(params["page"]) == 1
+                    and params["page"][0].isdigit())
+
+        def parse(html, _url):
+            parser = _NistNewsTeasers()
+            parser.feed(html)
+            if not parser.rows and "The search returned no results" not in html and "No results found" not in html:
+                raise SourceFetchError("listing_no_article_links")
+            return parser.rows
+
+        for rows, following in linked_pages(
+            entry_url,
+            lambda url: self.http.get(url, accept="text/html").decode("utf-8-sig", "replace"),
+            parse, valid_page, start=start,
+        ):
+            self.listing_page_evidence = listing_evidence(
+                (row.published_date for row in rows), ordered=True,
+                terminal="exhausted" if following is None else None)
+            self.diagnostics["listing_links"] = self.diagnostics.get("listing_links", 0) + len(rows)
+            yield rows, following
 
     def _reset_diagnostics(self) -> None:
         self.diagnostics = {"feed_items": 0, "feed_skipped": 0, "topic_filtered": 0, "detail_attempts": 0,
                             "detail_body": 0, "detail_failed": 0}
         self.discovered_urls: list[str] = []
 
-    def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+    def list_candidates(self, *, first_import: bool = False, scheduled: bool = False) -> list[Candidate]:
         self._reset_diagnostics()
-        root = ET.fromstring(self.http.get(self.feed))
+        try:
+            root = ET.fromstring(self.http.get(self.feed))
+        except ET.ParseError as exc:
+            raise SourceFetchError("invalid_feed") from exc
+        channel = root.find("./channel")
+        if channel is None:
+            raise SourceFetchError("invalid_feed")
         candidates: list[Candidate] = []
-        items = root.findall("./channel/item")
+        items = channel.findall("item")
         self.diagnostics["feed_items"] = len(items)
         self.discovered_urls = [url for item in items
                                 if (url := item.findtext("link")) and
                                 urlsplit(url).hostname == "www.nist.gov" and
                                 not urlsplit(url).path.startswith("/news-events/events/")]
+        dates = []
         for item in items:
             url, title = item.findtext("link"), item.findtext("title")
             if not url or not title:
@@ -593,15 +764,32 @@ class NistRssAdapter:
             if urlsplit(url).path.startswith("/news-events/events/"):
                 self.diagnostics["feed_skipped"] += 1
                 continue
-            if self.focused and not any(term in (title + " " + (item.findtext("description") or "")).lower()
-                                        for term in self.FOCUSED_TERMS):
+            raw_date = item.findtext("pubDate")
+            # Some news notices append a closing date to the single RSS field.
+            rss_day = re.split(r"\s+-\s+", raw_date, maxsplit=1)[0].strip() if raw_date else None
+            published_at = parse_time(rss_day)
+            published_date = None
+            if scheduled and published_at and published_at.hour == 12 and not (
+                    published_at.minute or published_at.second or published_at.microsecond):
+                # NIST Drupal's date-only articles render as noon UTC.
+                published_date, published_at = published_at.date(), None
+            if published_at is None and rss_day:
+                try:
+                    published_date = date.fromisoformat(rss_day.strip())
+                except ValueError:
+                    pass
+            dates.append(published_at or published_date)
+            if self.focused and not scheduled and not any(
+                    term in (title + " " + (item.findtext("description") or "")).lower()
+                    for term in self.FOCUSED_TERMS):
                 self.diagnostics["topic_filtered"] += 1
                 continue
             candidates.append(Candidate(
                 url=url, title=title.strip(),
                 summary=plain_text(item.findtext("description") or "", max_chars=1000) or None,
-                published_at=parse_time(item.findtext("pubDate")), language="en",
+                published_at=published_at, published_date=published_date, language="en",
             ))
+        self.listing_page_evidence = listing_evidence(dates, ordered=True, terminal="truncated")
         return candidates
 
     def fetch_detail(self, candidate: Candidate) -> Candidate:

@@ -74,7 +74,7 @@ _DEPLOYMENT_EVIDENCE = re.compile(
 )
 _YUAN = re.compile(
     rf"(?:人民币|[¥￥]|\(元\)\s*[:：]\s*)(?P<prefix>{_NUMBER.pattern})"
-    rf"|(?P<amount>{_NUMBER.pattern})\s*(?P<scale>万|亿)?元"
+    rf"|(?P<amount>{_NUMBER.pattern})\s*(?P<scale>万|亿)?(?:元|\(元\))"
 )
 _MONEY = re.compile(r"(?:\d+(?:\.\d+)?\s*(?:万|亿)?(?:元|英镑|美元|欧元)|[$£€]\s*\d)")
 _MONEY_SOURCE = re.compile(r"元|人民币|美元|英镑|欧元|[$£€]|\b(?:USD|GBP|EUR|dollars?|pounds?|euros?)\b", re.I)

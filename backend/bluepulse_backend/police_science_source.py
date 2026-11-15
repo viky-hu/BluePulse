@@ -13,7 +13,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 
 from .ccgp_source import USER_AGENT
-from .live_sources import BoundedHTTP, SourceFetchError
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence
 from .pipeline import Candidate
 from .source_images import ArticleImages
 
@@ -99,6 +99,8 @@ class _News(HTMLParser):
 
 
 def parse_news_html(html: str, url: str = ROOT) -> PoliceScienceArticle:
+    if "wsidchk" in html and "webdriver" in html:
+        raise SourceFetchError("source_access_challenge")
     parser = _News(url)
     parser.feed(html)
     raw_date = " ".join("".join(parser.date).replace("PUBLISHED:", "").split())
@@ -112,6 +114,15 @@ def parse_news_html(html: str, url: str = ROOT) -> PoliceScienceArticle:
 
 
 class PoliceScienceAdapter:
+    listing_entries = {"default": SITEMAP}
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry != "default" or start:
+            raise SourceFetchError("invalid_listing_offset")
+        items = self.list_candidates()
+        self.listing_page_evidence = listing_evidence((None for _ in items), terminal="truncated")
+        yield items, None
+
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, sleeper=time.sleep):
         if not 1 <= max_items <= 5:
             raise ValueError("max_items_must_be_1_to_5")

@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 from .ccgp_source import USER_AGENT
-from .live_sources import BoundedHTTP, SourceFetchError, plain_text
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence, plain_text
 from .pipeline import Candidate, canonical_url
 from .source_images import ArticleImages
 from .source_page import IncompleteArticle, SourcePageReader, bounded_details
@@ -129,6 +129,13 @@ class _Article(HTMLParser):
 
 
 class SpfPoliceLifeAdapter:
+    listing_entries = {"default": ARCHIVE}
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry != "default" or start:
+            raise SourceFetchError("invalid_listing_offset")
+        yield from self.iter_listing_pages()
+
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, sleeper=time.sleep):
         if not 1 <= max_items <= 5 or http.allowed_hosts != {HOST}:
             raise ValueError("invalid_spf_configuration")
@@ -171,7 +178,7 @@ class SpfPoliceLifeAdapter:
                 raise ValueError("incomplete_archive")
         except (ValueError, TypeError, KeyError) as exc:
             raise SourceFetchError("invalid_listing_payload") from exc
-        candidates = []
+        candidates, dates = [], []
         for entry in entries:
             if not isinstance(entry, dict):
                 raise SourceFetchError("invalid_listing_payload")
@@ -184,14 +191,16 @@ class SpfPoliceLifeAdapter:
             title = plain_text(raw_title, max_chars=500)
             summary = entry.get("description")
             summary = plain_text(summary, max_chars=1000) if isinstance(summary, str) else None
-            if not TOPIC.search(f"{title} {urlsplit(url).path} {summary or ''}"):
-                continue
             try:
                 day = datetime.strptime(entry.get("date"), "%d %b %Y").date()
             except (ValueError, TypeError):
                 day = None
+            dates.append(day)
+            if not TOPIC.search(f"{title} {urlsplit(url).path} {summary or ''}"):
+                continue
             candidates.append(Candidate(url=url, title=title, summary=summary, published_date=day, language="en"))
         self.diagnostics = {"listing_links": total, "topic_matches": len(candidates), "coverage": "archive"}
+        self.listing_page_evidence = listing_evidence(dates, terminal="exhausted")
         yield candidates, None
 
     @staticmethod

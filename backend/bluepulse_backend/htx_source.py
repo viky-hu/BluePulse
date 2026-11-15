@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .ccgp_source import USER_AGENT
-from .live_sources import BoundedHTTP, SourceFetchError
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence
 from .pipeline import Candidate, canonical_url
 from .source_images import ArticleImages
 
@@ -104,6 +104,13 @@ class _Article(HTMLParser):
 
 
 class HtxNewsAdapter:
+    listing_entries = {"default": LISTING}
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry != "default" or start < 0:
+            raise SourceFetchError("invalid_listing_offset")
+        yield from self.iter_listing_pages(start=start)
+
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, sleeper=time.sleep):
         if not 1 <= max_items <= 5:
             raise ValueError("max_items_must_be_1_to_5")
@@ -195,6 +202,10 @@ class HtxNewsAdapter:
             if next_page is not None and not entries or signature in seen_pages:
                 raise SourceFetchError("listing_pagination_stalled")
             seen_pages.add(signature)
+            self.listing_page_evidence = listing_evidence(
+                (_date(row.get("date")) if isinstance(row, dict) else None for row in entries),
+                ordered=True, terminal=("exhausted" if total is not None else "truncated") if next_page is None else None,
+            )
             yield self._listed_candidates(entries), next_page
             if next_page is None:
                 return

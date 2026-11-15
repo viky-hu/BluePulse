@@ -4,13 +4,13 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
-from .live_sources import BoundedHTTP, SourceFetchError, plain_text
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence, plain_text
 from .pipeline import Candidate
 from .source_listing import linked_pages
 
@@ -18,13 +18,40 @@ from .source_listing import linked_pages
 HOST = "www.ccgp.gov.cn"
 LISTING = "https://www.ccgp.gov.cn/cggg/zygg/gkzb/"
 LOCAL_LISTING = "https://www.ccgp.gov.cn/cggg/dfgg/gkzb/"
+NOTICE_PATHS = {
+    "tender": "gkzb", "award": "zbgg", "transaction": "cjgg", "correction": "gzgg",
+    "consultation": "jzxcs", "negotiation": "jzxtpgg", "termination": "fblbgg",
+    "other-notice": "qtgg", "inquiry": "xjgg",
+}
+LISTING_ENTRIES = {
+    f"{authority}-{notice}": f"https://{HOST}/cggg/{branch}/{path}/"
+    for authority, branch in (("central", "zygg"), ("local", "dfgg"))
+    for notice, path in NOTICE_PATHS.items()
+}
 USER_AGENT = "BluePulseResearch/0.1"
-ARTICLE_PATH = re.compile(r"^/cggg/(?:zygg|dfgg)/gkzb/\d{6}/t\d{8}_\d+\.htm$")
+ARTICLE_PATH = re.compile(r"/cggg/(?:zygg|dfgg)/(?:" + "|".join(NOTICE_PATHS.values())
+                          + r")/\d{6}/t\d{8}_\d+\.htm")
 PAGER = re.compile(r"Pager\(\{\s*size:\s*(\d+),\s*current:\s*(\d+),\s*prefix:\s*'index',\s*suffix:\s*'htm'\s*\}\)")
-DATE = re.compile(r"(?<!\d)(20\d{2})(?:年|-)[ \t]*(\d{1,2})(?:月|-)[ \t]*(\d{1,2})(?:日\s*|\s+)(\d{1,2}):(\d{2})")
-POLICE = ("公安", "警务", "交警", "刑侦", "治安", "边境管理", "警察", "公共安全")
+DATE = re.compile(
+    r"(?<!\d)(20\d{2})(?:年|[-/.])\s*(\d{1,2})(?:月|[-/.])\s*(\d{1,2})(?:日)?"
+    r"(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?(?!\d)"
+)
+PUBLICATION_LABEL = re.compile(r"(?:发布时间|公告时间|发布日期)\s*[:：]\s*")
+NOTICE_PUBLICATION_LABEL = re.compile(r"^发布日期\s*[:：]\s*")
+CHINA = timezone(timedelta(hours=8))
+POLICE = ("公安", "警务", "交警", "交管", "交通执法", "刑侦", "检案", "治安", "边境管理",
+          "边防检查", "边检", "缉私", "派出所", "乘警", "警察", "执法办案", "法医", "检察",
+          "消防", "监狱", "公共安全", "平安县城", "人民法院", "应急管理", "减灾中心")
 TECH = ("人工智能", "大模型", "智能", "信息化", "视频", "监控", "数据", "网络", "软件",
-        "平台", "系统", "通信", "无人机", "机器人", "电子物证", "科技", "vpn")
+        "平台", "系统", "通信", "无人机", "机器人", "电子物证", "科技", "vpn", "音频",
+        "算法", "研判", "电子证据", "电子取证", "痕迹检验", "信创", "服务器", "算力",
+        "执法记录仪", "物联网", "识别", "定位", "对讲", "数字化", "数智", "车载终端",
+        "电子卷宗", "液质联用仪", "设备升级", "指挥调度", "指挥中心", "指挥室", "通讯",
+        "信息采集", "全景", "三维模型", "光缆", "零信任", "车载4g", "虚拟仿真", "安防", "分析设备")
+POLICING_TECH = ("接处警", "电子警察", "情指行", "巡防处评", "辅助办案助手", "图像结构化",
+                 "反诈系统", "数字化劝导站", "应急救援指挥", "智能应急救援")
+ROUTINE_PURCHASE = ("办公家具", "食材采购", "食堂食材", "保洁服务", "绿化养护", "物业管理")
+ASCII_AI = re.compile(r"(?<![a-z0-9])ai(?![a-z0-9])", re.I)
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "wbr"}
 
 
@@ -55,13 +82,16 @@ class _Links(HTMLParser):
         self.li_links: list[tuple[str, str]] = []
         self.anchor_url: str | None = None
         self.anchor_text: list[str] = []
+        self.anchor_title = ""
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "li":
             self.li_text, self.li_links = [], []
         if tag == "a":
-            self.anchor_url = dict(attrs).get("href")
+            values = dict(attrs)
+            self.anchor_url = values.get("href")
             self.anchor_text = []
+            self.anchor_title = values.get("title") or ""
 
     def handle_data(self, data: str) -> None:
         if self.li_text is not None:
@@ -71,7 +101,7 @@ class _Links(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "a" and self.anchor_url is not None:
-            title = " ".join("".join(self.anchor_text).split())
+            title = " ".join((self.anchor_title or "".join(self.anchor_text)).split())
             if title:
                 if self.li_text is None:
                     self.items.append((self.anchor_url, title, title))
@@ -88,27 +118,42 @@ class _Detail(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.depth = 0
+        self.container_tag = ""
         self.done = False
         self.skip = 0
+        self.row_cells = 0
         self.parts: list[str] = []
         self.heading_depth = 0
         self.heading: list[str] = []
+        self.publication_depth = 0
+        self.publication: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_map = dict(attrs)
+        if attrs_map.get("id") == "pubTime":
+            self.publication_depth = 1
+        elif self.publication_depth and tag not in VOID:
+            self.publication_depth += 1
         if not self.done and self.depth == 0 and (
             "vF_detail_content" in (attrs_map.get("class") or "").split()
             or attrs_map.get("id") in {"mycontent", "content", "Zoom"}
             or tag == "article"
         ):
             self.depth = 1
+            self.container_tag = tag
             return
         if self.depth:
-            if tag not in VOID:
+            if tag == self.container_tag:
                 self.depth += 1
             if tag in {"script", "style", "noscript", "nav", "footer", "form"}:
                 self.skip += 1
-            if tag in {"p", "br", "li", "h2", "h3", "div"}:
+            if tag == "tr":
+                self.row_cells = 0
+            elif tag in {"td", "th"}:
+                if self.row_cells:
+                    self.parts.append(" | ")
+                self.row_cells += 1
+            if tag in {"p", "br", "li", "h2", "h3", "div", "tr"}:
                 self.parts.append("\n")
         elif not self.heading and tag in {"h1", "h2"}:
             self.heading_depth = 1
@@ -116,42 +161,71 @@ class _Detail(HTMLParser):
             self.heading_depth += 1
 
     def handle_endtag(self, tag: str) -> None:
+        if self.publication_depth and tag not in VOID:
+            self.publication_depth -= 1
         if self.depth:
             if tag in {"script", "style", "noscript", "nav", "footer", "form"} and self.skip:
                 self.skip -= 1
             if tag in {"p", "li", "h2", "h3", "div"}:
                 self.parts.append("\n")
-            self.depth -= 1
-            if self.depth == 0:
-                self.done = True
+            if tag == self.container_tag:
+                self.depth -= 1
+                self.done = self.depth == 0
         elif self.heading_depth:
             self.heading_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self.publication_depth:
+            self.publication.append(data)
         if self.depth and not self.skip:
             self.parts.append(data)
         elif self.heading_depth:
             self.heading.append(data)
 
 
-def _published_at(text: str) -> datetime | None:
-    match = DATE.search(text)
+def _publication(text: str) -> tuple[datetime | None, date | None]:
+    match = DATE.match(text.strip())
     if not match:
-        return None
+        return None, None
+    year, month, day, hour, minute, second = match.groups()
     try:
-        return datetime(*map(int, match.groups()), tzinfo=timezone(timedelta(hours=8))).astimezone(UTC)
+        calendar_day = date(int(year), int(month), int(day))
+        if hour is None:
+            return None, calendar_day
+        return datetime(int(year), int(month), int(day), int(hour), int(minute),
+                        int(second or 0), tzinfo=CHINA).astimezone(UTC), None
     except ValueError:
-        return None
+        return None, None
 
 
-def _rank(context: str) -> int:
-    police = any(word in context for word in POLICE)
-    normalized = context.casefold()
-    tech = any(word in normalized for word in TECH)
-    return 0 if police and tech else 1 if police else 2 if tech else 3
+def _listing_date(context: str) -> tuple[datetime | None, date | None]:
+    label = PUBLICATION_LABEL.search(context)
+    return _publication(context[label.end():]) if label else (None, None)
+
+
+def _original_notice_date(body: str, title: str):
+    first_lines = body.splitlines()
+    if len(first_lines) < 2 or not title or "".join(first_lines[0].split()) != "".join(title.split()):
+        return None, None
+    label = NOTICE_PUBLICATION_LABEL.match(first_lines[1])
+    return _publication(first_lines[1][label.end():]) if label else (None, None)
+
+
+def _relevant_listing(title: str, context: str) -> bool:
+    text = f"{title} {context}".casefold()
+    if any(word in text for word in POLICING_TECH):
+        return True
+    if not any(word in text for word in POLICE):
+        return False
+    # A relevant buyer may put the technology only in its specification. Fetch the
+    # notice unless its title clearly describes a routine purchase without technology.
+    return (not any(word in title for word in ROUTINE_PURCHASE)
+            or any(word in text for word in TECH) or bool(ASCII_AI.search(text)))
 
 
 class CcgpAdapter:
+    listing_entries = LISTING_ENTRIES
+
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2,
                  request_delay_seconds: float = 1.0, sleeper: Callable[[float], None] = time.sleep):
         if not 1 <= max_items <= 5:
@@ -209,12 +283,13 @@ class CcgpAdapter:
         self.diagnostics["listing_links"] += len(unique)
         if not unique:
             raise SourceFetchError("listing_no_article_links")
-        # A broad technology word alone produced unrelated university and industry tenders.
-        # Keep only listings that identify both a policing buyer/task and a technology.
-        ranked = [item for item in unique.items() if _rank(" ".join(item[1])) == 0]
-        self.diagnostics["topic_filtered"] += len(unique) - len(ranked)
-        return [Candidate(url=url, title=title, published_at=_published_at(context), language="zh")
-                for url, (title, context) in ranked]
+        dates = {url: _listing_date(context) for url, (_, context) in unique.items()}
+        self.listing_page_evidence = listing_evidence(
+            (instant or day for instant, day in dates.values()), ordered=True, local_zone=CHINA)
+        matched = [item for item in unique.items() if _relevant_listing(*item[1])]
+        self.diagnostics["topic_filtered"] += len(unique) - len(matched)
+        return [Candidate(url=url, title=title, published_at=dates[url][0], published_date=dates[url][1],
+                          language="zh") for url, (title, _) in matched]
 
     def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
         self._reset_diagnostics()
@@ -244,6 +319,29 @@ class CcgpAdapter:
                     yield items, checkpoint
                 index += 1
 
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry not in self.listing_entries or start < 0:
+            raise SourceFetchError("invalid_listing_offset")
+        self._reset_diagnostics()
+        archive = self.listing_entries[entry]
+        index = start
+        while True:
+            url = archive if index == 0 else f"{archive}index_{index}.htm"
+            html = _decode(self._fetch(url))
+            pager = PAGER.search(html)
+            size, current = map(int, pager.groups()) if pager else (None, None)
+            if current is not None and (current != index or size <= current):
+                raise SourceFetchError("invalid_listing_offset")
+            items = self._listing_candidates(html, url)
+            following = index + 1 if size is not None and index + 1 < size else None
+            # The source's public category archive currently exposes at most 25 pages.
+            self.listing_page_evidence["terminal"] = (
+                "truncated" if size is None or size >= 25 else "exhausted") if following is None else None
+            yield items, following
+            if following is None:
+                return
+            index = following
+
     def fetch_detail(self, candidate: Candidate) -> Candidate:
         if not _valid_article_url(candidate.url):
             raise SourceFetchError("invalid_article_url")
@@ -260,8 +358,21 @@ class CcgpAdapter:
             raise
         self.diagnostics["detail_parsed"] += 1
         title = " ".join("".join(detail.heading).split())[:500] or candidate.title
-        return replace(candidate, title=title, body=body,
-                       published_at=_published_at(plain_text(html, max_chars=3000)) or candidate.published_at)
+        instant, day = _publication("".join(detail.publication))
+        if instant is None and day is None and not candidate.published_at and not candidate.published_date:
+            # Legacy article headers put the date immediately before the source attribution.
+            legacy = re.search(DATE.pattern + r"\s*来源\s*[:：]", plain_text(html, max_chars=3000))
+            if legacy:
+                instant, day = _publication(legacy[0])
+        reprint_at = instant or candidate.published_at
+        original_at, original_day = _original_notice_date(body, title)
+        original_local_day = original_at.astimezone(CHINA).date() if original_at else original_day
+        if reprint_at and original_local_day and original_local_day < reprint_at.astimezone(CHINA).date():
+            return replace(candidate, title=title, body=body, published_at=original_at,
+                           published_date=original_day, source_updated_at=reprint_at)
+        if instant or day:
+            return replace(candidate, title=title, body=body, published_at=instant, published_date=day)
+        return replace(candidate, title=title, body=body)
 
     def candidates(self) -> list[Candidate]:
         results: list[Candidate] = []

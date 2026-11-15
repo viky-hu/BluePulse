@@ -16,6 +16,15 @@ from bluepulse_backend.police_science_source import (
     HOST, PoliceScienceAdapter, news_urls_from_sitemap, parse_news_html,
 )
 from bluepulse_backend.pipeline import Candidate, _content_hash
+
+
+def test_access_verification_html_is_recorded_as_a_source_challenge():
+    import pytest
+    from bluepulse_backend.live_sources import SourceFetchError
+    from bluepulse_backend.police_science_source import parse_news_html
+
+    with pytest.raises(SourceFetchError, match="source_access_challenge"):
+        parse_news_html('<html><script>const pwdLabel = "wsidchk"; const check = "webdriver";</script></html>')
 from bluepulse_backend.source_collection import SOURCES, build_adapter, collect
 from bluepulse_backend.schemas import ArticleCardOut
 

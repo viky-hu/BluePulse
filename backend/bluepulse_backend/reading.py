@@ -447,7 +447,8 @@ def public_stats(session, now=None):
         "sources": len(sources), "sourceKinds": dict(Counter(item["kind"] for item in samples)),
         "items": len(visible_items), "selected": len(representatives),
         "dailies": session.scalar(select(func.count()).select_from(DailyIssue)),
-        "day": {"collected": sum(start <= _aware(article.first_seen_at) <= now for article in visible_items),
+        "day": {"collected": sum(start <= _aware(article.first_seen_at) <= now
+                                 and article.backfill_reason != "collection-audit" for article in visible_items),
                 "selected": sum(start <= _aware(article.selected_at) <= now for article in representatives)},
         "sampleSources": samples[:180],
         "latest": [{"id": article.id, "title": _title(article), "source": article.source.name} for article in representatives[:8]],

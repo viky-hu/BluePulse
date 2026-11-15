@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .ccgp_source import USER_AGENT, _decode
-from .live_sources import BoundedHTTP, SourceFetchError, parse_time
+from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence, parse_time
 from .pipeline import Candidate, canonical_url
 from .source_listing import linked_pages
 
@@ -209,6 +209,19 @@ class _Detail(HTMLParser):
 
 
 class BoundedHtmlSourceAdapter:
+    @property
+    def listing_entries(self):
+        return {"default": self.config.listing}
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry != "default" or start < 0:
+            raise SourceFetchError("invalid_listing_offset")
+        for rows, following in self.iter_listing_pages(start=start):
+            self.listing_page_evidence = listing_evidence(
+                (row.published_at or row.published_date for row in rows), ordered=True,
+                terminal="exhausted" if following is None else None)
+            yield rows, following
+
     def __init__(self, http: BoundedHTTP, *, kind: str, max_items: int = 2,
                  sleeper=time.sleep):
         if kind not in SITES or not 1 <= max_items <= 5:

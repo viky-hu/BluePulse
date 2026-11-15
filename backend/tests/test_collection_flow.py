@@ -289,7 +289,8 @@ def test_dated_archive_scan_finishes_after_complete_older_page(tmp_path, monkeyp
         run = session.scalar(select(SourceRun))
         job = session.scalar(select(WorkItem).where(WorkItem.kind == "collect"))
         assert run.status == "completed", (job.error, run.fetch_metrics)
-        assert run.fetch_metrics["coverage"] == "publication_window"
+        assert run.fetch_metrics["coverage"] == "complete"
+        assert run.fetch_metrics["entries"]["default"]["reason"] == "publication_window"
         assert set(session.scalars(select(Material.source_title))) == {"missed", "last-in-window"}
 
 
@@ -316,3 +317,230 @@ def test_listing_clears_previously_saved_placeholder_date(tmp_path):
         assert article.published_date is None
         assert article.timeline_kind == "unknown"
         assert article.source_body == item.body
+
+
+def test_listing_does_not_replace_verified_date_only_with_reprint_timestamp():
+    from types import SimpleNamespace
+
+    from bluepulse_backend.collection_flow import _merge
+
+    day = date(2026, 11, 10)
+    detail = SimpleNamespace(source_title="Verified notice", source_body="Verified content", source_summary=None,
+                             published_at=None, published_date=day, body_source_url=None, source_media=None, author=None)
+    listing = candidate("reprint", published=NOW + timedelta(days=6))
+    result = _merge(listing, detail, listing=True)
+    assert (result.published_at, result.published_date) == (None, day)
+
+
+def test_entry_failure_does_not_hide_sibling_and_retry_replays_only_failed_window(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.live_sources import SourceFetchError
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    spec = SOURCES["govuk"]
+    calls = []
+    clock = [NOW]
+
+    class Adapter:
+        listing_entries = {"broken": "https://www.gov.uk/broken", "healthy": "https://www.gov.uk/healthy"}
+
+        def iter_entry_pages(self, entry, *, start):
+            calls.append((entry, start))
+            if entry == "broken" and clock[0] == NOW:
+                raise SourceFetchError("timeout")
+            self.listing_page_evidence = {"terminal": "exhausted", "undated": 0}
+            yield [Candidate(f"https://www.gov.uk/government/news/{entry}", entry,
+                             published_at=NOW, body=entry * 200)], None
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'entries.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        ensure_source(session, spec).collection_initialized_at = NOW - timedelta(days=1)
+        session.commit()
+
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: clock[0],
+                                  slugs=[spec.slug], collect_enabled=True)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        run = session.scalar(select(SourceRun))
+        assert run.status == "failed"
+        assert run.fetch_metrics["entries"]["healthy"]["status"] == "complete"
+        assert run.fetch_metrics["entries"]["broken"]["reason"] == "timeout"
+        assert session.scalar(select(Material.source_title)) == "healthy"
+        assert set(session.scalar(select(Source.collection_cursor))["entries"]) == {"healthy"}
+
+    clock[0] += timedelta(minutes=10)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    assert calls == [("broken", 0), ("healthy", 0), ("broken", 0)]
+    with Session(engine) as session:
+        run = session.scalar(select(SourceRun).order_by(SourceRun.started_at.desc()))
+        assert run.fetch_metrics["coverage"] == "complete"
+        assert set(session.scalars(select(Material.source_title))) == {"broken", "healthy"}
+
+
+def test_filtered_older_page_does_not_terminate_and_archive_cap_stays_partial(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    spec = SOURCES["govuk"]
+
+    class Adapter:
+        listing_entries = {"archive": "https://www.gov.uk/archive"}
+
+        def iter_entry_pages(self, entry, *, start):
+            self.listing_page_evidence = {"ordered": True, "newest_at": NOW, "undated": 0}
+            yield [Candidate("https://www.gov.uk/old", "Old", published_at=NOW - timedelta(days=5))], 1
+            self.listing_page_evidence = {"ordered": True, "newest_at": NOW, "oldest_at": NOW,
+                                          "terminal": "truncated", "undated": 0}
+            yield [Candidate("https://www.gov.uk/kept", "Kept", published_at=NOW)], None
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'archive.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        ensure_source(session, spec).collection_initialized_at = NOW - timedelta(days=1)
+        session.commit()
+
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: NOW,
+                                  slugs=[spec.slug], collect_enabled=True)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        run = session.scalar(select(SourceRun))
+        assert run.fetch_metrics["coverage"] == "partial"
+        assert run.fetch_metrics["entries"]["archive"]["reason"] == "archive_truncated"
+        assert session.scalar(select(Material.source_title)) == "Kept"
+
+
+def test_single_page_order_cannot_prove_a_truncated_archive_boundary():
+    from bluepulse_backend.worker import _entry_progress
+
+    progress = {"pages": 0, "undated": 0}
+    floor = NOW - timedelta(hours=2)
+    assert not _entry_progress(progress, {"ordered": True, "newest_at": NOW - timedelta(hours=1),
+                                          "oldest_at": NOW - timedelta(hours=1)}, 1, floor,
+                               first_import_limit=False, legacy_boundary=False)
+    assert _entry_progress(progress, {"ordered": True, "newest_at": NOW, "oldest_at": NOW - timedelta(hours=3),
+                                      "terminal": "truncated"}, None, floor,
+                           first_import_limit=False, legacy_boundary=False)
+    assert progress["status"] == "partial"
+
+
+def test_retry_after_holds_for_a_new_worker_after_restart(tmp_path):
+    import pytest
+
+    from bluepulse_backend.live_sources import SourceFetchError
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'cooldown.db'}")
+    Base.metadata.create_all(engine)
+    clock = [NOW]
+    worker = worker_module.Worker(engine, None, clock=lambda: clock[0])
+    with pytest.raises(SourceFetchError):
+        with worker._pace_host("www.nist.gov", 0):
+            raise SourceFetchError("http_429", retry_after_seconds=120)
+    worker = worker_module.Worker(engine, None, clock=lambda: clock[0])
+    with pytest.raises(SourceFetchError) as exc:
+        with worker._pace_host("www.nist.gov", 0):
+            pytest.fail("the shared host received a request during Retry-After")
+    assert exc.value.retry_after_seconds == 120
+    clock[0] += timedelta(seconds=120)
+    with worker._pace_host("www.nist.gov", 0):
+        pass
+
+
+def test_truncated_sorted_entry_records_gap_then_resumes_regular_overlap(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    spec = SOURCES["govuk"]
+    clock = [NOW]
+
+    class Adapter:
+        listing_entries = {"archive": "https://www.gov.uk/archive"}
+
+        def iter_entry_pages(self, entry, *, start):
+            self.listing_page_evidence = {"ordered": True, "newest_at": clock[0],
+                                          "oldest_at": NOW - timedelta(hours=2),
+                                          "terminal": "truncated", "undated": 0}
+            yield [], None
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'gap.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        ensure_source(session, spec).collection_initialized_at = NOW - timedelta(days=1)
+        session.commit()
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: clock[0],
+                                  slugs=[spec.slug], collect_enabled=True)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    clock[0] += timedelta(hours=1)
+    worker.tick()
+    assert worker.run_one(kinds={"collect"})
+    with Session(engine) as session:
+        first, second = session.scalars(select(SourceRun).order_by(SourceRun.started_at)).all()
+        gap = first.fetch_metrics["coverage_gaps"]["archive"]
+        assert first.fetch_metrics["coverage"] == "partial"
+        assert second.fetch_metrics["coverage"] == "complete"
+        assert second.fetch_metrics["coverage_gaps"]["archive"] == gap
+        assert second.fetch_metrics["entries"]["archive"]["window_start"] == (NOW - timedelta(hours=1)).isoformat()
+
+
+def test_verified_history_uses_detail_once_and_keeps_original_date(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from bluepulse_backend.collection_recovery import queue_manifest
+    from bluepulse_backend.source_collection import SOURCES, ensure_source
+
+    spec = SOURCES["govuk"]
+    source_url = "https://www.gov.uk/government/news/audit-found"
+    proof = tmp_path / "official.json"
+    proof.write_text(json.dumps({"url": source_url}), encoding="utf-8")
+    digest = hashlib.sha256(proof.read_bytes()).hexdigest()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"window_from": (NOW - timedelta(days=8)).isoformat(),
+                                    "window_through": (NOW - timedelta(minutes=10)).isoformat(),
+                                    "items": [{"source": spec.slug, "url": source_url,
+                                               "title": "Confirmed story", "evidence_url": "https://www.gov.uk/archive",
+                                               "evidence_file": proof.name, "evidence_sha256": digest,
+                                               "published_at": (NOW - timedelta(hours=1)).isoformat()}]}), encoding="utf-8")
+
+    class Adapter:
+        def fetch_detail(self, item):
+            assert not item.body
+            return Candidate(item.url, item.title, body="Verified original article." * 50,
+                             published_at=item.published_at)
+
+    monkeypatch.setattr(worker_module, "build_adapter", lambda *_args, **_kw: Adapter())
+    engine = make_engine(f"sqlite:///{tmp_path / 'history.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        source = ensure_source(session, spec)
+        source.collection_initialized_at = NOW + timedelta(days=3)
+        session.commit()
+    assert queue_manifest(engine, manifest, NOW, apply=True)["queued"] == 1
+    assert queue_manifest(engine, manifest, NOW, apply=True)["queued"] == 0
+    assert queue_manifest(engine, manifest, NOW, recheck=True)["queued"] == 1
+    worker = worker_module.Worker(engine, lambda: nullcontext(SimpleNamespace()), clock=lambda: NOW,
+                                  slugs=[spec.slug], collect_enabled=True)
+    assert worker.run_one(kinds={"collect"})
+    assert worker.run_one(kinds={"extract"})
+    assert not worker.run_one(kinds={"extract"})
+    with Session(engine) as session:
+        item = session.scalar(select(Material))
+        assert item.timeline_kind == "historical" and item.backfill_reason == "collection-audit"
+        assert item.published_at == (NOW - timedelta(hours=1)).replace(tzinfo=None)
+        assert item.revision == 1 and not item.public
+        assert session.scalar(select(SourceRun)).fetch_metrics["mode"] == "historical"

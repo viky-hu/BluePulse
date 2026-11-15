@@ -2,7 +2,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, date, datetime, time as day_time, timedelta
 from io import BytesIO
 import json
 import os
@@ -13,14 +13,14 @@ import time
 
 import httpx
 from sqlalchemy import String, and_, cast, exists, func, or_, select, update
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload
 
 from . import editorial, grouping
 from .admin_models import AdminContentOverride, AdminModelSetting
 from .ccgp_source import USER_AGENT
-from .collection_flow import (DETAIL_MAX_ATTEMPTS, DETAIL_RETRY, FIRST_IMPORT_LIMIT, adapt_intervals,
+from .collection_flow import (DETAIL_MAX_ATTEMPTS, DETAIL_RETRY, FIRST_IMPORT_AGE, FIRST_IMPORT_LIMIT,
+                              STALE_ON_DISCOVERY, adapt_intervals,
                               admission_floor, admit_page, apply_detail, detail_is_current,
                               page_precedes_floor, schedule_after_fetch, schedule_due_sources, unpack)
 from .db import database_url, make_engine
@@ -28,7 +28,7 @@ from .editorial_models import PaidAttempt, Story, WorkItem
 from .live_model import ProviderRejected, load_local_credentials, model_listed
 from .live_sources import SourceFetchError
 from .model_steps import Steps, environment_models
-from .models import AnalysisAttempt, AutoPublicationJob, FactGroup, FactReport, Material, Source, SourceRun, now_utc
+from .models import AnalysisAttempt, AutoPublicationJob, Discovery, FactGroup, FactReport, Material, Source, SourceRun, now_utc
 from .pipeline import ingest
 from .publication import translation_needed, visible
 from .receipts import Budget, BudgetWait, ReceiptUnknown, recover_receipts
@@ -48,6 +48,62 @@ class SourceRetry(RuntimeError):
 
 
 REWRITE_SUMMARY = "rewrite_summary"
+LISTING_OVERLAP = timedelta(hours=1)
+SOURCE_COOLDOWN = "source_cooldown"
+
+
+def _listing_error(exc):
+    return getattr(exc, "code", None) or ("invalid_listing" if isinstance(exc, ValueError) else type(exc).__name__)
+
+
+def _date_before(value, floor):
+    if not value:
+        return False
+    if isinstance(value, str):
+        value = date.fromisoformat(value) if len(value) == 10 else datetime.fromisoformat(value)
+    return utc(value) < utc(floor) if isinstance(value, datetime) else value < floor.date()
+
+
+def _listing_instant(value):
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if isinstance(value, date) and not isinstance(value, datetime):
+        value = datetime.combine(value, day_time.min, UTC)
+    return utc(value) if value else None
+
+
+def _entry_progress(progress, proof, offset, floor, *, first_import_limit, legacy_boundary):
+    progress["pages"] += 1
+    progress["undated"] += proof.get("undated", 0)
+    previous_tail = _listing_instant(progress.get("oldest_at"))
+    page_head = _listing_instant(proof.get("newest_at"))
+    progress["ordered"] = bool(progress.get("ordered", True) and proof.get("ordered")
+                                and (not previous_tail or not page_head or page_head <= previous_tail))
+    for key in ("newest_at", "oldest_at"):
+        value = proof.get(key)
+        if value:
+            value = value if isinstance(value, str) else value.isoformat()
+            previous = progress.get(key)
+            progress[key] = (max if key == "newest_at" else min)(previous, value) if previous else value
+    # Reaching an old boundary requires the entire raw page to predate the window.
+    boundary = proof.get("oldest_at") if offset is None else proof.get("newest_at")
+    passed_boundary = progress["ordered"] and _date_before(boundary, floor)
+    if passed_boundary or legacy_boundary:
+        reason = "publication_window"
+    elif proof.get("terminal") == "exhausted" and offset is None:
+        reason = "archive_exhausted"
+    elif first_import_limit:
+        reason = "first_import_limit"
+    elif offset is None:
+        reason = "archive_truncated" if proof.get("terminal") == "truncated" else "coverage_unproven"
+    else:
+        return False
+    complete = reason in {"publication_window", "archive_exhausted"} and not progress["undated"]
+    progress.update(status="complete" if complete else "partial",
+                    reason="undated_listing_items" if not complete and progress["undated"] else reason)
+    if reason == "archive_truncated" and progress["ordered"] and progress.get("oldest_at"):
+        progress["available_from"] = progress["oldest_at"]
+    return True
 
 
 def _material_key(material):
@@ -102,6 +158,12 @@ class Worker:
         self.stopping = Event()
         self._hosts_lock = Lock()
         self._hosts = {}
+        with Session(engine) as session:
+            self._host_cooldowns = {host: utc(deadline) for host, deadline in session.execute(
+                select(WorkItem.identity, WorkItem.due_at).where(WorkItem.kind == SOURCE_COOLDOWN,
+                                                                 WorkItem.due_at > self.clock()))}
+        from .collection_version import collection_identity
+        self.collection_identity = collection_identity()
 
     def tick(self, *, schedule_daily=True, recover_collection=False):
         now = self.clock()
@@ -298,6 +360,8 @@ class Worker:
 
     def _execute(self, work):
         if work.kind == "collect":
+            if "audit_items" in work.payload:
+                return self._collect_historical(work)
             return self._collect(work) if "max_items" in work.payload else self._collect_listing(work)
         if work.kind == "extract":
             return self._extract(work)
@@ -339,11 +403,25 @@ class Worker:
         with self._hosts_lock:
             gate, previous = self._hosts.setdefault(hostname, (Lock(), [0.0, 0.0]))
         with gate:
+            with self._hosts_lock:
+                now = utc(self.clock())
+                cooldown = (self._host_cooldowns.get(hostname, now) - now).total_seconds()
+            if cooldown > 0:
+                raise SourceFetchError("http_429", retry_after_seconds=int(cooldown + .999999))
             wait = previous[0] + max(previous[1], seconds) - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
             try:
                 yield
+            except SourceFetchError as exc:
+                if delay := getattr(exc, "retry_after_seconds", None):
+                    deadline = utc(self.clock()) + timedelta(seconds=delay)
+                    with self._hosts_lock:
+                        self._host_cooldowns[hostname] = deadline
+                    with serialized(self.engine) as session:
+                        hold = enqueue(session, SOURCE_COOLDOWN, hostname, {}, deadline)
+                        hold.status, hold.due_at = "done", deadline
+                raise
             finally:
                 previous[:] = [time.monotonic(), seconds]
 
@@ -370,65 +448,154 @@ class Worker:
             now = self.clock()
             session.execute(update(SourceRun).where(SourceRun.source_id == source.id, SourceRun.status == "running")
                             .values(status="failed", error_code="worker_interrupted", finished_at=now))
-            run = SourceRun(source_id=source.id, started_at=now, fetch_metrics={"mode": "listing"})
+            run = SourceRun(source_id=source.id, started_at=now,
+                            fetch_metrics={"mode": "listing", **self.collection_identity})
             session.add(run)
             session.flush()
             run_id = run.id
-            saved_cursor = source.collection_cursor or {}
-            cursor = {"imported": saved_cursor.get("imported", [])}
-            floor = admission_floor(source)
-            first = floor is None
-        code = None
+            state = dict(source.collection_cursor or {})
+            if any(state.get(key) != value for key, value in self.collection_identity.items()):
+                state = {key: state[key] for key in ("imported", "checkpoints", "observed", "gaps") if key in state}
+            state.update(self.collection_identity)
+            for key in ("entries", "checkpoints", "observed", "gaps", "floors"):
+                state.setdefault(key, {})
+            state.setdefault("imported", [])
+            state.setdefault("window_end", now.isoformat())
+            admission = admission_floor(source)
+            end = datetime.fromisoformat(state["window_end"])
+            if state["entries"] and now - end >= timedelta(minutes=source.interval_minutes):
+                # A persistent failure in one entry must not suspend healthy siblings.
+                for entry in state["entries"]:
+                    state["floors"].pop(entry, None)
+                state["entries"] = {}
+                state["window_end"] = now.isoformat()
+                end = now
+
+        code, retry_after = None, 0
+        results = {}
         with self._source_client() as client:
             adapter = build_adapter(SOURCES[slug], client, max_items=2)
-            try:
-                paged = getattr(adapter, "iter_listing_pages", None)
-                date_ordered = getattr(adapter, "listing_newest_first", False)
-                # Offsets into mutable listings are unsafe after a failure or shutdown.
-                # Previously committed material and extraction jobs make replay idempotent.
-                pages = (paged(start=0) if paged else
-                         [(adapter.list_candidates(first_import=first), None)])
-                page_iterator = iter(pages)
-                while not self.stopping.is_set():
-                    page = next(page_iterator, None)
-                    if page is None:
-                        raise SourceFetchError("listing_incomplete")
-                    items, offset = page
-                    with serialized(self.engine) as session:
-                        source = self._locked_source(session, work, slug)
-                        if source is None:
-                            code = "source_disabled"
-                            break
-                        run = session.get(SourceRun, run_id)
-                        admit_page(session, source, run, items, self.clock(), cursor)
-                        if first:
-                            source.collection_cursor = dict(cursor)
-                        covered_window = date_ordered and page_precedes_floor(items, floor)
-                        if covered_window:
-                            run.fetch_metrics = {**run.fetch_metrics, "coverage": "publication_window"}
-                        # Set the successful checkpoint in the same transaction as the last page.
-                        if covered_window or offset is None or first and len(cursor.get("imported", ())) >= FIRST_IMPORT_LIMIT:
-                            source.collection_initialized_at = source.collection_initialized_at or self.clock()
-                            source.collection_cursor = None
-                            break
-                else:
-                    code = "worker_interrupted"
-            except LeaseLost:
-                raise
-            except Exception as exc:
-                code = getattr(exc, "code", None) or (
-                    "invalid_listing" if isinstance(exc, ValueError) else type(exc).__name__)
+            named = getattr(adapter, "iter_entry_pages", None)
+            entries = adapter.listing_entries if named else {"default": None}
+            supplemental = getattr(adapter, "supplemental_entries", frozenset())
+            for entry in entries:
+                if entry in state["entries"]:
+                    results[entry] = {**state["entries"][entry], "reused": True}
+                    continue
+                previous = state["observed"].get(entry) or state["checkpoints"].get(entry)
+                recent = end - (STALE_ON_DISCOVERY if admission else FIRST_IMPORT_AGE)
+                floor = datetime.fromisoformat(previous) - LISTING_OVERLAP if previous else recent
+                start = max(admission, floor) if admission else floor
+                window_start = state["floors"].setdefault(entry, start.isoformat())
+                progress = {"status": "partial", "reason": "worker_interrupted",
+                            "window_start": window_start, "window_end": state["window_end"], "pages": 0, "undated": 0}
+                if entry in supplemental:
+                    progress["supplemental"] = True
+                try:
+                    self._collect_entry(work, run_id, adapter, entry, progress, state, results, admission)
+                except LeaseLost:
+                    raise
+                except Exception as exc:
+                    error = _listing_error(exc)
+                    code = code or error
+                    retry_after = max(retry_after, getattr(exc, "retry_after_seconds", 0) or 0)
+                    progress.update(status="failed", reason=error)
+                results[entry] = progress
             diagnostics = getattr(adapter, "diagnostics", {})
+
         with serialized(self.engine) as session:
             source = self._locked_source(session, work, slug)
             run = session.get(SourceRun, run_id)
             now = self.clock()
+            required = [p for name, p in results.items() if name not in supplemental]
+            coverage = ("complete" if not code and required and all(p["status"] == "complete" for p in required)
+                        else "partial")
             if source:
-                schedule_after_fetch(source, now, success=code is None, error=code)
+                if not code:
+                    source.collection_initialized_at = source.collection_initialized_at or now
+                    for key in ("entries", "window_end", "imported"):
+                        state.pop(key)
+                    state["floors"] = {entry: state["floors"][entry] for entry, result in results.items()
+                                       if admission and result["status"] != "complete" and not result.get("available_from")}
+                source.collection_cursor = state
+                schedule_after_fetch(source, now, success=code is None, error=code, retry_after=retry_after)
             run.status = "failed" if code else "completed" if run.candidate_count else "no_candidates"
             run.error_code, run.finished_at = code, now
-            run.fetch_metrics = {**diagnostics, **run.fetch_metrics}
-            return {"run_id": run.id, "status": run.status, "error": code}
+            run.fetch_metrics = {**diagnostics, **run.fetch_metrics, "coverage": coverage,
+                                 "entries": results, "coverage_gaps": state["gaps"]}
+            return {"run_id": run.id, "status": run.status, "error": code, "coverage": coverage}
+
+    def _collect_entry(self, work, run_id, adapter, entry, progress, state, results, admission):
+        if self.stopping.is_set():
+            raise SourceFetchError("worker_interrupted")
+        named = getattr(adapter, "iter_entry_pages", None)
+        paged = getattr(adapter, "iter_listing_pages", None)
+        # Replaying mutable offsets from the head is safe after each page's durable writes.
+        if named:
+            pages = named(entry, start=0)
+        elif paged:
+            pages = paged(start=0)
+        else:
+            pages = [(adapter.list_candidates(first_import=admission is None), None)]
+        iterator = iter(pages)
+        start = datetime.fromisoformat(progress["window_start"])
+        while not self.stopping.is_set():
+            page = next(iterator, None)
+            if page is None:
+                raise SourceFetchError("listing_incomplete")
+            items, offset = page
+            proof = getattr(adapter, "listing_page_evidence", {}) or {}
+            with serialized(self.engine) as session:
+                source = self._locked_source(session, work, work.payload["slug"])
+                if source is None:
+                    raise SourceFetchError("source_disabled")
+                run = session.get(SourceRun, run_id)
+                admit_page(session, source, run, items, self.clock(), state)
+                done = _entry_progress(progress, proof, offset, start,
+                                       first_import_limit=admission is None and len(state["imported"]) >= FIRST_IMPORT_LIMIT,
+                                       legacy_boundary=not named and getattr(adapter, "listing_newest_first", False)
+                                       and page_precedes_floor(items, admission))
+                if done and progress["status"] == "complete":
+                    state["entries"][entry] = dict(progress)
+                    state["checkpoints"][entry] = state["observed"][entry] = state["window_end"]
+                    gap = state["gaps"].get(entry)
+                    if gap and start <= datetime.fromisoformat(gap["from"]):
+                        del state["gaps"][entry]
+                elif done and progress.get("available_from"):
+                    gap = state["gaps"].get(entry, {})
+                    state["gaps"][entry] = {"from": gap.get("from", progress["window_start"]),
+                                            "through": progress["available_from"], "reason": "archive_truncated"}
+                    state["observed"][entry] = state["window_end"]
+                source.collection_cursor = state
+                run.fetch_metrics = {**run.fetch_metrics, "entries": {**results, entry: dict(progress)}}
+            if done:
+                return
+        raise SourceFetchError("worker_interrupted")
+
+    def _collect_historical(self, work):
+        from .collection_recovery import audit_candidates
+
+        rows = {row["url"]: row for row in work.payload["audit_items"]}
+        with serialized(self.engine) as session:
+            source = self._locked_source(session, work, work.payload["slug"])
+            if source is None:
+                return {"skipped": "source_disabled"}
+            now = self.clock()
+            run = SourceRun(source_id=source.id, started_at=now, finished_at=now,
+                            fetch_metrics={"mode": "historical", **self.collection_identity})
+            session.add(run)
+            session.flush()
+            # A dated amendment to a known document must not insert the entire old archive.
+            known = set(session.scalars(select(Material.canonical_url).where(Material.canonical_url.in_(rows))))
+            for url in tuple(rows):
+                if rows[url].get("correction") and url not in known:
+                    session.add(Discovery(run_id=run.id, source_id=source.id, url=url, outcome="rejected",
+                                          reason_code="audit_correction_original_missing"))
+                    del rows[url]
+            admit_page(session, source, run, list(audit_candidates(rows.values(), source.language)), now, {},
+                       audit_items=rows)
+            run.status = "completed" if run.candidate_count else "no_candidates"
+            return {"run_id": run.id, "status": run.status}
 
     def _extract(self, work):
         slug = work.payload["slug"]
@@ -437,7 +604,7 @@ class Worker:
             if not detail_is_current(session, source, work.payload):
                 return {"skipped": "superseded"}
             attempts = session.get(WorkItem, work.id).attempts
-        detail, error = None, None
+        detail, error, retry_after, release_at = None, None, 0, None
         try:
             with self._source_client() as client:
                 adapter = build_adapter(SOURCES[slug], client, max_items=2)
@@ -445,8 +612,27 @@ class Worker:
                 if detail is None or not detail.title.strip():
                     error = "title_missing"
                     detail = None
+                elif not detail.body:
+                    error = "detail_body_missing"
+                elif "collection_audit" in work.payload:
+                    from dataclasses import replace
+                    from .source_audit import window_status
+
+                    audit = work.payload["collection_audit"]
+                    listed = unpack(work.payload["candidate"])
+                    if not (detail.published_at or detail.published_date):
+                        detail = replace(detail, published_at=listed.published_at, published_date=listed.published_date)
+                    if audit.get("correction") and not (detail.published_at or detail.published_date):
+                        error = "audit_original_date_unverified"
+                    dates = {key: value.isoformat() if value else None for key, value in
+                             (("published_at", detail.published_at), ("published_date", detail.published_date))}
+                    evidence_dates = ({"published_at": audit["updated_at"]} if audit.get("correction") else dates)
+                    if window_status({**audit, **evidence_dates}, audit["window_from"], audit["window_through"]) != "in_window":
+                        error = "audit_detail_date_conflict"
         except SourceFetchError as exc:
             error = exc.code
+            retry_after = getattr(exc, "retry_after_seconds", 0) or 0
+            release_at = exc.release_at
         except (TypeError, ValueError):
             error = "invalid_detail"
         with serialized(self.engine) as session:
@@ -454,13 +640,33 @@ class Worker:
             source = self._locked_source(session, work, slug)
             if not detail_is_current(session, source, work.payload):
                 return {"skipped": "superseded"}
+            if release_at and "collection_audit" not in work.payload:
+                row = session.get(WorkItem, work.id)
+                row.status, row.error, row.due_at = "pending", error, max(release_at, now + DETAIL_RETRY)
+                row.token = row.expires_at = None
+                for discovery in session.scalars(select(Discovery).where(
+                        Discovery.run_id == work.payload["run_id"], Discovery.url == work.payload["url"])):
+                    discovery.outcome, discovery.reason_code = "deferred", error
+                return {"status": "deferred", "error": error}
             if error and attempts < DETAIL_MAX_ATTEMPTS:
                 row = session.get(WorkItem, work.id)
-                row.status, row.error, row.due_at = "pending", error, now + DETAIL_RETRY
+                row.status, row.error = "pending", error
+                row.due_at = now + max(DETAIL_RETRY, timedelta(seconds=retry_after))
                 row.token = row.expires_at = None
                 return {"status": "retrying"}
+            if error and "collection_audit" in work.payload:
+                for discovery in session.scalars(select(Discovery).where(
+                        Discovery.run_id == work.payload["run_id"], Discovery.url == work.payload["url"])):
+                    discovery.outcome, discovery.reason_code = "detail_unconfirmed", error
+                return {"status": "unconfirmed", "material_id": work.payload["material_id"], "error": error}
             item = apply_detail(session, source, work.payload, detail, now)
             if item and self.budget:
+                if detail is not None and (work.payload.get("collection_audit") or {}).get("recheck_version"):
+                    job = session.scalar(select(WorkItem).where(
+                        WorkItem.kind == "analyze", WorkItem.identity == _material_key(item),
+                        WorkItem.status == "failed", WorkItem.error == "invalid_editorial_copy"))
+                    if job is not None and item.editorial_revision != item.revision:
+                        job.status, job.due_at, job.error = "pending", now, None
                 _schedule_material(session, item, now)
             return {"status": item.collection_state if item else "unconfirmed",
                     "material_id": item.id if item else None, "error": error}
@@ -473,7 +679,7 @@ class Worker:
 
         slug = work.payload["slug"]
         spec = SOURCES[slug]
-        with self.client_factory() as client, Session(self.engine, expire_on_commit=False) as session:
+        with self._source_client() as client, Session(self.engine, expire_on_commit=False) as session:
             source = session.scalar(select(Source).where(Source.slug == slug))
             if source is None or not source.enabled:
                 return {"skipped": "source_disabled"}
@@ -484,7 +690,8 @@ class Worker:
                             .values(status="failed", error_code="worker_interrupted", finished_at=self.clock()))
             session.commit()
             adapter = build_adapter(spec, client, max_items=work.payload.get("max_items", 2))
-            result = ingest(session, source, adapter, guard=guard, clock=self.clock)
+            result = ingest(session, source, adapter, guard=guard, clock=self.clock,
+                            provenance={"mode": "bounded", **self.collection_identity})
             if result.status == "failed" and result.error_code in RETRYABLE:
                 raise SourceRetry(result.error_code)
             if result.status == "failed":
@@ -696,8 +903,10 @@ def _budget_from_env():
 
 
 def _daemon_lock_path():
-    db = make_url(database_url()).database
-    return Path(db).resolve().with_suffix(".worker.lock") if db and db != ":memory:" else None
+    from .collection_version import sqlite_database_path
+
+    path = sqlite_database_path(database_url())
+    return path.with_suffix(".worker.lock") if path else None
 
 
 @contextmanager
@@ -875,8 +1084,13 @@ def main(argv=None):
             load_local_credentials()
     except (OSError, ValueError):
         parser.error("check backend/.env and the three BLUEPULSE_MODEL_BUDGET_* values")
-    config = {"collection": os.environ.get("BLUEPULSE_COLLECT_ENABLED") == "1",
-              "model_budget": {name: getattr(budget, name) for name in ("minute", "hour", "day")} if budget else None}
+    from .collection_version import worker_configuration
+
+    config = worker_configuration(
+        collection=os.environ.get("BLUEPULSE_COLLECT_ENABLED") == "1",
+        model_budget={name: getattr(budget, name) for name in ("minute", "hour", "day")} if budget else None,
+        database=database_url(),
+    )
     if args.check_config:
         print(json.dumps(config))
         return
@@ -886,7 +1100,7 @@ def main(argv=None):
             if _worker_ready(config):
                 return
             time.sleep(.25)
-        parser.exit(1, "worker not ready with the requested settings\n")
+        parser.exit(1, "worker not ready with the requested settings and collection version; check runtime health\n")
 
     with _daemon_lock() as handle:
         if handle is not None:

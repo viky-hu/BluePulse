@@ -72,3 +72,31 @@ def test_detail_alias_mismatch_fails_closed():
         else:
             assert False, "mismatched detail must not enter the pipeline"
     assert adapter.diagnostics["detail_failed"] == 1
+
+
+def test_scheduled_newsroom_covers_articles_missing_from_limited_rss():
+    pages_requested = []
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        assert request.url.path == "/media-press/newsroom"
+        page = int(request.url.params.get("page", 1))
+        pages_requested.append(page)
+        rows = [{
+            "alias": "/media-press/newsroom/news/" + ("recent-evidence" if page == 1 else "older-report"),
+            "title": "Cutting delays in evidence review",
+            "published": 1794495601 - (page - 1) * 86400,
+            "type": "news",
+        }]
+        state = {"NodeLoader": {"node": {"lists": [{"id": "news", "page": page, "totalItems": 2,
+                                                        "itemsPerPage": 1, "items": rows}]}}}
+        return httpx.Response(200, text="<script>window.SERVER_DATA=" + json.dumps(state) + ";</script>")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = EuropolNewsAdapter(BoundedHTTP(client, allowed_hosts={HOST}, delay_seconds=0),
+                                     sleeper=lambda _: None)
+        pages = list(adapter.iter_entry_pages("newsroom"))
+    assert pages_requested == [1, 2]
+    assert [row.url.rsplit("/", 1)[-1] for page, _ in pages for row in page] == ["recent-evidence", "older-report"]
+    assert pages[-1][1] is None and adapter.listing_page_evidence["terminal"] == "exhausted"

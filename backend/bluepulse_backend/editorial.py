@@ -27,11 +27,18 @@ PREFILTER = SAFETY + """
 STRUCTURE = SAFETY + """
 只做结构化提取。先读正文，识别这份材料自己的核心行动及用途。按正文重心分类，不以发布机构、原有产品名称或偶然提及的技术分类。不写面向读者的摘要，不打分。
 category 从 product、practice、paper、law、embodied、public-opinion、low-altitude、other 中选一个主要类别，分别表示产品、实战、论文、法制、具身智能、舆情治理、低空警务、其它。优先选择有正文依据且贴切的前七类；确实涉及警务科技或有具体应用线索、但前七类都不贴切时选 other。不能因为普通警务报道不好分类就选 other；分类不代替相关性判断，也不决定是否精选。分类必须明确给出，不得省略或返回 null。
-tags 是原文中能逐字找到的短词。entities 为最多6个 {name,type,evidence}，type 为 vendor、model、organization，evidence 必须逐字含名称。
+tags 是 0–6 个与当前主要信息一致、能在正文逐字找到的技术、方法、业务对象或项目阶段短词。省略通用采购条款、预算、投标资格和随手提及的词。没有明确标签时返回空数组。entities 为最多6个 {name,type,evidence}，type 为 vendor、model、organization，evidence 必须逐字含名称。
 scope：single 表示一个具体发生或一项独立研究、评测、方法；composite 表示实质报道多个可独立成条的发生，同一机构、日期、会议或议题不足以合为一次；只作背景或比较不算独立条目；无法判断范围为 unknown。
 fact 是 {title,subject,action,object,occurredAt,evidence,conditions} 或 null。抽取本次报道的动作，区分拟议、采购、测试、部署、复盘和实地效果。旧发布只作背景。主体是行动方，引用或媒体不自动成为行动方。occurredAt 只用正文明示的本次动作日期 YYYY-MM-DD，未知为 null。
 evidence 逐字复制一条支撑本次核心动作的完整正文短句。conditions 最多四条，每项只有 {quote}，各逐字复制一条连续原文，保留会改变结论的对象、地域、规模、使用限制或例外。不要翻译、拼接或从标题抽取引文。综合稿、材料不足或没有可证实发生时 fact 为 null。
 只输出 JSON {scope,category,tags,entities,fact}。"""
+PROCUREMENT_STRUCTURE = """
+这份材料是政府采购公告。分类看本次采购的实质对象。需求、招采、成交、更正和终止属于项目进展，引用采购法规不构成法制新闻，也不能表述成实战应用。明确的产品或系统可归 product。只有采购对象明确涉及无人机等低空作业时才归 low-altitude，明确涉及舆情或网络内容治理时才归 public-opinion。物理机器人属于 embodied，虚拟仿真不属于。其余相关采购归 other。"""
+PROCUREMENT_CATEGORY_EVIDENCE = {
+    "low-altitude": re.compile(r"低空|无人机|无人飞行器|无人驾驶航空器|飞行服务|无人机场|反无人机"),
+    "public-opinion": re.compile(r"舆情|网络内容治理|有害信息治理|网络谣言|内容审核"),
+    "embodied": re.compile(r"机器人|具身智能|机器狗|四足巡检"),
+}
 TRANSLATE = SAFETY + """
 把输入 blocks 按原顺序逐项译为自然简体中文，输出相同数量的字符串。保留原文段落、行分隔和每个 ⟦数字⟧，每个占位符在相应位置恰好出现一次。网址、代码、命令和文件名保持原样；专名可保留原文，数字、单位、日期及价格沿用原文。已有中文及纯数字或符号原样返回。不增删信息，不加解释、译注、导读或点评。
 只输出 JSON {blocks: string[]}。"""
@@ -84,8 +91,17 @@ def _ground(value, original, limit):
     return quote if quote and " ".join(quote.split()) in original else None
 
 
-def _structure(step, data):
-    output, _ = step("structure", "structure", STRUCTURE, data, 1800)
+def procurement_category(category, title, fact):
+    evidence = PROCUREMENT_CATEGORY_EVIDENCE.get(category)
+    primary = " ".join((title, (fact or {}).get("evidence") or ""))
+    if category in {"practice", "paper", "law"} or (evidence and not evidence.search(primary)):
+        return "other"
+    return category
+
+
+def _structure(step, data, *, procurement=False):
+    prompt = STRUCTURE + PROCUREMENT_STRUCTURE if procurement else STRUCTURE
+    output, _ = step("structure", "structure", prompt, data, 1800)
     original = " ".join(data["text"].split())
     scope = output.get("scope")
     if scope not in {"single", "composite", "unknown"}:
@@ -93,8 +109,10 @@ def _structure(step, data):
     category = output.get("category")
     if not isinstance(category, str) or category not in PUBLIC_TOPIC_SLUGS:
         raise ValueError("invalid_structure_category")
-    tags = tuple(dict.fromkeys(quote for value in (output.get("tags") or [])[:12]
-                               if (quote := _ground(value, original, 80))))
+    raw_tags = output.get("tags")
+    tags = tuple(dict.fromkeys(quote for value in (raw_tags[:6] if isinstance(raw_tags, list) else [])
+                               if isinstance(value, str) and 2 <= len(value.strip()) <= 80
+                               and (quote := _ground(value, original, 80))))
     entities = []
     for entity in (output.get("entities") or [])[:6]:
         if not isinstance(entity, dict):
@@ -120,6 +138,8 @@ def _structure(step, data):
         fact = None
         if scope == "single" or not original:
             scope = "unknown"
+    if procurement:
+        category = procurement_category(category, data["title"], fact)
     return scope, fact, (category,), tags, tuple(entities)
 
 
@@ -172,7 +192,7 @@ def analyze(material, step) -> Analysis:
         label = "UNKNOWN"
     score_input = {"title": material.source_title, "text": text}
     with ThreadPoolExecutor(max_workers=1) as pool:
-        structure = pool.submit(_structure, step, data)
+        structure = pool.submit(_structure, step, data, procurement=material.source.slug == "ccgp-policing-tech")
         scores = [_score(step, score_input, ordinal) for ordinal in (1, 2)] if text.strip() else []
         scope, fact, topics, tags, entities = structure.result()
     if len(scores) == 2 and scores[0][1] and scores[0][1] == scores[1][1]:

@@ -138,7 +138,7 @@ def _timeline_cursor(anchor: datetime, group_id: str, key: str) -> str:
 
 
 def create_app(database: str | None = None) -> FastAPI:
-    engine = make_engine(database)
+    engine = make_engine(database, request_scoped=True)
     session_factory = make_session_factory(engine)
     app = FastAPI(title="Blue Pulse API", version="0.3.0")
     router = APIRouter(prefix="/api/v1")
@@ -292,7 +292,8 @@ def create_app(database: str | None = None) -> FastAPI:
 
     @router.get("/home/recently-collected", response_model=ItemsOut[ArticleCardOut])
     def recently_collected(session: Session = Depends(session_dep)):
-        rows, _ = visible_page(session, listed_query().order_by(
+        rows, _ = visible_page(session, listed_query().where(
+            or_(Material.backfill_reason.is_(None), Material.backfill_reason != "collection-audit")).order_by(
             Material.first_seen_at.desc(), Material.id), 6)
         return {"items": [_card(row, reason=public_reading_value(session, row)) for row in rows]}
 

@@ -3,7 +3,7 @@ from bisect import bisect_left
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import joinedload
 
 from .edition_evidence import public_at, utc
@@ -31,15 +31,20 @@ def edition_key(at):
     return (local.date() + (DAY if local.hour >= 8 else timedelta())).isoformat()
 
 
-def daily_inputs(session, start, end, now):
+def daily_inputs(session, start, end, now, *, historical_source_dates=False):
     first_run = session.scalar(select(func.min(SourceRun.started_at)))
     first_key = edition_key(first_run) if first_run else None
     sources = set(session.scalars(select(Source.id).where(
         Source.enabled.is_(True), Source.participation_mode == "editorial")))
     runs = defaultdict(list)
-    for source_id, finished in session.execute(select(SourceRun.source_id, SourceRun.finished_at).where(
+    for source_id, finished, metrics in session.execute(select(
+            SourceRun.source_id, SourceRun.finished_at, SourceRun.fetch_metrics).where(
             SourceRun.status.in_(SUCCESS), SourceRun.finished_at >= start - RECOVERY_WINDOW,
             SourceRun.finished_at < end).order_by(SourceRun.finished_at)):
+        metrics = metrics or {}
+        if metrics.get("mode") in {"bounded", "historical"} or (
+                "collection_rule_version" in metrics and metrics.get("coverage") != "complete"):
+            continue
         runs[source_id].append(utc(finished))
 
     def succeeded(source_id, lower, upper):
@@ -53,9 +58,18 @@ def daily_inputs(session, start, end, now):
                                         FactReport.relation.in_(("primary", "report"))))
              .outerjoin(FactGroup, FactGroup.id == FactReport.fact_id)
              .where(Source.participation_mode == "editorial", Material.withdrawn.is_(False),
-                    Material.duplicate_of_id.is_(None), Material.first_seen_at >= start,
-                    Material.first_seen_at < end + RECOVERY_WINDOW, Material.first_seen_at <= now)
+                    Material.duplicate_of_id.is_(None), Material.first_seen_at <= now)
              .order_by(Material.id))
+    if historical_source_dates:
+        # Date-only originals belong to the following morning's issue; never invent an hour.
+        source_day = start.astimezone(BEIJING).date()
+        query = query.where(or_(
+            and_(Material.published_at >= start, Material.published_at < end),
+            and_(Material.published_at.is_(None), Material.published_date == source_day,
+                 Material.timeline_kind != "unknown"),
+        ))
+    else:
+        query = query.where(Material.first_seen_at >= start, Material.first_seen_at < end + RECOVERY_WINDOW)
     ready, details = [], []
     window_key = edition_key(start)
     waiting = 0
@@ -68,7 +82,11 @@ def daily_inputs(session, start, end, now):
         published_key = edition_key(exact) if exact else (day + DAY).isoformat() if day else None
         key = edition_key(seen)
         reason = "first_seen"
-        if published_key and published_key < key and (first_key is None or published_key >= first_key):
+        if historical_source_dates:
+            key, reason = published_key, "historical_source_date"
+        elif item.backfill_reason == "collection-audit" and published_key and published_key < key:
+            key, reason = published_key, "recovered_collection_audit"
+        elif published_key and published_key < key and (first_key is None or published_key >= first_key):
             _, original_end = daily_window(published_key)
             after_publication = exact or date_end
             if (seen - original_end <= RECOVERY_WINDOW
@@ -79,7 +97,7 @@ def daily_inputs(session, start, end, now):
         if key != window_key or (historical and reason == "first_seen" and
                                  (not published_key or seen - (exact or date_end) > RECOVERY_WINDOW)):
             continue
-        if item.backfill_reason == "first-import" and (
+        if not historical_source_dates and item.backfill_reason == "first-import" and (
             not published_key or (seen - (exact or date_end)) > FIRST_IMPORT_FRESHNESS
         ):
             continue

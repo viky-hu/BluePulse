@@ -46,6 +46,10 @@ class SourcePageReader:
         self._before_request(url)
         return self.http.get(url, accept=accept)
 
+    def get_with_headers(self, url: str, accept: str):
+        self._before_request(url)
+        return self.http.get_with_headers(url, accept=accept)
+
     def post_json(self, url: str, payload: dict) -> bytes:
         self._before_request(url)
         return self.http.post_json(url, payload)

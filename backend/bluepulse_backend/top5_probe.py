@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 import httpx
 
 from .ccgp_source import CcgpAdapter, USER_AGENT, _Links, _decode
-from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter, SourceFetchError
+from .live_sources import BoundedHTTP, GovUkAdapter, NistRssAdapter, SourceFetchError, listing_evidence
 from .pipeline import Candidate
 from .source_listing import linked_pages
 from .source_page import IncompleteArticle, SourcePageReader, bounded_details
@@ -106,6 +106,19 @@ def _date(kind: str, parser: _Region) -> datetime | None:
 
 
 class HtmlEvidenceProbe:
+    @property
+    def listing_entries(self):
+        return {"default": self.listing}
+
+    def iter_entry_pages(self, entry, *, start=0):
+        if entry != "default" or start < 0:
+            raise SourceFetchError("invalid_listing_offset")
+        for rows, following in self.iter_listing_pages(start=start):
+            self.listing_page_evidence = listing_evidence(
+                (row.published_at or row.published_date for row in rows), ordered=True,
+                terminal="exhausted" if following is None else None)
+            yield rows, following
+
     def __init__(self, http: BoundedHTTP, *, kind: str, max_items: int = 3,
                  sleeper: Callable[[float], None] = time.sleep):
         if kind not in {"npcc", "jiangsu"} or not 1 <= max_items <= 5:

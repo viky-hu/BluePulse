@@ -134,7 +134,8 @@ def initialize(*, local_live: bool = False) -> None:
     sync_sources(local_live=local_live)
 
 
-def daily_range(start: date, end: date, *, execute: bool, reason: str | None):
+def daily_range(start: date, end: date, *, execute: bool, reason: str | None,
+                historical_source_dates: bool = False):
     from .admin_security import audit
     from .daily_reports import compose_daily, daily_window, prepare_daily
     from .edition_models import DailyIssue
@@ -147,14 +148,25 @@ def daily_range(start: date, end: date, *, execute: bool, reason: str | None):
     path = _database_file()
     if path is None:
         raise ValueError("daily_requires_existing_sqlite_database")
-    engine = make_engine() if execute else create_engine(
-        "sqlite://", creator=lambda: sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30))
+    # Simulate sequential publication in memory, including the preceding issues' dedupe memory.
+    # The live database remains read-only throughout preview.
+    engine = make_engine() if execute else create_engine("sqlite://")
     try:
+        if not execute:
+            with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30)) as source:
+                connection = engine.raw_connection()
+                try:
+                    source.backup(connection.driver_connection)
+                finally:
+                    connection.close()
+        mode = True if historical_source_dates else None
         for offset in range((end - start).days + 1):
             key = (start + timedelta(days=offset)).isoformat()
             if not execute:
                 with Session(engine) as session:
-                    content, candidates = prepare_daily(session, key, now)
+                    content, candidates = prepare_daily(session, key, now, historical_source_dates=mode)
+                    compose_daily(session, key, now=now, historical_source_dates=mode,
+                                  reason="只读编排预览", actor="maintenance")
                 print(json.dumps({"key": key, "main": len(content["main"]), "flashes": len(content["flashes"]),
                                   **content["generator"], "candidates": candidates}, ensure_ascii=False))
                 continue
@@ -162,7 +174,7 @@ def daily_range(start: date, end: date, *, execute: bool, reason: str | None):
                 issue = session.get(DailyIssue, key)
                 previous = issue.version if issue else None
                 result = compose_daily(session, key, now=now, reason=reason, actor="maintenance",
-                                       expected_version=previous, commit=False)
+                                       expected_version=previous, commit=False, historical_source_dates=mode)
                 if result["written"]:
                     audit(session, "daily.correct" if issue else "daily.recover", f"daily:{key}", reason=reason,
                           changes={"before": previous, "after": result["version"]})
@@ -178,6 +190,8 @@ def main() -> None:
     parser.add_argument("--from-date", type=date.fromisoformat)
     parser.add_argument("--through-date", type=date.fromisoformat)
     parser.add_argument("--execute", action="store_true", help="write or revise daily editions")
+    parser.add_argument("--historical-source-dates", action="store_true",
+                        help="reconstruct the requested issues using verified original publication dates")
     parser.add_argument("--reason", help="audit reason for a daily maintenance run")
     args = parser.parse_args()
     if args.local_live and args.command != "initialize":
@@ -186,11 +200,12 @@ def main() -> None:
         if args.from_date is None or args.through_date is None:
             parser.error("daily-range requires --from-date and --through-date")
         try:
-            daily_range(args.from_date, args.through_date, execute=args.execute, reason=args.reason)
+            daily_range(args.from_date, args.through_date, execute=args.execute, reason=args.reason,
+                        historical_source_dates=args.historical_source_dates)
         except ValueError as exc:
             parser.error(str(exc))
         return
-    if any((args.from_date, args.through_date, args.execute, args.reason)):
+    if any((args.from_date, args.through_date, args.execute, args.reason, args.historical_source_dates)):
         parser.error("daily range options require daily-range")
     if args.command == "migrate":
         migrate()

@@ -13,8 +13,8 @@ import re
 import sqlite3
 
 import httpx
-from sqlalchemy.engine import make_url
 
+from .collection_version import IDENTITY_FIELDS, WORKER_IDENTITY_FIELDS, sqlite_database_path, worker_configuration
 from .db import database_url
 from .live_model import DEFAULT_MODEL_ENV, load_local_credentials
 
@@ -97,7 +97,13 @@ def _safe_worker_configuration(marker):
                                   for key in ('minute', 'hour', 'day'))):
         return None
     return {'collection': marker['collection'],
-            'model_budget': {key: budget[key] for key in ('minute', 'hour', 'day')} if budget else None}
+            'model_budget': {key: budget[key] for key in ('minute', 'hour', 'day')} if budget else None,
+            **_safe_identities(marker, WORKER_IDENTITY_FIELDS)}
+
+
+def _safe_identities(marker, fields):
+    return {key: marker[key] for key in fields
+            if isinstance(marker.get(key), str) and re.fullmatch(r'[0-9a-f]{64}', marker[key])}
 
 
 def worker_status(path, expected):
@@ -132,6 +138,75 @@ def worker_status(path, expected):
         return {'status': 'unknown'}
 
 
+def _coverage_entries(metrics):
+    report = {}
+    entries = metrics.get('entries')
+    if not isinstance(entries, dict):
+        return report
+    for name, entry in entries.items():
+        if not re.fullmatch(r'[a-zA-Z0-9_-]+', name) or not isinstance(entry, dict):
+            continue
+        evidence = {}
+        if entry.get('status') in {'complete', 'partial', 'failed'}:
+            evidence['status'] = entry['status']
+        reason = entry.get('reason')
+        if isinstance(reason, str) and re.fullmatch(r'[a-z0-9_]+', reason):
+            evidence['reason'] = reason
+        for field in ('pages', 'undated'):
+            if type(entry.get(field)) is int:
+                evidence[field] = entry[field]
+        for flag in ('reused', 'supplemental'):
+            if entry.get(flag) is True:
+                evidence[flag] = True
+        for field in ('window_start', 'window_end', 'oldest_at', 'newest_at', 'available_from', 'from', 'through'):
+            if isinstance(entry.get(field), str):
+                try:
+                    evidence[field] = _time(entry[field]).isoformat()
+                except (ValueError, AttributeError):
+                    pass
+        report[name] = evidence
+    return report
+
+
+def _body_coverage(db, source, run, coverage):
+    counts = {'complete': 0, 'pending': 0, 'unconfirmed': 0}
+    if not run:
+        return 'unknown', counts
+    jobs = {}
+    for row in db.execute("""
+        SELECT json_extract(payload, '$.url') AS url, status,
+               json_extract(result, '$.status') AS result_status,
+               json_extract(result, '$.error') AS result_error
+        FROM work_items
+        WHERE kind='extract' AND json_extract(payload, '$.slug')=?
+          AND json_extract(payload, '$.url') IN (SELECT url FROM discoveries WHERE run_id=?)
+        ORDER BY json_extract(payload, '$.discovered_at') DESC, due_at DESC, id DESC
+    """, (source['slug'], run['id'])):
+        jobs.setdefault(row['url'], row)
+    for row in db.execute("""
+        SELECT DISTINCT discoveries.url, materials.collection_state,
+               length(trim(materials.source_body)) > 0 AS has_body
+        FROM discoveries LEFT JOIN materials
+          ON materials.id = discoveries.material_id OR
+             (discoveries.material_id IS NULL AND materials.canonical_url = discoveries.url)
+        WHERE run_id=? AND outcome NOT IN ('outside_window', 'rejected', 'deferred')
+    """, (run['id'],)):
+        job = jobs.get(row['url'])
+        if job and job['result_status'] == 'deferred':
+            continue
+        if (job and job['status'] in {'pending', 'running'}) or row['collection_state'] == 'pending':
+            counts['pending'] += 1
+        elif job and (job['status'] == 'failed' or job['result_error'] or job['result_status'] == 'unconfirmed'):
+            counts['unconfirmed'] += 1
+        elif row['has_body'] and row['collection_state'] != 'unconfirmed':
+            counts['complete'] += 1
+        else:
+            counts['unconfirmed'] += 1
+    if counts['pending'] or counts['unconfirmed']:
+        return 'partial', counts
+    return ('complete' if counts['complete'] or coverage == 'complete' else 'unknown'), counts
+
+
 def database_snapshot(path, now):
     if path is None or not path.is_file():
         return {'status': 'unavailable', 'reason': 'existing_sqlite_database_required'}
@@ -143,11 +218,15 @@ def database_snapshot(path, now):
             count = lambda query, args=(): db.execute(query, args).fetchone()[0]
             sources = []
             for source in db.execute('SELECT * FROM sources ORDER BY slug'):
-                run = db.execute('SELECT * FROM source_runs WHERE source_id=? ORDER BY started_at DESC LIMIT 1',
-                                 (source['id'],)).fetchone()
+                run = db.execute("""
+                    SELECT * FROM source_runs WHERE source_id=?
+                        AND COALESCE(json_extract(fetch_metrics, '$.mode'), '') NOT IN ('historical', 'bounded')
+                    ORDER BY started_at DESC, id DESC LIMIT 1
+                """, (source['id'],)).fetchone()
                 due = _time(source['next_fetch_at'])
                 tolerance = timedelta(minutes=max(15, source['interval_minutes'] or 60))
-                age = max(0, int((now - _time(run['started_at'])).total_seconds())) if run else None
+                started_at = _time(run['started_at']) if run else None
+                age = max(0, int((now - started_at).total_seconds())) if started_at else None
                 status = 'disabled' if not source['enabled'] else 'bootstrap' if not run else 'ok'
                 if source['enabled'] and not run:
                     # Newly bootstrapped registries get a bounded first-fetch grace.
@@ -159,15 +238,25 @@ def database_snapshot(path, now):
                         status = 'failed'
                     elif due and now > due + tolerance:
                         status = 'stale'
-                    elif run['status'] == 'running' and age > max(1800, tolerance.total_seconds()):
+                    elif run['status'] == 'running' and age is not None and age > max(1800, tolerance.total_seconds()):
                         status = 'stale'
                 metrics = json.loads(run['fetch_metrics'] or '{}') if run else {}
+                coverage = metrics.get('coverage')
+                if coverage not in {'complete', 'partial'}:
+                    coverage = 'legacy' if run and run['status'] != 'running' else 'unknown'
+                body_coverage, bodies = _body_coverage(db, source, run, coverage)
                 sources.append({'slug': source['slug'], 'status': status,
+                                'latest_run_id': run['id'] if run else None,
+                                'latest_run_at': started_at.isoformat() if started_at else None,
                                 'latest_run_status': run['status'] if run else None, 'age_seconds': age,
                                 'latest_error': provider_error(run['error_code']) if run and run['error_code'] else None,
                                 'next_fetch_at': source['next_fetch_at'],
                                 'new': metrics.get('added', 0), 'repeated': metrics.get('duplicates', 0),
                                 'candidates': run['candidate_count'] if run else 0,
+                                'coverage': coverage, 'coverage_entries': _coverage_entries(metrics),
+                                'coverage_gaps': _coverage_entries({'entries': metrics.get('coverage_gaps')}),
+                                'body_coverage': body_coverage, 'bodies': bodies,
+                                **_safe_identities(metrics, IDENTITY_FIELDS),
                                 'permissions': {name: bool(source[name]) for name in
                                                 ('excerpt_allowed', 'full_text_allowed', 'media_allowed',
                                                  'syndicate_full_text_allowed')}})
@@ -243,8 +332,8 @@ def _http_ready(client, url, property_name, expected=None):
 
 def audit(*, probe_model=False, check_services=True):
     now = datetime.now(UTC)
-    address = make_url(database_url())
-    path = Path(address.database).resolve() if address.get_backend_name() == 'sqlite' and address.database not in (None, ':memory:') else None
+    address = database_url()
+    path = sqlite_database_path(address)
     enabled = os.environ.get('BLUEPULSE_MODEL_CALLS_ENABLED') == '1'
     try:
         budget = {name.lower(): int(os.environ.get('BLUEPULSE_MODEL_BUDGET_' + name, ''))
@@ -252,7 +341,8 @@ def audit(*, probe_model=False, check_services=True):
         valid_budget = budget is None or all(value > 0 for value in budget.values())
     except ValueError:
         budget, valid_budget = None, False
-    expected = {'collection': os.environ.get('BLUEPULSE_COLLECT_ENABLED') == '1', 'model_budget': budget}
+    expected = worker_configuration(collection=os.environ.get('BLUEPULSE_COLLECT_ENABLED') == '1',
+                                    model_budget=budget, database=address)
     worker = worker_status(path.with_suffix('.worker.lock') if path else None, expected)
     snapshot = database_snapshot(path, now)
     models = {'default': model_configuration(probe=probe_model)}
@@ -279,6 +369,11 @@ def audit(*, probe_model=False, check_services=True):
     else:
         if any(source['status'] in {'failed', 'stale'} for source in snapshot['sources']):
             degraded.append('source_collection_failed_or_stale')
+        active = [source for source in snapshot['sources'] if source['status'] != 'disabled']
+        if any(source['coverage'] == 'partial' for source in active):
+            degraded.append('source_coverage_partial')
+        if any(source['body_coverage'] == 'partial' for source in active):
+            degraded.append('source_body_incomplete')
         if snapshot['failed_jobs']:
             degraded.append('failed_jobs_recorded')
         if snapshot['paid_receipts'].get('unknown') or snapshot['paid_receipts'].get('pending'):
@@ -310,6 +405,10 @@ def print_human(report):
     requested = report['requested_worker_configuration']
     print(f"本次请求配置：采集={'启用' if requested['collection'] else '暂停'}；模型={'启用' if requested['model_budget'] else '暂停'}")
     print(f"运行中 Worker：采集={report['collection']}；模型={report['model_calls']}（未知时不推断）")
+    actual = report.get('actual_worker_configuration') or {}
+    for key, title in (('collection_rule_version', '采集规则版本'),
+                       ('collection_entry_fingerprint', '入口配置指纹'), ('database_fingerprint', '目标库指纹')):
+        print(f"{title}：期望={requested.get(key) or '未知'}；运行中={actual.get(key) or '未知'}")
     for alias, model in report['models'].items():
         print(f"模型 {alias}：配置={model['configuration']}；提供方 /models={model['availability']}")
     pipeline = report['pipeline']
@@ -319,6 +418,13 @@ def print_human(report):
         for source in pipeline['sources']:
             if source['status'] in {'failed', 'stale'}:
                 print(f"  {source['slug']}：{source['status']}；错误={source['latest_error'] or '-'}；距最近采集 {source['age_seconds']} 秒")
+            if source['status'] != 'disabled':
+                print(f"  {source['slug']}：列表覆盖={source['coverage']}；正文={source['body_coverage']} {source['bodies']}")
+                for name, entry in source['coverage_entries'].items():
+                    if entry.get('status') in {'partial', 'failed'}:
+                        print(f"    {name}：{entry['status']}；{entry.get('reason') or '-'}；窗口 {entry.get('window_start') or '-'} 到 {entry.get('window_end') or '-'}")
+                for name, gap in source['coverage_gaps'].items():
+                    print(f"    {name}：待核验 {gap.get('from') or '-'} 到 {gap.get('through') or '-'}；{gap.get('reason') or '-'}")
         materials = pipeline['materials']
         print(f"材料：共 {materials['total']}；24小时新增 {materials['new_last_day']}；重复 {materials['duplicates']}；可翻译 {pipeline['translation_eligible']}")
         print(f"付费请求：响应状态={pipeline['paid_response_status']}；最近尝试={pipeline['last_attempt_at'] or '无'}")

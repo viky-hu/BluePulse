@@ -40,6 +40,7 @@ class Candidate:
     author: str | None = None
     body_source_url: str | None = None
     media: list[dict] | None = None
+    source_updated_at: datetime | None = None
 
 
 class SourceAdapter(Protocol):
@@ -150,6 +151,8 @@ def store_candidate(session: Session, source: Source, candidate: Candidate, seen
         first_seen = first_seen.replace(tzinfo=UTC)
     timeline, sort_at, safe_published = publication_clock(
         candidate.published_at, candidate.published_date, first_seen)
+    if material is not None and material.backfill_reason == "collection-audit":
+        timeline = "historical"
     digest = _content_hash(candidate)
     previous_title_key = material.title_key if material is not None else None
     if material is None:
@@ -217,13 +220,14 @@ def store_candidate(session: Session, source: Source, candidate: Candidate, seen
     return material, outcome
 
 
-def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=None, clock=now_utc) -> SourceRun:
+def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=None, clock=now_utc,
+           provenance=None) -> SourceRun:
     """Persist every discovery and revision. A failed source does not poison other sources."""
     if not source.enabled:
         raise ValueError("source_disabled")
     if guard:
         guard(session)
-    run = SourceRun(source_id=source.id, started_at=clock())
+    run = SourceRun(source_id=source.id, started_at=clock(), fetch_metrics=provenance or {})
     session.add(run)
     session.commit()
     try:
@@ -232,11 +236,11 @@ def ingest(session: Session, source: Source, adapter: SourceAdapter, *, guard=No
         if guard:
             guard(session)
         run.status, run.error_code, run.finished_at = "failed", getattr(exc, "code", "adapter_failed"), clock()
-        run.fetch_metrics = dict(getattr(adapter, "diagnostics", {}))
+        run.fetch_metrics = {**getattr(adapter, "diagnostics", {}), **(provenance or {})}
         session.commit()
         return run
     run.candidate_count = len(candidates)
-    run.fetch_metrics = dict(getattr(adapter, "diagnostics", {}))
+    run.fetch_metrics = {**getattr(adapter, "diagnostics", {}), **(provenance or {})}
     rejected = 0
     for candidate in candidates:
         if guard:

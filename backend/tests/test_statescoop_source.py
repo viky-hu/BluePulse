@@ -62,3 +62,27 @@ def test_robots_disallow_stops_before_feed_request():
         else:
             assert False, "disallow must stop collection"
     assert requested == ["/robots.txt"]
+
+
+def test_scheduled_law_enforcement_archive_uses_gmt_dates_and_api_pagination():
+    requested = []
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        assert request.url.path == "/wp-json/wp/v2/posts" and request.url.params["tags"] == "14"
+        page = int(request.url.params["page"])
+        requested.append(page)
+        return httpx.Response(200, headers={"X-WP-TotalPages": "2"}, json=[
+            {"link": ARTICLE if page == 1 else ARTICLE.replace("review", "report"),
+             "title": {"rendered": "Police AI"}, "date": "2026-10-14T16:47:21",
+             "date_gmt": f"2026-10-{15-page}T20:47:21", "excerpt": {"rendered": "<p>Evidence.</p>"}},
+        ])
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = StateScoopAdapter(BoundedHTTP(client, allowed_hosts={HOST}, delay_seconds=0),
+                                    sleeper=lambda _: None)
+        pages = list(adapter.iter_entry_pages("law-enforcement"))
+    assert requested == [1, 2]
+    assert pages[0][0][0].published_at == datetime(2026, 10, 14, 20, 47, 21, tzinfo=UTC)
+    assert pages[0][0][0].summary == "Evidence." and pages[1][1] is None

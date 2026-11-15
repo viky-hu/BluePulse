@@ -19,13 +19,13 @@ from .model_processing import process_model_batch
 from .models import Source
 from .operations import source_funnel
 from .pipeline import SourceAdapter, ingest
-from .source_expansion import BoundedHtmlSourceAdapter
-from .top5_probe import HtmlEvidenceProbe
-from .htx_source import HtxNewsAdapter
-from .police_science_source import PoliceScienceAdapter
+from .source_expansion import BoundedHtmlSourceAdapter, SITES
+from .top5_probe import HtmlEvidenceProbe, JIANGSU_LIST, NPCC_LIST
+from .htx_source import HtxNewsAdapter, LISTING as HTX_LISTING
+from .police_science_source import PoliceScienceAdapter, SITEMAP as POLICE_SCIENCE_SITEMAP
 from .statescoop_source import StateScoopAdapter
 from .europol_source import EuropolNewsAdapter
-from .spf_source import SpfPoliceLifeAdapter
+from .spf_source import SpfPoliceLifeAdapter, ARCHIVE as SPF_ARCHIVE
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,38 @@ SOURCES = {
                                   ("policing", "public-safety-tech", "cybersecurity"), "spf_police_life"),
 }
 
+_NIST_FEEDS = {
+    "nist_rss": NistRssAdapter.FEED,
+    "nist_forensic_rss": "https://www.nist.gov/news-events/forensic%20science/rss.xml",
+    "nist_it_rss": "https://www.nist.gov/news-events/information%20technology/rss.xml",
+    "nist_standards_rss": "https://www.nist.gov/news-events/standards/rss.xml",
+}
+_NIST_TOPIC_IDS = {
+    "nist_rss": ("249461", "249331", "249316"),
+    "nist_forensic_rss": ("248616",),
+    "nist_it_rss": ("249421",),
+    "nist_standards_rss": ("249341", "249391", "249371"),
+}
+
+_LISTING_ENTRIES = {
+    "ccgp_html": CcgpAdapter.listing_entries,
+    "govuk_api": GovUkAdapter.listing_entries,
+    "europol_rss": EuropolNewsAdapter.listing_entries,
+    "statescoop_rss": StateScoopAdapter.listing_entries,
+    "htx_news": {"default": HTX_LISTING},
+    "police_science": {"default": POLICE_SCIENCE_SITEMAP},
+    "spf_police_life": {"default": SPF_ARCHIVE},
+    "npcc_html": {"default": NPCC_LIST},
+    "jiangsu_html": {"default": JIANGSU_LIST},
+    "pds_html": {"default": SITES["pds"].listing},
+    "biometric_html": {"default": SITES["biometric"].listing},
+    **{kind: NistRssAdapter.configured_entries(url, _NIST_TOPIC_IDS[kind]) for kind, url in _NIST_FEEDS.items()},
+}
+
+
+def source_listing_entries(spec: SourceSpec) -> dict[str, str]:
+    return dict(_LISTING_ENTRIES[spec.kind])
+
 
 class _EntryRobotsAdapter:
     """Use the same robots gate for preview, ingest, and source audit."""
@@ -148,6 +180,10 @@ class _EntryRobotsAdapter:
         else:
             yield self.wrapped.list_candidates(), None
 
+    def iter_entry_pages(self, entry, *, start=0):
+        self._guard(self.wrapped.listing_entries[entry])
+        yield from self.wrapped.iter_entry_pages(entry, start=start)
+
     def fetch_detail(self, candidate):
         # A known detail still gets its own current robots check in a new client.
         self._guard(candidate.url)
@@ -155,26 +191,16 @@ class _EntryRobotsAdapter:
 
 
 def build_adapter(spec: SourceSpec, client: httpx.Client, *, max_items: int) -> SourceAdapter:
-    http = BoundedHTTP(client, allowed_hosts={spec.host}, delay_seconds=0.3)
+    http = BoundedHTTP(client, allowed_hosts={spec.host}, delay_seconds=0.3,
+                       max_bytes=1_000_000 if spec.kind == "govuk_api" else 300_000)
     if spec.kind == "govuk_api":
         return _EntryRobotsAdapter(GovUkAdapter(http, max_items=max_items), client, spec.host)
     if spec.kind == "ccgp_html":
         return CcgpAdapter(http, max_items=max_items)
-    if spec.kind == "nist_rss":
-        return _EntryRobotsAdapter(NistRssAdapter(http, max_items=max_items), client, spec.host)
-    if spec.kind == "nist_forensic_rss":
+    if spec.kind in _NIST_FEEDS:
         return _EntryRobotsAdapter(NistRssAdapter(
-            http, max_items=max_items, feed="https://www.nist.gov/news-events/forensic%20science/rss.xml"),
-            client, spec.host)
-    if spec.kind == "nist_it_rss":
-        return _EntryRobotsAdapter(NistRssAdapter(
-            http, max_items=max_items, feed="https://www.nist.gov/news-events/information%20technology/rss.xml",
-            focused=True),
-            client, spec.host)
-    if spec.kind == "nist_standards_rss":
-        return _EntryRobotsAdapter(NistRssAdapter(
-            http, max_items=max_items, feed="https://www.nist.gov/news-events/standards/rss.xml",
-            focused=True),
+            http, max_items=max_items, feed=_NIST_FEEDS[spec.kind],
+            focused=spec.kind in {"nist_it_rss", "nist_standards_rss"}, topic_ids=_NIST_TOPIC_IDS[spec.kind]),
             client, spec.host)
     if spec.kind == "htx_news":
         return HtxNewsAdapter(BoundedHTTP(client, allowed_hosts={spec.host}, max_bytes=1_000_000,

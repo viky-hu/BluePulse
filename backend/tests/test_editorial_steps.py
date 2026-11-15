@@ -74,6 +74,30 @@ def test_related_news_keeps_its_explicit_main_category(category):
     assert result.candidate and result.score == 80
 
 
+@pytest.mark.parametrize(('category', 'title', 'expected'), [
+    ('practice', '消防救援总队网络安全防护服务竞争性磋商公告', 'other'),
+    ('law', '交通设施运维项目更正公告', 'other'),
+    ('low-altitude', '通信指挥车升级采购需求调查', 'other'),
+    ('low-altitude', '无人机统管飞行服务采购公告', 'low-altitude'),
+    ('public-opinion', '出入境边防检查站网络信息监控服务采购公告', 'other'),
+])
+def test_procurement_category_describes_the_project_rather_than_its_background(category, title, expected):
+    from bluepulse_backend.editorial import analyze
+
+    row = Material(source_title=title, source_body=f'{title}。招标文件按政府采购规定编制。',
+                   body_status='full_text', source=Source(slug='ccgp-policing-tech', selection_threshold=60))
+    assert analyze(row, classification_step(category)).topics == (expected,)
+
+
+def test_structure_does_not_read_a_string_as_individual_tags():
+    from bluepulse_backend.editorial import _structure
+
+    def step(*args):
+        return {'scope': 'unknown', 'category': 'product', 'tags': '调度系统'}, {}
+
+    assert _structure(step, {'title': '设备新闻', 'text': '发布调度系统。'})[3] == ()
+
+
 @pytest.mark.parametrize("category", [None, "", "unsupported", [], {}])
 def test_incomplete_or_invalid_classification_is_an_error_not_irrelevance(category):
     from bluepulse_backend.editorial import analyze
@@ -157,6 +181,15 @@ def test_copy_accepts_exact_yuan_to_ten_thousand_yuan_but_keeps_currency_and_amo
                     "警队公开招标采购120套调度系统。"):
         with pytest.raises(ValueError, match="invalid_editorial_copy"):
             summary_copy(invalid, "调度系统公开招标", body)
+
+
+def test_copy_accepts_official_parenthesized_yuan_units_without_rounding():
+    from bluepulse_backend.editorial_copy import summary_copy
+
+    body = "中标金额（元） | 供应商\n总价：712003（元） | 某某公司。"
+    assert summary_copy("项目公布中标金额为712003元。", "中标公告", body)
+    with pytest.raises(ValueError, match="invalid_editorial_copy"):
+        summary_copy("项目公布中标金额为71.2万元。", "中标公告", body)
 
 
 @pytest.mark.parametrize(("title", "body", "summary"), [

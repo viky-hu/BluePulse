@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from hashlib import sha256
 from math import floor
 
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -42,7 +42,13 @@ class SourceClock:
 
 
 def source_clocks(session: Session, rows: list[Signal]) -> dict[str, SourceClock]:
-    success_at = case((SourceRun.status.in_(("completed", "no_candidates")), SourceRun.finished_at))
+    mode = SourceRun.fetch_metrics["mode"].as_string()
+    version = SourceRun.fetch_metrics["collection_rule_version"].as_string()
+    cover = SourceRun.fetch_metrics["coverage"].as_string()
+    succeeded = and_(SourceRun.status.in_(("completed", "no_candidates")),
+                     or_(mode.is_(None), mode.not_in(("bounded", "historical"))),
+                     or_(version.is_(None), cover == "complete"))
+    success_at = case((succeeded, SourceRun.finished_at))
     query = (select(Source.id, Source.enabled, Source.interval_minutes,
                     func.min(SourceRun.started_at), func.max(success_at))
              .outerjoin(SourceRun, SourceRun.source_id == Source.id)

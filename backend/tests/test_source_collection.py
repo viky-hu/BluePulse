@@ -12,6 +12,7 @@ from bluepulse_backend.ccgp_source import CcgpAdapter, LISTING
 from bluepulse_backend.db import Base, make_engine
 from bluepulse_backend.live_sources import BoundedHTTP, SourceFetchError
 from bluepulse_backend.models import Material, Source
+from bluepulse_backend.pipeline import Candidate
 from bluepulse_backend.source_collection import SOURCES, build_adapter, collect, main
 
 
@@ -171,6 +172,173 @@ def test_ccgp_scheduled_listing_traverses_both_archives_and_parses_live_date_for
     assert [checkpoint for _, checkpoint in pages] == [1, 2, None]
     assert [item.url for page, _ in pages for item in page] == [DETAIL, detail, vpn]
     assert pages[-1][0][0].published_at == datetime(2026, 11, 14, 10, 39, tzinfo=UTC)
+
+
+def test_ccgp_official_award_entry_uses_raw_dates_and_preserves_day_precision():
+    archive = "https://www.ccgp.gov.cn/cggg/dfgg/zbgg/"
+    article = archive + "202611/t20261114_27686532.htm"
+    markup = """
+        <li><a href="./202611/t20261114_27686532.htm"
+          title="公安局电子物证实验室建设中标结果公告">公安局电子物证…</a>
+          发布时间：2026-11-14</li>
+        <li><a href="./202611/t20261112_27686533.htm">高校窗帘</a>
+          发布时间：2026年11月12日 17:00</li>
+        <script>Pager({size:25, current:24, prefix:'index',suffix:'htm'});</script>
+    """
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        assert str(request.url) == archive + "index_24.htm"
+        return httpx.Response(200, text=markup)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              request_delay_seconds=0)
+        assert set(adapter.listing_entries) == {
+            f"{authority}-{notice}" for authority in ("central", "local")
+            for notice in ("tender", "award", "transaction", "correction", "consultation",
+                           "negotiation", "termination", "other-notice", "inquiry")
+        }
+        [(rows, following)] = list(adapter.iter_entry_pages("local-award", start=24))
+    assert following is None
+    assert rows[0].url == article and rows[0].title == "公安局电子物证实验室建设中标结果公告"
+    assert rows[0].published_at is None and rows[0].published_date.isoformat() == "2026-11-14"
+    assert adapter.listing_page_evidence["oldest_at"] == datetime(2026, 11, 12, 9, tzinfo=UTC)
+    assert adapter.listing_page_evidence["terminal"] == "truncated"
+
+
+def test_ccgp_detail_uses_publication_header_before_procurement_event_dates():
+    article = "https://www.ccgp.gov.cn/cggg/zygg/gzgg/202611/t20261114_27686532.htm"
+    markup = ("<p>网页时间 2026-11-14 23:59</p><h2>公安局通信系统公告更正</h2>"
+              "<p><span id='pubTime'>2026年11月14日 21:00</span></p>"
+              "<div class='vF_detail_content'><p>采购文件更正，开标时间为2026-11-16 09:00。</p>"
+              "<p>" + BODY + "</p></div>")
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        assert str(request.url) == article
+        return httpx.Response(200, text=markup)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              request_delay_seconds=0)
+        row = adapter.fetch_detail(Candidate(url=article, title="更正公告"))
+    assert row.published_at == datetime(2026, 11, 14, 13, tzinfo=UTC)
+    assert "2026-11-16 09:00" in row.body
+
+
+def test_ccgp_extracts_body_despite_unmatched_inline_markup():
+    from bluepulse_backend.pipeline import Candidate
+
+    html = ("<h2>原站成交公告</h2><span id='pubTime'>2026年11月13日 16:30</span>"
+            "<div class='vF_detail_content'><div><p><br/><br></br></b></b>"
+            + "中标结果及公告原文。" * 40 + "</p></div></div><footer>站点尾注</footer>")
+
+    def respond(request):
+        return httpx.Response(404 if request.url.path == '/robots.txt' else 200,
+                              content=html.encode('utf-8'))
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              max_items=1)
+        result = adapter.fetch_detail(Candidate(DETAIL, "列表标题"))
+    assert result.body == "中标结果及公告原文。" * 40
+
+
+def test_ccgp_detail_date_only_takes_precedence_over_a_listing_time():
+    from bluepulse_backend.pipeline import Candidate
+
+    html = f"<h2>{TITLE}</h2><span id='pubTime'>2026年9月10日</span><div class='vF_detail_content'>{BODY}</div>"
+
+    def respond(request):
+        return httpx.Response(404 if request.url.path == '/robots.txt' else 200, text=html)
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              max_items=1)
+        result = adapter.fetch_detail(Candidate(DETAIL, TITLE, published_at=datetime(2026, 9, 10, 12, tzinfo=UTC)))
+    assert result.published_at is None and result.published_date.isoformat() == "2026-09-10"
+
+
+def test_ccgp_detail_keeps_scores_separate_from_adjacent_award_amounts():
+    from bluepulse_backend.pipeline import Candidate
+
+    raw = ("<div class='vF_detail_content'><p>中标结果及项目说明。"
+           + "此处只含公告正文。" * 20 + "</p><table><tr>"
+           "<td>91.92</td><td>4880000.00元</td><td>无</td></tr></table></div>")
+
+    def respond(request):
+        return httpx.Response(404 if request.url.path == '/robots.txt' else 200,
+                              content=raw.encode('utf-8'))
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              max_items=1)
+        result = adapter.fetch_detail(Candidate(DETAIL, "项目中标"))
+    assert "91.92 | 4880000.00元 | 无" in result.body
+
+
+def test_ccgp_distinguishes_original_notice_date_from_reprint_and_amended_tender_date():
+    archive = "https://www.ccgp.gov.cn/cggg/dfgg/gzgg/202611/"
+    article = archive + "t20261114_1.htm"
+    another = archive + "t20261114_2.htm"
+    title = "某公安局视音频数据采集设备采购更正公告"
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        local_header = f"<h2>{title}</h2><h3>发布日期：2026年11月4日</h3>" if str(request.url) == article else ""
+        return httpx.Response(200, text=(f"<h2>{title}</h2><span id='pubTime'>2026年11月14日 00:15</span>"
+            f"<div class='vF_detail_content'>{local_header}<h3>一、项目基本情况</h3>"
+            f"<p>原公告发布日期：2026年10月29日</p><p>{BODY}</p></div>"))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              request_delay_seconds=0)
+        syndicated = adapter.fetch_detail(Candidate(url=article, title=title))
+        ordinary = adapter.fetch_detail(Candidate(url=another, title=title))
+    reprint = datetime(2026, 11, 13, 16, 15, tzinfo=UTC)
+    assert syndicated.published_at is None and syndicated.published_date.isoformat() == "2026-11-04"
+    assert syndicated.source_updated_at == reprint
+    assert ordinary.published_at == reprint and ordinary.source_updated_at is None
+
+
+def test_ccgp_keeps_relevant_specialist_procurements_when_notice_title_omits_police():
+    archive = "https://www.ccgp.gov.cn/cggg/dfgg/jzxcs/"
+    titles = (
+        ("山东出入境边防检查总站“境灵”AI建设平台服务项目", ""),
+        ("刑侦总队采购液质联用仪等检案仪器维保服务", ""),
+        ("成都市公安局电子卷宗制作设备采购项目", ""),
+        ("荣昌区公安局采购远程指挥调度设备", ""),
+        ("浙江五石关于AI辅助办案助手采购项目", ""),
+        ("2026年执法单兵、派出所接处警车辆车载4G传输流量租赁", ""),
+        ("颍东区路口信号灯和电子警察工程", ""),
+        ("2026年消防装备采购项目", "采购人：某消防救援支队"),
+        ("诉讼服务满意度评价终端采购项目", "采购人：某市人民法院"),
+        ("智能应急救援辅助决策系统开发服务中标公告", "采购人：某院校"),
+        ("液质联用仪采购项目", "采购人：某大学"),
+        ("全校办公系统建设", "采购人：某大学"),
+        ("派出所办公家具采购项目", ""),
+    )
+    page = "".join(
+        f'<li><a href="./202611/t20261114_{index}.htm">{title}</a>'
+        f'发布时间：2026-11-14 20:00 {context}</li>'
+        for index, (title, context) in enumerate(titles)
+    )
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow:\n")
+        assert str(request.url) == archive
+        return httpx.Response(200, text=page)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = CcgpAdapter(BoundedHTTP(client, allowed_hosts={"www.ccgp.gov.cn"}, delay_seconds=0),
+                              request_delay_seconds=0)
+        [(items, _)] = list(adapter.iter_entry_pages("local-consultation"))
+    assert [item.title for item in items] == [title for title, _ in titles[:10]]
 
 
 def test_ccgp_robots_disallow_fails_before_listing():

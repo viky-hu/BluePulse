@@ -238,23 +238,31 @@ def _coverage_note(stats):
     return "".join(notes) or None
 
 
-def prepare_daily(session: Session, key: str, now: datetime):
+def prepare_daily(session: Session, key: str, now: datetime, *, historical_source_dates: bool | None = None):
     start, end = daily_window(key)
     if end > now:
         raise ValueError("daily_not_due")
-    rows, candidates, stats = daily_inputs(session, start, end, now)
+    if historical_source_dates is None:
+        previous = session.get(DailyIssue, key)
+        historical_source_dates = bool(previous and
+            previous.content.get("generator", {}).get("inputMode") == "source-date-history")
+    rows, candidates, stats = daily_inputs(session, start, end, now,
+                                          historical_source_dates=historical_source_dates)
     ranked = _ranked_entries(session, key, rows)
     main, flashes = _arrange(ranked)
     coverage = _coverage_note(stats)
     content = {"main": main, "flashes": flashes, "coverageNote": coverage,
                "quietLead": _empty_lead(start, end, coverage) if not main else None,
                "generator": {"version": VERSION, "eligibleReports": len(rows), "events": len(ranked), **stats}}
+    if historical_source_dates:
+        content["generator"]["inputMode"] = "source-date-history"
     return content, candidates
 
 
 def compose_daily(
     session: Session, key: str, *, now: datetime | None = None, reason: str | None = None,
     actor: str | None = None, expected_version: int | None = None, commit: bool = True, refresh: bool = False,
+    historical_source_dates: bool | None = None,
 ) -> dict:
     now = utc(now or now_utc())
     start, end = daily_window(key)
@@ -267,7 +275,7 @@ def compose_daily(
         raise ValueError("daily_version_changed")
     if issue is not None and reason is None and not refresh:
         return _compose_result(issue.key, issue.content, issue.version, False)
-    content, _ = prepare_daily(session, key, now)
+    content, _ = prepare_daily(session, key, now, historical_source_dates=historical_source_dates)
     if issue is not None and issue.content == content:
         return _compose_result(issue.key, issue.content, issue.version, False)
     written = True

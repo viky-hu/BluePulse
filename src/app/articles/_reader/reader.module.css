@@ -45,9 +45,9 @@
 .outline { list-style:none; padding:0; margin:0 0 0 -1px; border-left:1px solid var(--reader-line); }.outline li { margin-top:.125rem; }
 .outline a { display:block; min-height:34px; margin-left:-1px; border-left:1px solid transparent; padding:.375rem 0 .375rem .875rem; font-size:15px; line-height:1.5; color:var(--reader-muted); overflow-wrap:anywhere; }
 .outline a[data-nested="true"] { padding-left:1.5rem; font-size:14px; }.outline a:hover { border-color:var(--reader-accent); color:var(--reader-ink); }
-.back { display:inline-flex; align-items:center; gap:.5rem; align-self:start; min-height:44px; margin-left:-.75rem; padding:.5rem .75rem; border:0; border-radius:999px; color:var(--reader-muted); background:transparent; font-size:16px; line-height:1.5; font-weight:500; }
+.back { display:inline-flex; align-items:center; gap:.5rem; align-self:start; min-height:44px; margin-left:-.75rem; padding:.5rem .75rem; border:0; border-radius:0; color:var(--reader-muted); background:transparent; font-size:16px; line-height:1.5; font-weight:500; text-decoration:none; text-underline-offset:3px; }
 .back svg { width:22px; height:22px; flex:none; }
-.back:hover { color:var(--reader-ink); background:var(--reader-sunk); }.middleBack { display:none; }
+.back:is(:hover,:focus-visible) { color:var(--reader-ink); text-decoration:underline; }.middleBack { display:none; }
 .desktopActions { display:flex; flex-wrap:wrap; align-items:center; gap:.375rem; min-height:44px; }.originalLink { flex:1; display:inline-flex; justify-content:center; align-items:center; gap:.5rem; min-height:44px; border:1px solid #d1d9d5; background:#fff; border-radius:999px; padding:.5rem .75rem; font-size:15px; font-weight:500; white-space:nowrap; }
 .iconButton { display:inline-flex; flex:none; align-items:center; justify-content:center; width:44px; height:44px; padding:0; border:0; border-radius:8px; color:var(--reader-muted); background:transparent; }.iconButton:hover { color:var(--reader-ink); background:var(--reader-sunk); }
 .desktopActions .iconButton svg { width:22px; height:22px; }

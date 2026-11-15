@@ -133,6 +133,93 @@ def test_audit_requested_flags_do_not_override_actual_runtime(tmp_path, monkeypa
     assert report['collection'] == 'paused'
 
 
+def test_worker_health_requires_same_rules_and_entry_configuration(tmp_path, monkeypatch):
+    from bluepulse_backend import worker
+
+    path = tmp_path / 'live.db'
+    monkeypatch.setenv('BLUEPULSE_DATABASE_URL', f'sqlite:///{path.as_posix()}')
+    monkeypatch.setenv('BLUEPULSE_COLLECT_ENABLED', '1')
+    monkeypatch.setenv('BLUEPULSE_MODEL_CALLS_ENABLED', '0')
+    expected = health.audit(check_services=False)['requested_worker_configuration']
+    with worker._daemon_lock() as handle:
+        for field in ('collection_rule_version', 'collection_entry_fingerprint', 'database_fingerprint'):
+            assert field in expected
+            stale = {**expected, field: '0' * 64}
+            worker._write_worker_ready(handle, stale)
+            report = health.audit(check_services=False)
+            assert report['services']['worker'] == 'configuration_mismatch'
+            assert report['actual_worker_configuration'] == stale
+            assert not worker._worker_ready(expected)
+        worker._write_worker_ready(handle, expected)
+        assert health.audit(check_services=False)['services']['worker'] == 'ready'
+        assert worker._worker_ready(expected)
+
+
+def test_latest_historical_run_does_not_hide_partial_scheduled_coverage(tmp_path, monkeypatch):
+    from bluepulse_backend.cli import initialize
+
+    path = tmp_path / 'live.db'
+    monkeypatch.setenv('BLUEPULSE_DATABASE_URL', f'sqlite:///{path.as_posix()}')
+    initialize()
+    now = datetime.now(UTC)
+    date = now.replace(tzinfo=None).isoformat(' ')
+    metrics = {'mode': 'listing', 'coverage': 'partial', 'collection_rule_version': 'a' * 64,
+               'collection_entry_fingerprint': 'b' * 64,
+               'entries': {'archive': {'status': 'partial', 'reason': 'pagination_limit', 'pages': 3}}}
+    with sqlite3.connect(path) as db:
+        source_id = db.execute('SELECT id FROM sources LIMIT 1').fetchone()[0]
+        db.execute('INSERT INTO source_runs(id,source_id,started_at,status,candidate_count,fetch_metrics) VALUES(?,?,?,?,?,?)',
+                   ('regular', source_id, date, 'no_candidates', 0, json.dumps(metrics)))
+        db.execute('INSERT INTO source_runs(id,source_id,started_at,status,candidate_count,fetch_metrics) VALUES(?,?,?,?,?,?)',
+                   ('backfill', source_id, '2099-01-01 00:00:00', 'completed', 0, json.dumps({'mode': 'historical'})))
+    source = next(row for row in health.database_snapshot(path, now)['sources'] if row['latest_run_status'])
+    assert source['latest_run_status'] == 'no_candidates'
+    assert source['latest_run_id'] == 'regular'
+    assert source['latest_run_at'] == now.isoformat()
+    assert source['coverage'] == 'partial'
+    assert source['coverage_entries']['archive'] == {'status': 'partial', 'reason': 'pagination_limit', 'pages': 3}
+    assert source['collection_rule_version'] == 'a' * 64
+    assert source['collection_entry_fingerprint'] == 'b' * 64
+
+
+def test_listing_coverage_and_body_recovery_are_reported_separately(tmp_path, monkeypatch):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from bluepulse_backend.cli import initialize
+    from bluepulse_backend.db import make_engine
+    from bluepulse_backend.editorial_models import WorkItem
+    from bluepulse_backend.models import Discovery, Material, Source, SourceRun
+
+    path = tmp_path / 'live.db'
+    monkeypatch.setenv('BLUEPULSE_DATABASE_URL', f'sqlite:///{path.as_posix()}')
+    initialize()
+    now = datetime.now(UTC)
+    with Session(make_engine()) as session:
+        origin = session.scalar(select(Source))
+        run = SourceRun(source_id=origin.id, started_at=now, status='completed',
+                        fetch_metrics={'mode': 'listing', 'coverage': 'complete'})
+        session.add(run)
+        session.flush()
+        for name, outcome, status in (('queued', 'discovered', 'pending'),
+                                      ('error', 'discovered', 'failed'),
+                                      ('recovered', 'discovered', 'done'),
+                                      ('old', 'outside_window', None)):
+            url = f'https://example.test/{name}'
+            session.add(Discovery(run_id=run.id, source_id=origin.id, url=url, outcome=outcome))
+            if status:
+                session.add(WorkItem(kind='extract', identity=name, due_at=now, status=status,
+                                     payload={'slug': origin.slug, 'run_id': run.id, 'url': url}))
+        session.add(Material(source_id=origin.id, source_url='https://example.test/recovered',
+                             canonical_url='https://example.test/recovered', source_title='Recovered body',
+                             source_body='Source text', content_hash='x', collection_state='complete', language='en'))
+        session.commit()
+    source = next(row for row in health.database_snapshot(path, now)['sources'] if row['latest_run_status'])
+    assert source['coverage'] == 'complete'
+    assert source['body_coverage'] == 'partial'
+    assert source['bodies'] == {'complete': 1, 'pending': 1, 'unconfirmed': 1}
+
+
 def test_paid_http_success_timestamp_does_not_use_later_failed_attempt(tmp_path, monkeypatch):
     from datetime import timedelta
     from bluepulse_backend.cli import initialize
