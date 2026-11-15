@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blue Pulse · 一条警务信息的旅程</title>
+<style>
+@font-face{font-family:Pulse;src:url('../src/app/fonts/GoogleSans-Variable.woff2') format('woff2');font-display:swap}
+:root{--paper:#f4f2e9;--ink:#142b28;--muted:#455b55;--line:#bbc8bd;--forest:#092f2b;--green:#176354;--lime:#d8f97a;--white:#fffcf5;color-scheme:light}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 Pulse,"Microsoft YaHei",sans-serif}a{color:var(--green);text-underline-offset:.2em}button{font:inherit;color:inherit;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #b16024;outline-offset:4px}h1,h2,h3,p{margin:0}code,.mono,.kicker,.step-num{font-family:Consolas,monospace}code{overflow-wrap:anywhere}.wrap{width:min(1180px,calc(100% - 72px));margin-inline:auto}.hero{color:var(--white);background:var(--forest);position:relative;overflow:hidden}.hero:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 31px,#abd5b417 32px),linear-gradient(transparent 31px,#abd5b417 32px);background-size:32px 32px;mask-image:linear-gradient(90deg,transparent,black)}.hero .wrap{position:relative;z-index:1}.mast{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:19px 0;border-bottom:1px solid #6b8f7e}.name{font-size:22px;letter-spacing:-.035em}.kicker{font-size:12px;letter-spacing:.12em;color:var(--green);font-weight:700}.hero .kicker{color:var(--lime)}.mast a,.hero a{color:var(--lime)}.hero-body{position:relative;padding:54px 0 48px}.hero-copy{position:relative;max-width:720px;z-index:1}h1{font-size:clamp(36px,5.8vw,76px);line-height:1.2;letter-spacing:-.045em;font-weight:400;margin:9px 0 18px}h1 span{color:var(--lime)}.hero-copy p:last-child{max-width:510px;color:#e0ece5}.trace{position:absolute;right:0;top:23px;width:43%;height:calc(100% - 46px);opacity:.7}.nav{display:flex;flex-wrap:wrap;gap:8px 22px;padding:12px 0}.nav a{font-size:13px}.section{padding:36px 0;border-bottom:1px solid var(--line)}.heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:16px}h2{font-size:clamp(25px,3.2vw,42px);line-height:1.2;font-weight:500;letter-spacing:-.035em}.heading p:last-child{font-size:14px;color:var(--muted)}.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}.step{text-align:left;background:#e9eee4;border:1px solid var(--line);min-width:0;padding:10px 11px 11px;position:relative}.step b,.step small{display:block}.step b{font-size:17px;line-height:1.35}.step small{font-size:12px;color:var(--muted);margin-top:3px}.step-num{font-size:11px;color:var(--green);display:block}.step:not(:last-child):after{content:"›";position:absolute;z-index:1;right:-8px;top:36%;line-height:1;color:var(--forest);background:var(--lime);padding:1px 3px;font-size:17px}.step[aria-pressed=true]{background:var(--forest);border-color:var(--forest);color:var(--white)}.step[aria-pressed=true] small{color:#d4e6da}.step[aria-pressed=true] .step-num{color:var(--lime)}.step:hover:not([aria-pressed=true]){background:#dce8d9}.detail{background:var(--white);border:1px solid var(--line);border-left:4px solid var(--green);margin-top:10px;padding:15px 17px;min-height:173px}.detail h3{font-size:19px;margin-bottom:6px}.detail-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}.detail p,.destination p,.stack p,.route-list,.foot{font-size:14px}.detail p+p{margin-top:6px}.detail .side{border-left:1px solid var(--line);padding-left:16px;color:var(--muted)}.side a{display:inline-block;margin-top:6px}.lamp{display:inline-block;width:8px;height:8px;border-radius:100%;background:var(--lime);margin-right:8px}.cases{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.cases button{font-size:14px;background:transparent;border:1px solid var(--line);padding:5px 10px}.cases button[aria-pressed=true]{background:var(--lime);border-color:var(--green)}.sim{border:1px solid var(--line);background:var(--white);padding:13px 16px}.sim-head{display:flex;flex-wrap:wrap;gap:8px 15px;align-items:center}.sim-head strong{font-size:18px}.status{font-size:12px;padding:1px 7px;background:#e7f2dc;color:#204f37}.status[data-tone=wait]{background:#f6e6c8;color:#643e0a}.status[data-tone=stop]{background:#fae2dc;color:#812b1e}.route-list{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:0;margin:13px 0 0;list-style:none;counter-reset:route}.route-list li{counter-increment:route;border-top:2px solid var(--green);padding-top:6px}.route-list li:before{content:"0" counter(route);font:11px Consolas,monospace;color:var(--green);display:block;margin:0 0 4px}.dest-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}.destination{background:var(--white);padding:14px 14px 15px}.destination h3{font-size:18px;margin:4px 0}.destination p{color:var(--muted)}.destination code{display:block;margin-top:8px;font-size:12px;color:var(--green)}.stack{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}.stack article{background:#e9eee4;padding:14px}.stack h3{font-size:16px}.stack p{color:var(--muted);margin-top:3px}.snapshot{background:var(--forest);color:var(--white);padding:18px;margin-top:15px;display:grid;grid-template-columns:1fr 1fr;gap:16px}.snapshot .kicker,.snapshot a{color:var(--lime)}.snapshot p{font-size:14px;margin-top:5px}.stats{display:flex;gap:16px;flex-wrap:wrap}.stats div{white-space:nowrap}.stats strong{display:block;font-size:29px;font-weight:400;color:var(--lime);line-height:1.1}.stats span{font-size:12px}.foot{color:var(--muted);padding:19px 0 30px}.foot a{display:inline-block;margin-right:10px}.quiet{font-size:13px;color:var(--muted);margin-top:10px}
+@media(max-width:850px){.steps{grid-template-columns:repeat(3,1fr)}.step:nth-child(3):after{display:none}.trace{opacity:.3}.dest-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.wrap{width:calc(100% - 30px)}.hero-body{padding:36px 0 30px}.trace{width:84%;opacity:.23}.mast .mono{font-size:11px}.section{padding:25px 0}.heading{display:block}.heading p:last-child{margin-top:5px}.step{padding:7px}.step b{font-size:15px}.step small{font-size:11px}.detail-grid,.snapshot,.stack,.dest-grid{grid-template-columns:1fr}.detail .side{padding:8px 0 0;border-left:0;border-top:1px solid var(--line)}.route-list{grid-template-columns:repeat(2,1fr)}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{.wrap{width:100%}.hero,.snapshot{print-color-adjust:exact}.nav,.cases,.trace{display:none}.detail[hidden]{display:block}.section,.destination{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<div class="mast"><span class="name"><i class="lamp" aria-hidden="true"></i>Blue Pulse</span><span class="mono">main / <a href="https://github.com/viky-hu/BluePulse/commit/7de4be8">7de4be8</a></span></div>
+<div class="hero-body">
+<svg class="trace" viewBox="0 0 520 250" aria-hidden="true" fill="none"><path d="M0 139h116l29-39 31 66 44-113 42 86h64m0 0h194m-194 0 49-59h145m-194 59 49 59h145" stroke="#d8f97a" stroke-width="2"/><path d="M0 222h520M0 26h520" stroke="#a7ccaa" stroke-opacity=".5" stroke-dasharray="2 7"/><g fill="#d8f97a"><circle cx="326" cy="139" r="5"/><circle cx="515" cy="80" r="4"/><circle cx="515" cy="139" r="4"/><circle cx="515" cy="198" r="4"/></g></svg>
+<div class="hero-copy"><p class="kicker">BACKEND FIELD GUIDE / 2026-11-15</p><h1>一条警务信息的<span>旅程</span></h1><p>Blue Pulse 从国内外信源发现材料，保留原文与修订，用 AI 研判，再按不同规则送往全部动态、精选、热点、日报和 Agent。</p></div>
+</div><nav class="nav" aria-label="页内导航"><a href="#flow">01 生命周期</a><a href="#trace">02 跟踪一条稿件</a><a href="#outlets">03 信息去向</a><a href="#architecture">04 后端怎么运行</a></nav>
+</div></header>
+<main class="wrap">
+<section class="section" id="flow">
+<div class="heading"><div><p class="kicker">01 / LIFECYCLE</p><h2>从原站到读者</h2></div><p>点选节点，查看做了什么、保存了什么。</p></div>
+<div class="steps" role="group" aria-label="生命周期节点">
+<button class="step" type="button" aria-pressed="true" aria-controls="phase-0"><span class="step-num">01</span><b>发现链接</b><small>阅读信源列表</small></button>
+<button class="step" type="button" aria-pressed="false" aria-controls="phase-1"><span class="step-num">02</span><b>补齐正文</b><small>去重与修订</small></button>
+<button class="step" type="button" aria-pressed="false" aria-controls="phase-2"><span class="step-num">03</span><b>AI 研判</b><small>范围、事实和导读</small></button>
+<button class="step" type="button" aria-pressed="false" aria-controls="phase-3"><span class="step-num">04</span><b>检查资格</b><small>公开与隐藏分流</small></button>
+<button class="step" type="button" aria-pressed="false" aria-controls="phase-4"><span class="step-num">05</span><b>归组编排</b><small>事实、事件与刊期</small></button>
+<button class="step" type="button" aria-pressed="false" aria-controls="phase-5"><span class="step-num">06</span><b>持续更新</b><small>公开读取与订正</small></button>
+</div>
+<div id="phases" aria-live="polite">
+<article class="detail" id="phase-0"><h3>先扫列表，记下候选与覆盖范围</h3><div class="detail-grid"><div><p>常驻 worker 调度 15 个内置信源，例如中国政府采购网、江苏公安、GOV.UK、NIST、Europol 和新加坡 Police Life。适配器读取 RSS、网页分页、站点地图或原站接口。</p><p>采集遵守 robots、主机限速和 Retry-After，失败退避。停机后重扫可变列表首页；原站截断或拒绝读取时保留覆盖缺口。</p></div><div class="side"><p><b>留下：</b>候选链接、发现记录、来源运行记录、列表覆盖证据和待补正文任务。</p><a href="../backend/bluepulse_backend/worker.py">worker.py</a> · <a href="source-collection-audit-2026-11-14.md">采集恢复审计</a></div></div></article>
+<article class="detail" id="phase-1"><h3>同一篇文章有稳定身份，每次内容变化都有版本</h3><div class="detail-grid"><div><p>独立队列获取详情、正文、署名和原站发布时间。规范化 URL 识别同一条目，内容哈希判断是否修订，并通过规范标题等规则处理重复材料。</p><p>首次收录、采集和原站发布时间分开记录；只给日期就保留日期精度。正文欠缺的稿件保留待补，历史回补保留原站日期。</p></div><div class="side"><p><b>留下：</b><code>Material</code> 当前稿、<code>MaterialRevision</code> 历次内容，以及正文状态和原站出处。</p><a href="../backend/bluepulse_backend/pipeline.py">pipeline.py</a> · <a href="../backend/bluepulse_backend/material_identity.py">material_identity.py</a></div></div></article>
+<article class="detail" id="phase-2"><h3>先判断要不要读，再提取事实、评分和写中文导读</h3><div class="detail-grid"><div><p>模型先做范围预筛；对继续处理的稿件提取事实、分类、标签和机构，独立做两次五轴评分，并产出中文标题与导读。文案校验核对日期、数字和行动阶段，例如不能把「招标」写成「已部署」。</p><p>后台在调用前登记，返回后先存回执，再应用结果；按修订和输入版本复用结果。超时若结果未知，保留记录待处置。</p></div><div class="side"><p><b>留下：</b>当前研判修订、分数、模型回执和任务状态。人工覆盖优先于对应的模型字段。</p><a href="../backend/bluepulse_backend/editorial.py">editorial.py</a> · <a href="../backend/bluepulse_backend/receipts.py">receipts.py</a></div></div></article>
+<article class="detail" id="phase-3"><h3>可公开由证据和许可决定，精选另有门槛</h3><div class="detail-grid"><div><p>普通公开要求：相关、摘要有效、原站链接有效、已抓取的正文至少 300 个非空白字符、来源处于编辑模式且允许摘录，并且无重复、撤回或尚未到公开时间等限制。</p><p>五轴双评分达到来源配置的门槛，只代表可能成为精选候选；普通公开不要求达到该分数。站内全文、源站媒体、站外全文再分发各有独立许可。</p></div><div class="side"><p><b>分流：</b>可公开稿进入阅读池；缺证据、权限不足或退稿保留内部状态。来源许可变化可用现有研判结果重算。</p><a href="../backend/bluepulse_backend/publication.py">publication.py</a></div></div></article>
+<article class="detail" id="phase-4"><h3>稿件记录报道，Fact 折叠同一事实，Story 串起后续进展</h3><div class="detail-grid"><div><p>常驻链路会用标题和事实线索（可选向量）召回候选，再用模型判断、必要时复核。不同报道可归入同一 Fact，同一事件的不同 Fact 可归入一个 Story。</p><p>精选从当前可公开、已归组的新鲜候选中选代表稿，首页最多六席。事件证据另算热点；日报则按刊期组织正文和快讯。</p></div><div class="side"><p><b>留下：</b>Fact 成员、Story 关系及证据、精选快照、热点快照和日报版本。</p><a href="../backend/bluepulse_backend/grouping.py">grouping.py</a> · <a href="../backend/bluepulse_backend/fact_grouping.py">fact_grouping.py</a></div></div></article>
+<article class="detail" id="phase-5"><h3>公开时再检查；内容变了就重新走必要步骤</h3><div class="detail-grid"><div><p>FastAPI 给网页和 Agent 提供读取出口，并按当前资格和出口专属许可决定给摘要、原文、译文、图片或仅原站链接。</p><p>原文修订可使旧派生内容失效并重新排队；撤稿或关闭许可会影响后续读取。已经公开的旧刊保留版本记录，引用仍须通过当前资格检查。</p></div><div class="side"><p><b>去向：</b>普通阅读、编辑产品和机器接口；管理端可撤回、订正、重跑并查审计。</p><a href="../backend/bluepulse_backend/api.py">api.py</a> · <a href="../backend/bluepulse_backend/reading.py">reading.py</a></div></div></article>
+</div>
+</section>
+<section class="section" id="trace">
+<div class="heading"><div><p class="kicker">02 / FOLLOW A SIGNAL</p><h2>跟踪一条采购公告</h2></div><p>教学示例，不是数据库里的实际稿件。</p></div>
+<div class="cases" role="group" aria-label="采购公告示例状态">
+<button type="button" aria-pressed="true" data-case="normal">正常公开</button><button type="button" aria-pressed="false" data-case="missing">只有列表，缺正文</button><button type="button" aria-pressed="false" data-case="low">评分未达门槛</button><button type="button" aria-pressed="false" data-case="revision">原站发布更正</button><button type="button" aria-pressed="false" data-case="withdrawn">管理员撤回</button>
+</div>
+<div class="sim" aria-live="polite"><div class="sim-head"><strong>某市公安采购执法音视频管理系统</strong><span class="status" id="case-status">公开阅读池</span></div><ol class="route-list" id="case-route"><li>采购列表发现链接，正文任务入队。</li><li>获取正文，保留来源日期和材料修订。</li><li>抽取采购事实、校验中文导读，通过公开规则。</li><li>进入全部动态；再分别评估精选、热点和日报。</li></ol></div>
+<p class="quiet">日期分两条线：绝大多数读者看到的是可核实的原站日期；日常日报归期看首次收录，历史重编才按核实的原站日期归期。</p>
+</section>
+<section class="section" id="outlets">
+<div class="heading"><div><p class="kicker">03 / DESTINATIONS</p><h2>信息最后到了哪里？</h2></div><p>以下接口路径均省略共同前缀 <code>/api/v1</code>。</p></div>
+<div class="dest-grid">
+<article class="destination"><span class="kicker">A / FEED</span><h3>全部动态与文章阅读</h3><p>可公开稿进入列表、搜索和详情。全文另查许可；符合条件的外文精选稿可在后台翻译，译文绑定原文修订。</p><code>/articles · /articles/{id}</code></article>
+<article class="destination"><span class="kicker">B / CURATION</span><h3>首页精选与阅读组</h3><p>首页最多六个席位，同一 Fact 只推一个代表；时间线和同组报道使用可见材料。推荐理由只在符合条件的代表稿显示。</p><code>/home/featured · /site/timeline · /site/groups/{fact_id}/reports</code></article>
+<article class="destination"><span class="kicker">C / HEAT</span><h3>热点榜与事件追踪</h3><p>热点按 48 小时内独立参与方聚合，24 小时衰减半衰期；至少两个独立参与方且有编辑类信号才上榜。一篇公告可作证据，不保证有榜位。</p><code>/site/hot · /site/stories/{public_id}</code></article>
+<article class="destination"><span class="kicker">D / EDITION</span><h3>日报与历史档案</h3><p>北京时间 08:00 划刊。日常按首次收录时间；历史模式按核实的原站日期或时间，仅有日期的材料归入次日刊。可公开的待处理稿完成后可补入原刊并留版本。</p><code>/site/reports/daily · /site/reports/daily/{key}</code></article>
+<article class="destination"><span class="kicker">E / MACHINE</span><h3>Agent、Markdown 与分享</h3><p>Agent 提供可检索的公开条目、摘要和阅读链接。Markdown、分享图和媒体各检查可见性及适用许可。</p><code>/agent/latest · /agent/search · /articles/{id}/markdown</code></article>
+<article class="destination"><span class="kicker">F / INTERNAL</span><h3>运营后台与未公开材料</h3><p>管理员查看采集与模型记录，调整来源许可及门槛，订正内容与归组，撤回或重新排队。读者反馈也在后台处理；收藏、已读等浏览状态留在浏览器。</p><code>/admin/* · /site/feedback</code></article>
+</div>
+</section>
+<section class="section" id="architecture">
+<div class="heading"><div><p class="kicker">04 / IMPLEMENTATION</p><h2>后端如何分工</h2></div></div>
+<div class="stack">
+<article><h3>Python worker：后台写入</h3><p>列表扫描、补正文、AI 研判、归组、翻译与刊期走持久任务队列。任务领取有租约和心跳；模型调用有预算、回执和未知结果处理。</p></article>
+<article><h3>FastAPI：对外读取与后台入口</h3><p>Next.js 通过站内代理访问 API。公开阅读匿名；管理写入依靠管理员会话、CSRF 防护和审计记录。</p></article>
+<article><h3>SQLite：保存证据与当前状态</h3><p>SQLAlchemy 管对象，Alembic 管迁移；默认文件库用 WAL 支持读写并行。原始材料及修订、后台任务与回执、派生刊期和快照分别存储。</p></article>
+<article><h3>模型接口：按步骤转换材料</h3><p>采集适配器向原站取数据；开启模型任务后，worker 按能力把相应的材料片段或证据发送到配置的模型提供方，将回执和处理结果写回本地。</p></article>
+</div>
+<aside class="snapshot"><div><div class="kicker">DOCUMENTED SNAPSHOT / 2026-11-15</div><p>以下是仓库交接文档记载的作者本机快照。业务库、回执和密钥配置不随 Git 克隆；这些数字也不代表公网部署状态。</p><p><a href="daily-history-reconstruction-2026-11-15.md">查看快照与历史刊期记录 ↗</a></p></div><div class="stats"><div><strong>15</strong><span>信源</span></div><div><strong>773</strong><span>材料</span></div><div><strong>524</strong><span>公开标记且未撤回</span></div><div><strong>15</strong><span>历史日报</span></div></div></aside>
+</section>
+<footer class="foot">源码依据与延伸阅读： <a href="../backend/README.md">后端运行手册</a><a href="source-collection-audit-2026-11-14.md">信源与补采审计</a><a href="ai-editorial-copy-2026-11-14.md">AI 导读规则</a><a href="agent-access-backend-guide.md">Agent 接口</a><a href="policepulse-launch.md">部署手册</a></footer>
+</main>
+<script>
+const steps = [...document.querySelectorAll('.step')];
+steps.forEach(button => button.addEventListener('click', () => {
+  steps.forEach(step => {
+    const active = step === button;
+    step.setAttribute('aria-pressed', String(active));
+    document.getElementById(step.getAttribute('aria-controls')).hidden = !active;
+  });
+}));
+const scenarios = {
+  normal: ['公开阅读池', '', '采购列表发现链接，正文任务入队。', '获取正文，保留来源日期和材料修订。', '抽取采购事实、校验中文导读，通过公开规则。', '进入全部动态；再分别评估精选、热点和日报。'],
+  missing: ['后台待补正文', 'wait', '列表发现候选，来源和链接入库。', '原站超时或只取到过短的片段。', '恢复任务可按退避规则补取；缺证据时不能自动公开。', '记录保留后台；正文补齐后再评估。'],
+  low: ['可公开 · 未达精选门槛', '', '补齐正文并通过内容研判和公开资格检查。', '双评分低于该信源的选稿门槛。', '全部动态和详情仍可读；自动评分未给出精选资格。', '若满足各自条件，仍可进入日报或贡献事件证据。'],
+  revision: ['回到研判队列', 'wait', '同一原文链接被再次发现，检测到内容哈希变化。', '保存新修订，旧修订和对应回执留档。', '当前稿重新进入研判，旧公开标记、精选与译文失效。', '新修订重新通过门禁后可再次公开，刊期按需要订正。'],
+  withdrawn: ['公开出口收回', 'stop', '管理员撤回已公开稿并留下理由。', '原始材料、历次修订与操作记录留在内部。', '列表、详情和 Agent 按当前可见性排除该稿。', '既有精选、事件和日报引用也要重查可见性。']
+};
+const cases = [...document.querySelectorAll('[data-case]')];
+cases.forEach(button => button.addEventListener('click', () => {
+  cases.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+  const [label, tone, ...route] = scenarios[button.dataset.case];
+  const status = document.getElementById('case-status');
+  status.textContent = label;
+  status.dataset.tone = tone;
+  document.getElementById('case-route').replaceChildren(...route.map(text => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }));
+}));
+steps.slice(1).forEach(step => { document.getElementById(step.getAttribute('aria-controls')).hidden = true; });
+</script>
+</body>
+</html>
