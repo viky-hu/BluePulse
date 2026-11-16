@@ -150,3 +150,33 @@ def test_source_and_editorial_mutations_project_with_audit(tmp_path, monkeypatch
             engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_legacy_unknown_requires_relevance_override_and_hides_when_cleared(tmp_path, monkeypatch):
+    async def scenario():
+        async with admin_client(tmp_path, monkeypatch) as client:
+            engine = make_engine(f"sqlite:///{(tmp_path / 'admin.db').as_posix()}")
+            with Session(engine) as session:
+                source = Source(slug="fixture", name="测试来源", excerpt_allowed=True)
+                item = Material(source=source, source_title="原题", language="zh", content_hash="proof",
+                                source_url="https://example.test/item", canonical_url="https://example.test/item",
+                                body_status="full_text", source_body="原文材料内容" * 61, zh_summary="原摘要",
+                                public=True, relevant=True, state="publication_pool", editorial_revision=1,
+                                editorial_data={"label": "UNKNOWN", "model_fields": {"relevant": True}})
+                session.add(item)
+                session.flush()
+                article_id = item.id
+                session.commit()
+            reader = f"articles/{article_id}"
+            override = f"admin/content/{article_id}/override"
+            assert (await client.get(reader)).status_code == 404
+            headers = {"Origin": "https://pulse.example.test", "X-CSRF-Token": (await login(client)).json()["csrf"]}
+            approved = await client.post(override, headers=headers, json={"relevant": True, "reason": "人工核实原文"})
+            assert approved.status_code == 200
+            assert (await client.get(reader)).status_code == 200
+            cleared = await client.post(override, headers=headers, json={"relevant": None, "reason": "取消人工放行"})
+            assert cleared.status_code == 200
+            assert (await client.get(reader)).status_code == 404
+            engine.dispose()
+
+    asyncio.run(scenario())

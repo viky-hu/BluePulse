@@ -185,17 +185,44 @@ def daily_range(start: date, end: date, *, execute: bool, reason: str | None,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Blue Pulse backend local setup")
-    parser.add_argument("command", choices=["migrate", "sync-taxonomy", "sync-sources", "initialize", "backup", "daily-range"])
+    parser.add_argument("command", choices=["migrate", "sync-taxonomy", "sync-sources", "initialize", "backup",
+                                            "daily-range", "recheck-relevance"])
     parser.add_argument("--local-live", action="store_true", help="apply the approved local publication defaults")
     parser.add_argument("--from-date", type=date.fromisoformat)
     parser.add_argument("--through-date", type=date.fromisoformat)
-    parser.add_argument("--execute", action="store_true", help="write or revise daily editions")
+    parser.add_argument("--execute", action="store_true", help="apply the maintenance operation")
+    parser.add_argument("--limit", type=int, help="maximum items in a relevance recheck batch (default 20)")
     parser.add_argument("--historical-source-dates", action="store_true",
                         help="reconstruct the requested issues using verified original publication dates")
-    parser.add_argument("--reason", help="audit reason for a daily maintenance run")
+    parser.add_argument("--reason", help="audit reason for a maintenance run")
     args = parser.parse_args()
     if args.local_live and args.command != "initialize":
         parser.error("--local-live requires initialize")
+    if args.command == "recheck-relevance":
+        from .relevance_recheck import batch
+
+        if any((args.from_date, args.through_date, args.historical_source_dates)):
+            parser.error("date options require daily-range")
+        if args.execute and not (args.reason or "").strip():
+            parser.error("--execute requires --reason")
+        path = _database_file()
+        if path is None:
+            parser.error("recheck-relevance requires an existing SQLite database")
+        engine = make_engine() if args.execute else create_engine(
+            "sqlite://", creator=lambda: sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30))
+        try:
+            context = serialized(engine) if args.execute else Session(engine)
+            with context as session:
+                result = batch(session, datetime.now(UTC), limit=20 if args.limit is None else args.limit,
+                               reason=args.reason.strip() if args.execute else None)
+            print(json.dumps(result, ensure_ascii=False))
+        except ValueError as exc:
+            parser.error(str(exc))
+        finally:
+            engine.dispose()
+        return
+    if args.limit is not None:
+        parser.error("--limit requires recheck-relevance")
     if args.command == "daily-range":
         if args.from_date is None or args.through_date is None:
             parser.error("daily-range requires --from-date and --through-date")

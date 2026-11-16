@@ -110,9 +110,9 @@ def _material_key(material):
     return f"{material.id}:{material.revision}"
 
 
-def _queue_editorial(session, kind, material, now, run_key, generation=None):
+def _queue_editorial(session, kind, material, now, run_key, generation=None, *, recheck_version=None):
     key = _material_key(material)
-    if not run_key and not generation:
+    if not run_key and not generation and not recheck_version:
         active = session.scalar(select(WorkItem.id).where(
             WorkItem.kind == kind, WorkItem.status.in_(("pending", "running")),
             WorkItem.payload["material_id"].as_string() == material.id,
@@ -120,7 +120,7 @@ def _queue_editorial(session, kind, material, now, run_key, generation=None):
         ).limit(1))
         if active:
             return
-    identity = ":".join(str(part) for part in (key, generation, run_key) if part is not None)
+    identity = ":".join(str(part) for part in (key, generation, run_key, recheck_version) if part is not None)
     enqueue(session, kind, identity, {"material_id": material.id, "revision": material.revision,
                                      "run_key": run_key, "generation": generation,
                                      "historical": material.timeline_kind == "historical"}, now)
@@ -822,6 +822,7 @@ class Worker:
         payload = work.payload
         material_id, revision = payload["material_id"], payload["revision"]
         generation = payload.get("generation")
+        recheck_version = payload.get("recheck_version")
         with serialized(self.engine) as session:
             item = session.get(Material, material_id, options=[joinedload(Material.source)])
             if not item or item.revision != revision or item.withdrawn or item.duplicate_of_id or item.collection_state == "pending":
@@ -829,6 +830,12 @@ class Worker:
             source_mode = item.source.participation_mode
             if source_mode == "isolated" or source_mode == "hot_signal" and work.kind != "group":
                 return {"skipped": "source_role"}
+            if recheck_version and (recheck_version != editorial.PREFILTER_VERSION or
+                    ((item.editorial_data or {}).get("prefilter") or {}).get("version") == recheck_version):
+                return {"skipped": "relevance_policy_superseded"}
+            if work.kind == "translate" and not translation_needed(item, at=self.clock(),
+                                                                   replace_current=generation is not None):
+                return {"skipped": "translation_not_eligible"}
             settings, pins, run_key, budget = self._model_configuration(session, work)
             threshold = item.source.selection_threshold
             analysis_generation = (item.editorial_data or {}).get("generation")
@@ -846,8 +853,6 @@ class Worker:
                                                   step.embeddings if "embedding" in settings else None)
                 result = grouping.decide(item, candidates, step)
             else:
-                if not translation_needed(item, at=self.clock(), replace_current=generation is not None):
-                    return {"skipped": "translation_not_eligible"}
                 result = editorial.translate(item.source_body, step)
         with serialized(self.engine) as session:
             now = self.clock()
@@ -866,7 +871,7 @@ class Worker:
                     raise ValueError("selection_threshold_changed")
                 editorial.apply_analysis(session, current, result, now, fields)
                 current.editorial_data = {**current.editorial_data, "generation": generation}
-                _queue_editorial(session, "group", current, now, run_key, generation)
+                _queue_editorial(session, "group", current, now, run_key, generation, recheck_version=recheck_version)
             elif work.kind == "group":
                 if (current.editorial_data or {}).get("generation") != analysis_generation:
                     return {"skipped": "analysis_changed"}
@@ -884,7 +889,11 @@ class Worker:
                 current.translation_revision = revision
                 current.translation_status = "available" if complete else "partial"
             _schedule_material(session, current, now, run_key=run_key)
-            return {"material_id": material_id, "revision": revision}
+            outcome = {"material_id": material_id, "revision": revision}
+            if recheck_version:
+                outcome["recheck_outcome"] = ("manual_override" if "relevant" in fields else
+                                              "retained" if current.public else "hidden")
+            return outcome
 
 
 def _client():

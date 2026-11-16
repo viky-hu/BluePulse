@@ -3,6 +3,10 @@ import pytest
 from bluepulse_backend import selection_evaluation as evaluation
 
 
+def passing_decision(data):
+    return {'label':'PASS','relevance':'direct','reason':'具体技术应用','evidence':data['text'][:30]}
+
+
 @pytest.mark.parametrize('status',['pending','conflict'])
 def test_missing_gold_precedes_credentials_and_output(tmp_path, monkeypatch, status):
     monkeypatch.setattr(evaluation, 'load_packet', lambda path: ({'packet_id':'p','cases':[{'case_id':'a'}]}, {'splits':{'a':'development'}}))
@@ -21,12 +25,23 @@ def test_holdout_requires_explicit_confirmation_before_loading(tmp_path, monkeyp
         evaluation.run(tmp_path, tmp_path / 'reviews', tmp_path / 'output', split='holdout', allow_paid=True)
 
 
+def test_confirmed_only_uses_finalized_cases_from_the_requested_split(tmp_path, monkeypatch):
+    cases = [{'case_id':key} for key in ('confirmed', 'pending', 'held')]
+    manifest = {'splits':{'confirmed':'development','pending':'development','held':'holdout'}}
+    monkeypatch.setattr(evaluation,'load_packet',lambda path:({'cases':cases},manifest))
+    monkeypatch.setattr(evaluation,'read_reviews',lambda path:{})
+    monkeypatch.setattr(evaluation,'consensus',lambda *_:{
+        'confirmed':{'status':'confirmed'},'pending':{'status':'pending'},'held':{'status':'confirmed'}})
+    _, _, selected, decisions = evaluation.chosen_gold(tmp_path, None, 'development', False, confirmed_only=True)
+    assert selected == [cases[0]] and list(decisions) == ['confirmed']
+
+
 def test_exact_production_inputs_two_independent_scores_and_resume():
     calls = []
     def step(capability, purpose, prompt, data, tokens):
         calls.append((capability,purpose,data))
         if capability == 'prefilter':
-            return {'label':'PASS'}, {}
+            return passing_decision(data), {}
         return {'content_type':'research_paper','sig':8,'nov':8,'cred':8,'reson':8,'act':8}, {'request_id':purpose}
     case = {'title':'Original title','body':'x'*13000,'body_status':'full_text'}
     state = evaluation.evaluate_case(case, step, 70)
@@ -90,7 +105,7 @@ def test_only_chosen_split_is_evaluated_and_resume_does_not_repeat(tmp_path, mon
             calls.append(purpose)
             assert 'holdout' not in data['title']
             if capability == 'prefilter':
-                return {'label':'PASS'},{}
+                return passing_decision(data),{}
             return {'content_type':'research_paper','sig':8,'nov':8,'cred':8,'reson':8,'act':8},{'request_id':purpose}
     monkeypatch.setattr(evaluation,'Steps',FakeSteps)
     output = tmp_path/'evaluation'
@@ -110,7 +125,7 @@ def test_holdout_summary_never_scans_thresholds():
 
 
 def test_paid_model_default_is_closed_after_consensus(tmp_path, monkeypatch):
-    monkeypatch.setattr(evaluation,'chosen_gold',lambda *args:({}, {}, [], {}))
+    monkeypatch.setattr(evaluation,'chosen_gold',lambda *args, **kwargs:({}, {}, [], {}))
     monkeypatch.setattr(evaluation,'_production_model_settings',lambda:pytest.fail('no config before explicit paid opt-in'))
     with pytest.raises(ValueError,match='explicit_paid_model_opt_in_required'):
         evaluation.run(tmp_path,tmp_path/'reviews',tmp_path/'output')
@@ -134,7 +149,7 @@ def test_real_steps_use_isolated_durable_budget_and_keep_partial_score(tmp_path,
         assert request.method == 'POST' and request.url.path == '/v1/chat/completions'
         requests.append(request)
         payload = json.loads(request.content)
-        result = {'label':'PASS'} if payload['messages'][0]['content'] == evaluation.editorial.PREFILTER else {
+        result = passing_decision(json.loads(payload['messages'][1]['content'])) if payload['messages'][0]['content'] == evaluation.editorial.PREFILTER else {
             'content_type':'research_paper','sig':8,'nov':8,'cred':8,'reson':8,'act':8}
         return httpx.Response(200,json={'id':f'request-{len(requests)}','model':'mock-model',
             'usage':{'prompt_tokens':10,'completion_tokens':5,'total_tokens':15,'input_tokens':10,'output_tokens':5},
@@ -159,16 +174,16 @@ def test_real_steps_use_isolated_durable_budget_and_keep_partial_score(tmp_path,
     assert len(requests) == 2
     assert not (tmp_path/'production').exists()
 
-def test_broad_prefilter_metrics_are_not_public_relevance_and_unknown_advances():
+def test_relevance_metrics_distinguish_false_positives_and_unresolved_cases():
     rows = [{'gold':{'relevance':'direct'},'prefilter':'UNKNOWN','status':'scored'},
             {'gold':{'relevance':'potential'},'status':'failed'},
             {'gold':{'relevance':'irrelevant'},'prefilter':'PASS','status':'scored'},
             {'gold':{'relevance':'uncertain'},'prefilter':'BLOCK','status':'blocked'}]
     result = evaluation.prefilter_metrics(rows)
-    assert result['precision'] == .5 and result['recall'] == .5
-    assert result['coverage'] == 2/3
+    assert result['precision'] == 0 and result['recall'] == 0
+    assert result['coverage'] == 1/3
     assert result['gold_uncertain'] == 1 and result['failed'] == 1
-    assert result['scope'] == 'broad_prefilter_advancement_not_public_relevance'
+    assert result['scope'] == 'publication_relevance_gate' and result['undecided'] == 1
 
 
 def test_cli_exit_is_nonzero_for_incomplete_case(tmp_path,monkeypatch):

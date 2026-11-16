@@ -4,8 +4,9 @@ from datetime import UTC
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
+from .admin_models import AdminContentOverride
 from .models import FeaturedEdition, FeaturedSlot, Material, now_utc
 
 
@@ -38,9 +39,31 @@ def _utc(value):
     return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def automatic_relevance_allowed(material: Material) -> bool:
+    data = material.editorial_data or {}
+    decision = data.get("prefilter")
+    if decision is None:
+        # Pre-upgrade PASS stays public while awaiting recheck. Older classifiers used a boolean.
+        return data.get("label") in (None, "PASS")
+    return bool(material.editorial_revision == material.revision and data.get("label") == "PASS" and
+                decision.get("label") == "PASS" and decision.get("relevance") in ("direct", "potential") and
+                decision.get("evidence") and decision.get("reason"))
+
+
+def relevance_allowed(material: Material) -> bool:
+    if not material.relevant:
+        return False
+    if automatic_relevance_allowed(material):
+        return True
+    session = object_session(material)
+    override = session.get(AdminContentOverride, material.id) if session is not None else None
+    return bool(override and override.fields.get("relevant") is True)
+
+
 def _eligible(material: Material) -> bool:
     return bool(material.duplicate_of_id is None and
-                not material.withdrawn and material.relevant and
+                not material.withdrawn and relevance_allowed(material) and
+                (not (material.editorial_data or {}).get("prefilter") or material.topics) and
                 material.source.participation_mode == "editorial" and
                 material.source.excerpt_allowed and evidence_allowed(material) and
                 (material.zh_summary or "").strip() and source_link_allowed(material))

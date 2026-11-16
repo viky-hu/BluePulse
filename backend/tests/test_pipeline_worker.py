@@ -3,6 +3,7 @@ from email.utils import format_datetime
 import json
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func
 from sqlalchemy import select
@@ -41,7 +42,8 @@ def test_exhausted_bounded_batch_leaves_article_available_to_normal_worker(tmp_p
         assert [job.payload["run_key"] for job in jobs] == ["bounded", None]
 
 
-def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_path):
+@pytest.mark.parametrize("decision", ["unknown", "unsupported", "potential-low", "direct-high"])
+def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_path, decision):
     from bluepulse_backend.admin_operations import admin_rerun
     from bluepulse_backend.api import create_app
     from bluepulse_backend.fact_grouping import create_confirmed_featured
@@ -63,11 +65,18 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
             messages = json.loads(request.content)["messages"]
             prompt, inputs = messages[0]["content"], json.loads(messages[1]["content"])
             requests.append(prompt)
-            if "{label,reason}" in prompt:
-                answer = {"label": "PASS"}
+            if "{label,relevance,reason,evidence}" in prompt:
+                answer = {"label": "PASS", "relevance": "direct", "reason": "测试警务电台互通",
+                          "evidence": "The city police started a documented radio interoperability trial."}
+                if decision == "unknown":
+                    answer = {"label": "UNKNOWN", "reason": "材料不足"}
+                elif decision == "unsupported":
+                    answer = {"label": "PASS", "reason": "采购方为警队"}
+                elif decision == "potential-low":
+                    answer["relevance"] = "potential"
             elif "五轴" in prompt:
-                answer = {"content_type": "industry_event", "sig": 8, "nov": 8, "cred": 8,
-                          "reson": 8, "act": 8}
+                grade = 3 if decision == "potential-low" else 8
+                answer = {"content_type": "industry_event", **dict.fromkeys(("sig", "nov", "cred", "reson", "act"), grade)}
             elif "scope" in prompt:
                 answer = {"scope": "single", "category": "practice", "tags": ["radio"],
                           "fact": {"title": "警务电台试点", "evidence": "started a documented radio interoperability trial"}}
@@ -97,8 +106,34 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
     for _ in range(8):
         if not worker.run_one():
             break
+    if decision == "unknown":
+        from bluepulse_backend.relevance_recheck import batch
+
+        with Session(engine) as session:
+            article = session.scalar(select(Material))
+            article.editorial_data = {"label": "PASS"}
+            article.public = article.relevant = True
+            article.zh_summary = "一篇留待复判的历史稿件。"
+            session.commit()
+            assert batch(session, when, limit=1, reason="验证复判")["queued"] == 1
+            session.commit()
+        assert worker.run_one(kinds={"analyze"})
+        assert worker.run_one(kinds={"group"})
+        with Session(engine) as session:
+            assert batch(session, when, limit=1)["outcomes"] == {"hidden": 1}
     with Session(engine) as session:
         article = session.scalar(select(Material))
+        if decision != "direct-high":
+            expected = decision == "potential-low"
+            assert article.public is expected
+            assert not selected(article, at=when)
+            assert len(requests) == (5 if expected else 1)
+            with TestClient(create_app(str(engine.url))) as client:
+                assert client.get(f"/api/v1/articles/{article.id}").status_code == (200 if expected else 404)
+                items = client.get("/api/v1/articles?period=all").json()["items"]
+                assert [item["id"] for item in items] == ([article.id] if expected else [])
+                assert client.get("/api/v1/home/featured").json()["items"] == []
+            return
         assert article and selected(article, at=when)
         assert article.zh_body and article.translation_revision == article.revision
         assert article.translation_status == "available"

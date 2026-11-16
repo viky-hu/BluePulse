@@ -120,8 +120,9 @@ def test_daily_copy_correction_keeps_original_issue_and_versions(db, report):
     assert view["highlights"][0]["summary"] == other.zh_summary
 
 
-def test_late_release_updates_same_issue_and_replaces_withdrawn_lead(db, report):
-    from bluepulse_backend.daily_reports import compose_daily, load_daily
+@pytest.mark.parametrize("hide_reason", ["withdrawn", "uncertain"])
+def test_late_release_updates_same_issue_and_replaces_hidden_lead(db, report, hide_reason):
+    from bluepulse_backend.daily_reports import compose_daily, daily_index, load_daily
     from bluepulse_backend.edition_models import DailyIssueRevision
 
     cutoff = datetime(2026, 11, 8, tzinfo=UTC)
@@ -137,21 +138,51 @@ def test_late_release_updates_same_issue_and_replaces_withdrawn_lead(db, report)
     assert [i["itemId"] for i in before["highlights"]] == [late.id, second.id]
     assert load_daily(db, "2026-11-09", now=NOW + timedelta(days=1))["leadItemId"] is None
 
-    first.withdrawn = True
+    if hide_reason == "withdrawn":
+        first.withdrawn = True
+    else:
+        first.editorial_data = {"label": "UNKNOWN"}
     db.commit()
     compose_daily(db, "2026-11-08", now=NOW)
     after = load_daily(db, "2026-11-08", now=NOW)
     assert after["leadItemId"] == late.id
     assert after["lead"]["leadParagraph"].startswith(late.zh_summary)
-    hidden = next(i for s in after["sections"] for i in s["items"] if i["itemId"] == first.id)
-    assert hidden["summary"] is None
-    assert hidden["sourceUrl"] == ""
-    assert hidden["available"] is False
+    hidden = [i for s in after["sections"] for i in s["items"] if i["itemId"] == first.id]
+    if hide_reason == "withdrawn":
+        assert len(hidden) == 1
+        assert hidden[0]["summary"] is None and hidden[0]["sourceUrl"] == ""
+        assert hidden[0]["available"] is False
+    else:
+        assert hidden == []
+        assert after["metrics"]["totalEvents"] == 2
+        assert next(row for row in daily_index(db, NOW) if row["key"] == "2026-11-08")["count"] == 2
     compose_daily(db, "2026-11-08", now=NOW, reason="纠正引文", actor="maintainer")
     revision = db.scalar(select(DailyIssueRevision).order_by(DailyIssueRevision.version.desc()))
     assert revision.reason == "纠正引文"
     assert revision.actor == "maintainer"
     assert revision.content["main"][0]["itemId"] == first.id
+
+
+def test_daily_excludes_relevance_rejections_from_flashes_and_related(db, report):
+    from bluepulse_backend.daily_reports import compose_daily, load_daily
+    from bluepulse_backend.edition_models import DailyIssue
+
+    at = datetime(2026, 11, 7, 20, tzinfo=UTC)
+    main, *_ = report(at, score=95)
+    rejected, *_ = report(at, score=80)
+    compose_daily(db, "2026-11-08", now=NOW)
+    issue = db.get(DailyIssue, "2026-11-08")
+    main_citation, rejected_citation = issue.content["main"]
+    issue.content = {**issue.content, "main": [{**main_citation, "related": [rejected_citation]}],
+                     "flashes": [rejected_citation]}
+    rejected.editorial_data = {"label": "BLOCK"}
+    rejected.relevant = rejected.public = False
+    db.commit()
+
+    view = load_daily(db, issue.key, NOW)
+    assert view["leadItemId"] == main.id
+    assert view["flashes"] == []
+    assert not view["sections"][0]["items"][0].get("related")
 
 
 def test_daily_keeps_one_event_and_two_main_entries_per_source(db, report):

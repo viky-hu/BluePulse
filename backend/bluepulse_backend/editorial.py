@@ -21,9 +21,18 @@ from .selection_scoring import AXES, SelectionScore
 
 
 PREFILTER = SAFETY + """
-只做宽召回相关性预筛。材料中有明确警务或公共安全技术应用、采购、研究、治理、政策标准，或具体的上游技术应用路径，就判 PASS。只判断主题相关性，新颖性、证据强弱、时效和精选由其他步骤处理。
-只有材料足以确认是普通治安、事故、宣传、会议或行政新闻，且技术名词仅出现在身份、标签、背景或空泛宣传时，才判 BLOCK。不能单凭机构名或「智能」等词判断。
-正文缺失、片段模糊或只能靠附件猜测时判 UNKNOWN；标题本身已明确写出相关技术及用途时可 PASS。只输出 JSON {label,reason}，reason 用一句短语记录依据。"""
+判定这条材料是否有实质性的警务科技关联，这是进入「全部动态」的第一道门槛。先读标题和正文，找出这次报道实际发生了什么，以及具体技术、技术治理或实战方法怎样关联一项警务或公共安全任务。新颖性、价值高低、时效和精选资格另外判断。
+- PASS / direct：主要内容是有具体对象与用途的警务技术应用、试点、研究、建设、运维，或直接研究、评估、规范这类技术的实际应用。
+- PASS / potential：报道以其他内容为主，但给出了值得追踪的具体技术应用或实战方法改进线索；也包括具有具体能力变化和明确警务应用路径的上游进展。理由写清线索怎样用于哪项任务。
+- BLOCK / irrelevant：原文明确只涉及普通案件、会议、宣传、人事、活动、行政流程、常规防护或一般装备采购，或者笼统提到系统、智能、监控等，找不到具体技术用途或改进线索。
+- UNKNOWN / uncertain：内容不足以作出上述判断，例如只有采购时间更正而采购对象和用途未载明，或只能靠附件猜测。标题已同时说明具体技术和警务任务时可以据标题判断。
+采购先看本次采购对象和实际用途。采购单位是公安、消防、法院或应急部门，或标的含通用摄像机、门禁、消防报警器，均不能据此认定警务科技相关。说明用于道路违法取证的设备改造、警务专用视频网络运维等则可相关。更正、终止或成交公告仅用本篇明确交代的项目证据判断。
+判断示例：
+- 对警务人脸识别独立测试误识率与阈值，或公布人脸识别警务应用的专项公众调查：direct。
+- 普通巡防报道明确写到用数字化平台联动巡防力量、支持走失人员寻回：potential。
+- 联合打击手机盗窃，只有通用 IMEI 核验建议，缺少具体改进内容：uncertain。
+- 江苏公安通报五起新型黑恶案件并给出防范提示，无科技研判措施；科技机构组织公益步行和虚拟跑步；警服及普通装备招标；仅提供电视节目受影响者支持渠道：irrelevant。
+只输出 JSON {label,relevance,reason,evidence}。reason 是一句话。PASS 必须提供标题或正文中一段连续原文，足以支撑理由所说的技术或改进线索和用途，禁止拼接、翻译、把常识当证据。非 PASS 的 evidence 可为 null。"""
 STRUCTURE = SAFETY + """
 只做结构化提取。先读正文，识别这份材料自己的核心行动及用途。按正文重心分类，不以发布机构、原有产品名称或偶然提及的技术分类。不写面向读者的摘要，不打分。
 category 从 product、practice、paper、law、embodied、public-opinion、low-altitude、other 中选一个主要类别，分别表示产品、实战、论文、法制、具身智能、舆情治理、低空警务、其它。优先选择有正文依据且贴切的前七类；确实涉及警务科技或有具体应用线索、但前七类都不贴切时选 other。不能因为普通警务报道不好分类就选 other；分类不代替相关性判断，也不决定是否精选。分类必须明确给出，不得省略或返回 null。
@@ -63,6 +72,9 @@ def input_hash(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+PREFILTER_VERSION = input_hash(PREFILTER)
+
+
 @dataclass(frozen=True)
 class Analysis:
     label: str
@@ -80,6 +92,7 @@ class Analysis:
     input_chars: int = 0
     input_truncated: bool = False
     content_type: str | None = None
+    prefilter: dict | None = None
 
 
 def _text(value, length):
@@ -89,6 +102,31 @@ def _text(value, length):
 def _ground(value, original, limit):
     quote = _text(value, limit)
     return quote if quote and " ".join(quote.split()) in original else None
+
+
+def run_prefilter(step, data):
+    response, _ = step("prefilter", "prefilter", PREFILTER, data, 600)
+    label = response.get("label")
+    relevance = response.get("relevance")
+    reason = response.get("reason")
+    evidence = response.get("evidence")
+    if (label not in ("PASS", "BLOCK", "UNKNOWN") or
+            any(value is not None and not isinstance(value, str) for value in (relevance, reason, evidence))):
+        raise ValueError("invalid_prefilter")
+    reason = _text(reason, 500)
+    evidence = " ".join((evidence or "").split())
+    if not 4 <= len(evidence) <= 500 or not any(
+        evidence in " ".join((data[field] or "").split()) for field in ("title", "text")
+    ):
+        evidence = None
+    if label == "PASS" and not (relevance in ("direct", "potential") and reason and evidence):
+        label = "UNKNOWN"
+    if label == "BLOCK" and (data["bodyStatus"] != "full_text" or not data["text"].strip()):
+        label = "UNKNOWN"
+    if label != "PASS":
+        relevance = "irrelevant" if label == "BLOCK" else "uncertain"
+    return {"label": label, "relevance": relevance, "reason": reason,
+            "evidence": evidence, "version": PREFILTER_VERSION}
 
 
 def procurement_category(category, title, fact):
@@ -182,14 +220,11 @@ def analyze(material, step) -> Analysis:
     original = material.source_body or material.source_summary or ""
     text = original[:12_000]
     data = {"title": material.source_title, "text": text, "bodyStatus": material.body_status}
-    prefilter, _ = step("prefilter", "prefilter", PREFILTER, data, 400)
-    label = prefilter.get("label")
-    if label not in {"PASS", "BLOCK", "UNKNOWN"}:
-        raise ValueError("invalid_prefilter")
-    if label == "BLOCK":
-        if material.body_status == "full_text" and text.strip():
-            return Analysis(label, input_chars=len(text), input_truncated=len(text) < len(original))
-        label = "UNKNOWN"
+    prefilter = run_prefilter(step, data)
+    label = prefilter["label"]
+    if label != "PASS":
+        return Analysis(label, input_chars=len(text), input_truncated=len(text) < len(original),
+                        prefilter=prefilter)
     score_input = {"title": material.source_title, "text": text}
     with ThreadPoolExecutor(max_workers=1) as pool:
         structure = pool.submit(_structure, step, data, procurement=material.source.slug == "ccgp-policing-tech")
@@ -213,31 +248,35 @@ def analyze(material, step) -> Analysis:
                   if near else None)
     return Analysis(label, scope, fact, topics, tags, entities, title, summary, reason,
                     score, values, candidate, len(text), len(text) < len(original),
-                    scores[0][2] if scores else None)
+                    scores[0][2] if scores else None, prefilter)
 
 
 def apply_analysis(session, material, analysis: Analysis, now, override: dict):
-    base_relevant = analysis.label != "BLOCK" and bool(
-        analysis.topics and analysis.summary and evidence_allowed(material))
+    base_relevant = analysis.label == "PASS" and bool(
+        analysis.prefilter and analysis.topics and analysis.summary and evidence_allowed(material))
+    title, summary, topics = analysis.title, analysis.summary, list(analysis.topics)
+    if analysis.label != "PASS" and override.get("relevant") is True and material.editorial_revision == material.revision:
+        previous = (material.editorial_data or {}).get("model_fields", {})
+        title, summary, topics = previous.get("zh_title"), previous.get("zh_summary"), previous.get("topics", [])
     material.editorial_revision, material.editorial_scope = material.revision, analysis.scope
     material.editorial_data = {
         "reason": analysis.reason, "tags": list(analysis.tags), "entities": list(analysis.entities),
-        "fact": analysis.fact, "label": analysis.label, "scores": list(analysis.scores),
+        "fact": analysis.fact, "label": analysis.label, "prefilter": analysis.prefilter, "scores": list(analysis.scores),
         "content_type": analysis.content_type, "input_chars": analysis.input_chars,
         "copy_version": COPY_VERSION,
         "input_truncated": analysis.input_truncated,
-        "model_fields": {"zh_title": analysis.title, "zh_summary": analysis.summary,
-                         "topics": list(analysis.topics), "relevant": base_relevant},
+        "model_fields": {"zh_title": title, "zh_summary": summary, "topics": topics, "relevant": base_relevant},
     }
-    material.zh_title = override.get("zh_title", analysis.title)
-    material.zh_summary = override.get("zh_summary", analysis.summary)
-    material.topics = override.get("topics", list(analysis.topics))
+    material.zh_title = override.get("zh_title", title)
+    material.zh_summary = override.get("zh_summary", summary)
+    material.topics = override.get("topics", topics)
     material.relevant = override.get("relevant", base_relevant)
     material.importance_score = analysis.score or 0
     material.featured_candidate = bool(material.relevant and len(analysis.scores) == 2 and
                                        (analysis.candidate or override.get("selected") is True) and
                                        override.get("selected") is not False)
     material.selection_status = ("blocked" if analysis.label == "BLOCK" else
+                                 "relevance_uncertain" if analysis.label == "UNKNOWN" else
                                  "uncalibrated" if material.source.selection_threshold is None else
                                  "qualified" if analysis.candidate else "below_threshold")
     material.judged_at = now

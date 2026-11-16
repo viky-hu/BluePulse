@@ -18,6 +18,7 @@ from .edition_evidence import _participant_key, public_at, story_reports, timeli
 from .edition_models import DailyIssue, DailyIssueRevision
 from .editorial_models import FactMention, Story
 from .models import FactGroup, FactReport, Material, SourceRun, now_utc
+from .publication import relevance_allowed
 
 
 MAIN_LIMIT = 12
@@ -365,6 +366,11 @@ def _available(citation: dict, current: dict[str, Material], now: datetime) -> M
     return None
 
 
+def _excluded_by_relevance(citation: dict, current: dict[str, Material]) -> bool:
+    article = current.get(citation["itemId"])
+    return bool(article is not None and not article.withdrawn and not relevance_allowed(article))
+
+
 def _public_citation(raw: dict, current: dict[str, Material], now: datetime, *, related: bool = False) -> dict:
     from .reading import public_source_icon
 
@@ -388,8 +394,10 @@ def _public_citation(raw: dict, current: dict[str, Material], now: datetime, *, 
                     if _available({"itemId": item_id, "revision": revision}, current, now)}
         if len(coverage) > 1:
             result["otherSources"] = len(coverage) - 1
-        if raw.get("related"):
-            result["related"] = [_public_citation(item, current, now, related=True) for item in raw["related"]]
+        related_items = [_public_citation(item, current, now, related=True) for item in raw.get("related", [])
+                         if not _excluded_by_relevance(item, current)]
+        if related_items:
+            result["related"] = related_items
         if raw.get("followUp"):
             result["followUp"] = raw["followUp"]
     return result
@@ -433,7 +441,7 @@ def load_daily(session: Session, key: str, now: datetime | None = None) -> dict 
         lead = {"title": raw_lead["title"], "leadParagraph": " ".join(filter(None, (
             raw_lead["summary"], issue.content.get("coverageNote"))))}
         cover = _lead_cover(session, current[raw_lead["itemId"]], now)
-    main = issue.content["main"]
+    main = [raw for raw in issue.content["main"] if not _excluded_by_relevance(raw, current)]
     projected = [_public_citation(raw, current, now) for raw in main]
     sections = defaultdict(list)
     for raw, view in zip(main, projected):
@@ -453,7 +461,8 @@ def load_daily(session: Session, key: str, now: datetime | None = None) -> dict 
         "highlights": [item for item in available if item["itemId"] != lead_id][:3],
         "sections": [{"label": label, "summary": None, "items": sections[slug]}
                      for slug, label in SECTIONS.items() if sections[slug]],
-        "flashes": [_public_citation(raw, current, now) for raw in issue.content["flashes"]],
+        "flashes": [_public_citation(raw, current, now) for raw in issue.content["flashes"]
+                    if not _excluded_by_relevance(raw, current)],
         "cover": cover, "metrics": {"totalEvents": len(main), "sourcesCount": len(cited_sources),
                                      "firstPartyEvents": sum(item["firstParty"] for item in available)},
         "readingMinutes": max(1, floor(words / 450 + 0.5)), "prev": prev, "next": next_key,
@@ -469,7 +478,7 @@ def daily_index(session: Session, now: datetime | None = None) -> list[dict]:
     return [{
         "key": issue.key, "issueNumber": total - index,
         "title": lead["title"] if (lead := _visible_lead(issue, current, now) or issue.content["quietLead"]) else None,
-        "count": len(issue.content["main"]),
+        "count": sum(not _excluded_by_relevance(raw, current) for raw in issue.content["main"]),
     } for index, issue in enumerate(issues)]
 
 

@@ -1,5 +1,9 @@
 # Blue Pulse 后端运行手册
 
+## 2026-11-15：警务科技相关性复判
+
+自动发布使用有原文证据的相关性判断。存量 `PASS` 可用 `python -m bluepulse_backend.cli recheck-relevance` 预览并分批复判。见[修复、交接与验收记录](../docs/relevance-publication-recovery-2026-11-15.md)。
+
 ## 2026-11-09：只读健康检查与真实样本校准
 
 `Pulse.bat --check-config` 只验证配置语法；`--check-health` 检查实际服务、worker 配置及内容链路；`--probe-model` 额外 GET 供应商 `/models`，不发送生成请求。检查不初始化或改写业务库、不启动或重启服务。退出 1 也可能是历史失败记录，应阅读具体降级项。普通启动完成后同样输出链路审计。

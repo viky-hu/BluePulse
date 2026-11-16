@@ -89,6 +89,7 @@ try {
     await page.screenshot({path:`${artifacts}/${spec.name}.png`});
     check(`${spec.name}: complete paper, metadata, seven pages/flash, original switch and no overflow`);
     if(['desktop','mobile','reduced','font-delay'].includes(spec.name)) {
+      if(spec.name==='desktop')await page.evaluate(()=>{window.__pulseDailyArchiveNav=document.querySelector('[aria-label="日报历史"]');});
       const capture=await sampleIssueHandoff(page,'/daily/2026-10-31'),frames=capture.frames;
       await writeFile(`${artifacts}/${spec.name}-handoff.json`,JSON.stringify(capture,null,2));
       assert.ok(frames.length>20,`record the new issue handoff across multiple display frames; ${JSON.stringify(capture)}`);
@@ -104,6 +105,7 @@ try {
         assert.ok(frames.slice(complete).every(frame=>frame.phase==='complete'),'the completed reveal must not restart');
       }
       await ready(page,'/daily/2026-10-31');await settledCanvas(page);
+      if(spec.name==='desktop')assert.equal(await page.evaluate(()=>document.querySelector('[aria-label="日报历史"]')===window.__pulseDailyArchiveNav),true,'entering a historical issue from /daily must retain the archive layout');
       assert.equal(await page.locator('[data-halftone-seed="daily-2026-10-31-date"]').getAttribute('data-halftone-phase'),'complete');
       check('issue change hands off directly to a painted halftone without a text-only or blank frame');
       if(spec.name==='reduced') {
@@ -133,6 +135,17 @@ try {
       await paper(page).evaluate(el=>{el.scrollTop=450;});await page.waitForTimeout(40);assert.ok(Math.abs((await side.boundingBox()).y-(await paper(page).boundingBox()).y)<2,'archive sticks to p0, not the window');
       const beforeHistory=await page.evaluate(()=>history.length);await page.getByRole('navigation',{name:'本期版面',exact:true}).getByRole('link',{name:/低空警务应用/}).click();assert.equal(await page.evaluate(()=>history.length),beforeHistory);assert.equal(await page.evaluate(()=>location.hash),'#s-7');
       await page.waitForFunction(()=>{const el=document.querySelector('[data-p0-scroller]'),offset=document.querySelector('#s-7').getBoundingClientRect().top-el.getBoundingClientRect().top;return Math.abs(offset-24)<3||(offset>=24&&offset<el.clientHeight&&el.scrollHeight-el.clientHeight-el.scrollTop<2);});
+      const historyNav=page.getByRole('navigation',{name:'日报历史',exact:true});
+      await historyNav.evaluate(el=>{el.style.height='170px';el.style.flex='none';});
+      await historyNav.locator('a[href="/daily/2026-09-30"]').waitFor();
+      const beforeArchiveScroll=await historyNav.evaluate(el=>{el.scrollTop=el.scrollHeight;window.__pulseDailyArchiveNav=el;return el.scrollTop;});
+      await historyNav.locator('a[href="/daily/2026-09-30"]').click();await ready(page,'/daily/2026-09-30');
+      await page.waitForFunction(()=>document.querySelector('[data-halftone-seed="daily-2026-09-30-date"]')?.dataset.halftoneReady==='true');
+      const archiveState=await page.evaluate(()=>({same:document.querySelector('[aria-label="日报历史"]')===window.__pulseDailyArchiveNav,scrollTop:document.querySelector('[aria-label="日报历史"]')?.scrollTop}));
+      assert.equal(archiveState.same,true,'issue navigation must keep the report archive mounted');
+      assert.ok(beforeArchiveScroll>0&&archiveState.scrollTop>0,`issue navigation must not return the archive to its initial top: ${JSON.stringify({beforeArchiveScroll,...archiveState})}`);
+      assert.equal(await historyNav.locator('a[aria-current="page"]').getAttribute('href'),'/daily/2026-09-30');
+      check('switching issues updates the paper while the archive stays mounted at its current scroll position');
       layouts.push({profile:spec.name,paperWidth:frame.width,archiveWidth:size.width,reportWidth:content.width,rightGutter,headlineSize:await page.locator('section[aria-label="头版"] h2').evaluate(el=>getComputedStyle(el).fontSize)});
       check(`${spec.name}: compact left archive fills the paper, sticks to p0, anchors and month fetch`);
     } else {

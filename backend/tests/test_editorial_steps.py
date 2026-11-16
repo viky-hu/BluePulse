@@ -20,7 +20,8 @@ def test_two_scores_and_structure_feed_grounded_writing():
         if purpose in {"structure", "score:1"}:
             barrier.wait()
         if kind == "prefilter":
-            return {"label": "PASS"}, {}
+            return {"label": "PASS", "relevance": "direct", "reason": "警务调度系统试点",
+                    "evidence": "The city police started a dispatch trial."}, {}
         if kind == "score":
             return {"content_type": "industry_event", "sig": 7, "nov": 7, "cred": 7,
                     "reson": 7, "act": 7}, {"request_id": purpose}
@@ -52,7 +53,8 @@ def test_translation_rejects_repeated_shielded_links():
 def classification_step(category, *, label="PASS"):
     def step(kind, purpose, prompt, inputs, tokens):
         if kind == "prefilter":
-            return {"label": label}, {}
+            return {"label": label, "relevance": "direct", "reason": "警务技术应用",
+                    "evidence": inputs["title"]}, {}
         if kind == "structure":
             return {"scope": "unknown", "category": category, "tags": []}, {}
         if kind == "score":
@@ -120,6 +122,41 @@ def test_irrelevant_news_stops_before_other_classification():
 
     result = analyze(row, step)
     assert result.label == "BLOCK" and result.topics == () and not result.candidate
+
+
+@pytest.mark.parametrize("response", [
+    {"label": "UNKNOWN", "reason": "更正公告未说明采购对象"},
+    {"label": "PASS", "reason": "公安分局采购警用装备"},
+    {"label": "PASS", "relevance": "direct", "reason": "无人机用于巡逻",
+     "evidence": "警方采购无人机用于巡逻"},
+])
+def test_uncertain_or_ungrounded_procurement_cannot_advance(response):
+    from bluepulse_backend.editorial import analyze
+
+    row = Material(source_title="黑河市公安局采购装备项目采购更正公告（第一次）",
+                   source_body="本次仅更正采购时间，未公布装备类型。" * 20,
+                   body_status="full_text", source=Source(selection_threshold=60))
+    calls = []
+    fallback = classification_step("other")
+
+    def step(kind, *args):
+        calls.append(kind)
+        return (response, {}) if kind == "prefilter" else fallback(kind, *args)
+
+    result = analyze(row, step)
+    assert result.label == "UNKNOWN"
+    assert result.topics == () and result.scores == ()
+    assert calls == ["prefilter"]
+
+
+def test_legacy_unknown_cannot_reenter_publication_via_cached_flags():
+    from bluepulse_backend.publication import visible
+
+    row = Material(source=Source(participation_mode="editorial", excerpt_allowed=True),
+                   source_url="https://example.test/correction", source_body="Only a date was changed. " * 20,
+                   body_status="full_text", editorial_data={"label": "UNKNOWN"}, public=True,
+                   relevant=True, zh_summary="本次更正了采购时间。")
+    assert not visible(row)
 
 
 @pytest.mark.parametrize("copy", [

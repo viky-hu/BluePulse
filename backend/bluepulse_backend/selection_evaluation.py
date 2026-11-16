@@ -1,7 +1,7 @@
 """Opt-in independent candidate-quality evaluation against completed human reviews.
 
-Only prefilter and two production scoring rounds run. This is not an evaluation of
-public relevance, category extraction, grouping, writing, translation or publication.
+Only the production relevance decision and two scoring rounds run. Category,
+writing, grouping and final publication are outside this evaluation.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from .selection_packet import atomic_json, consensus, digest, load_packet, read_
 from .selection_scoring import WEIGHTS
 
 
-def chosen_gold(directory, reviews, split, confirm_holdout):
+def chosen_gold(directory, reviews, split, confirm_holdout, *, confirmed_only=False):
     if split not in {'development', 'holdout'}:
         raise ValueError('invalid_split')
     if split == 'holdout' and not confirm_holdout:
@@ -40,6 +40,8 @@ def chosen_gold(directory, reviews, split, confirm_holdout):
     bundle = read_reviews(reviews)
     decisions = consensus(data, bundle)
     selected = [case for case in data['cases'] if manifest['splits'][case['case_id']] == split]
+    if confirmed_only:
+        selected = [case for case in selected if decisions[case['case_id']]['status'] != 'pending']
     if not selected or any(decisions[case['case_id']]['status'] not in {'confirmed', 'resolved'} for case in selected):
         raise ValueError('incomplete_or_conflicting_gold')
     return data, manifest, selected, {case['case_id']:decisions[case['case_id']] for case in selected}
@@ -51,18 +53,13 @@ def evaluate_case(case, step, threshold, *, previous=None, save=lambda state: No
         return state
     text = (case.get('body') or '')[:12000]
     if 'prefilter' not in state:
-        result, _ = step('prefilter', 'prefilter', editorial.PREFILTER,
-                         {'title':case['title'], 'text':text, 'bodyStatus':case.get('body_status','full_text')}, 400)
-        label = result.get('label')
-        if label not in {'PASS','BLOCK','UNKNOWN'}:
-            raise ValueError('invalid_prefilter')
-        if label == 'BLOCK' and (case.get('body_status','full_text') != 'full_text' or not text.strip()):
-            label = 'UNKNOWN'
-        state['prefilter'] = label
+        decision = editorial.run_prefilter(
+            step, {'title':case['title'], 'text':text, 'bodyStatus':case.get('body_status','full_text')})
+        state.update(prefilter=decision['label'], relevance_decision=decision)
         save(state)
     if state['prefilter'] == 'BLOCK':
         state.update(status='blocked', prediction=False)
-    elif not text.strip():
+    elif state['prefilter'] == 'UNKNOWN' or not text.strip():
         state.update(status='unscored', prediction=None)
     else:
         for ordinal in range(len(state['scores']) + 1, 3):
@@ -103,25 +100,25 @@ def metrics(rows):
 
 
 def prefilter_metrics(rows):
-    broad = []
+    decisions = []
     for row in rows:
         relevance = row['gold'].get('relevance','uncertain')
         label = row.get('prefilter')
-        completed = label in {'PASS','UNKNOWN','BLOCK'}
-        broad.append({'gold':{'select':'select' if relevance in {'direct','potential'} else
+        completed = label in {'PASS','BLOCK'}
+        decisions.append({'gold':{'select':'select' if relevance in {'direct','potential'} else
                               'reject' if relevance == 'irrelevant' else 'uncertain'},
-                      'prediction':label != 'BLOCK' if completed else None,
-                      'status':'scored' if completed else row.get('status','unscored'),
+                      'prediction':label == 'PASS' if completed else None,
+                      'status':'scored' if completed else 'unscored' if label == 'UNKNOWN' else row.get('status','unscored'),
                       'prefilter':label or 'not_completed'})
-    result = metrics(broad)
-    result.update(scope='broad_prefilter_advancement_not_public_relevance',
-                  advancement_policy='PASS and UNKNOWN advance; BLOCK rejects. Completed prefilter remains measured if later scoring fails.')
+    result = metrics(decisions)
+    result.update(scope='publication_relevance_gate', undecided=sum(row.get('prefilter') == 'UNKNOWN' for row in rows),
+                  advancement_policy='PASS advances to publication checks; BLOCK and UNKNOWN stay private.')
     return result
 
 
 def summarize(rows, *, scan):
     result = metrics(rows)
-    result['broad_prefilter'] = prefilter_metrics(rows)
+    result['relevance_gate'] = prefilter_metrics(rows)
     strata = {}
     for name in ('language', 'source_slug', 'gold_topic'):
         groups = defaultdict(list)
@@ -219,9 +216,11 @@ def _usage(engine):
                 'usage_policy':'Reported OpenAI fields only; missing usage/duration is unreported, not evidence of zero cost.'}
 
 
-def run(directory, reviews, output, *, split='development', confirm_holdout=False, allow_paid=False, max_calls=360):
+def run(directory, reviews, output, *, split='development', confirm_holdout=False, confirmed_only=False,
+        allow_paid=False, max_calls=360):
     # Validation and selected-split consensus happen before credentials, network, mkdir or DB creation.
-    data, packet_manifest, cases, decisions = chosen_gold(directory,reviews,split,confirm_holdout)
+    data, packet_manifest, cases, decisions = chosen_gold(
+        directory, reviews, split, confirm_holdout, confirmed_only=confirmed_only)
     if not allow_paid:
         raise ValueError('explicit_paid_model_opt_in_required')
     if type(max_calls) is not int or not 1 <= max_calls <= 10000:
@@ -242,11 +241,11 @@ def run(directory, reviews, output, *, split='development', confirm_holdout=Fals
         raise ValueError('evaluation_output_must_be_isolated')
     if output.is_symlink() or output.exists() and any(child.is_symlink() for child in output.iterdir()):
         raise ValueError('evaluation_output_symlink_not_allowed')
-    frozen = {'schema_version':1, 'packet_id':data['packet_id'], 'split':split,
+    frozen = {'schema_version':1, 'packet_id':data['packet_id'], 'split':split, 'confirmed_only':confirmed_only,
               'case_fingerprints':{case['case_id']:digest({key:value for key,value in case.items() if key != 'assist'}) for case in cases},
               'gold_hash':digest(decisions), 'settings':settings, 'model_pins':pins,
               'prompt_hash':digest([editorial.PREFILTER,SCORE_PROMPT,WEIGHTS]),
-              'evaluation_policy':{'revision':1,'input_chars':12000,'prefilter_tokens':400,'score_tokens':512,'rounds':2},
+              'evaluation_policy':{'revision':2,'input_chars':12000,'prefilter_tokens':600,'score_tokens':512,'rounds':2},
               'source_settings':{case['case_id']:packet_manifest['source_settings'][case['case_id']] for case in cases},
               'max_model_calls':max_calls}
     manifest_path = output/'evaluation.manifest.json'
@@ -288,11 +287,11 @@ def run(directory, reviews, output, *, split='development', confirm_holdout=Fals
         label = 'production-config-'+digest(settings)[:10]
         report = {'schema_version':1, 'packet_id':data['packet_id'], 'split':split,
                   'created_at':datetime.now(UTC).isoformat(), 'evaluation_scope':'selection_candidate_before_category_and_grouping',
-                  'public_relevance_evaluated':False, 'production_database_written':False,
+                  'public_relevance_evaluated':True, 'production_database_written':False,
                   'models':{label:{'summary':summarize(rows,scan=split == 'development'), 'cases':rows,
                                    'usage':_usage(engine), 'capability_aliases':settings}},
                   'notes':['No structure, writing, grouping or publication stages executed.',
-                           'Broad prefilter labels are not public relevance decisions.',
+                           'Relevance results measure the first editorial gate before other publication checks.',
                            'Undefined metrics are null; calibration requires positive and negative human labels.']}
         atomic_json(output/'evaluation-report.json',report)
         return report
@@ -307,17 +306,19 @@ def main(argv=None):
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--split',choices=['development','holdout'],default='development')
     parser.add_argument('--confirm-holdout',action='store_true')
+    parser.add_argument('--confirmed-only',action='store_true',help='skip unmarked cases in the chosen split')
     parser.add_argument('--allow-paid-model',action='store_true')
     parser.add_argument('--max-model-calls',type=int,default=360)
     args = parser.parse_args(argv)
     try:
         report = run(args.packet_dir,args.reviews,args.output_dir,split=args.split,confirm_holdout=args.confirm_holdout,
-                     allow_paid=args.allow_paid_model,max_calls=args.max_model_calls)
+                     confirmed_only=args.confirmed_only, allow_paid=args.allow_paid_model,max_calls=args.max_model_calls)
     except (ValueError,OSError) as exc:
         parser.error(_safe_error(exc))
     print(json.dumps(report,ensure_ascii=True))
     rows = next(iter(report['models'].values()))['cases']
-    return 1 if any(row['status'] in {'failed','unknown','unscored'} for row in rows) else 0
+    return 1 if any(row['status'] in {'failed','unknown'} or
+                    row['status'] == 'unscored' and row.get('prefilter') != 'UNKNOWN' for row in rows) else 0
 
 
 if __name__ == '__main__':

@@ -58,7 +58,10 @@ def test_agent_queries_share_public_scope_without_exposing_body(tmp_path, monkey
         withdrawn = _row(source, "withdrawn", "撤回报道", "撤回摘要",
                          published_at=now - timedelta(minutes=3))
         withdrawn.withdrawn = True
-        session.add_all([current, date_only, old, stale, unsafe_link, withdrawn])
+        uncertain = _row(source, "uncertain", "仅变更招标时间", "未说明采购对象",
+                         published_at=now - timedelta(minutes=1))
+        uncertain.editorial_data = {"label": "UNKNOWN"}
+        session.add_all([current, date_only, old, stale, unsafe_link, withdrawn, uncertain])
         session.commit()
         source_id, current_id, date_id, old_id = source.id, current.id, date_only.id, old.id
 

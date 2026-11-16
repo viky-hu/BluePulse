@@ -18,7 +18,7 @@ from .editorial import available_presets
 from .editorial_models import PaidAttempt, PaidReceipt, WorkItem
 from .models import FactGroup, FactReport, Material, MaterialTopic, Source, SourceRun, now_utc
 from .pipeline import PUBLIC_TOPIC_SLUGS
-from .publication import project_visibility, translation_needed
+from .publication import automatic_relevance_allowed, project_visibility, relevance_allowed, translation_needed
 from .work_queue import enqueue, enqueue_translation, requeue
 
 
@@ -129,7 +129,7 @@ def refresh_candidate(item: Material, fields: dict) -> bool:
     judged = item.editorial_revision == item.revision and len(scores) == 2
     qualifies = bool(judged and threshold is not None and sum(scores) >= 2 * threshold)
     before = item.featured_candidate
-    item.featured_candidate = bool(item.relevant and judged and fields.get("selected") is not False and
+    item.featured_candidate = bool(relevance_allowed(item) and judged and fields.get("selected") is not False and
                                    (qualifies or fields.get("selected") is True))
     if judged:
         item.selection_status = ("qualified" if qualifies else
@@ -294,6 +294,8 @@ def register_operations(router: APIRouter, session_dep, guard, error) -> None:
             for key in (fields.keys() & OVERRIDE_FIELDS) - {"selected"}:
                 if key in effective or key in base:
                     setattr(item, key, effective.get(key, base.get(key)))
+            if "relevant" in fields and "relevant" not in effective and not automatic_relevance_allowed(item):
+                item.relevant = False
             if "topics" in fields:
                 session.execute(delete(MaterialTopic).where(MaterialTopic.material_id == item.id))
                 session.add_all(MaterialTopic(material_id=item.id, topic_slug=topic) for topic in item.topics)

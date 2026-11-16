@@ -92,3 +92,11 @@ Halftone 按刊期 seed 区分 waiting、revealing、complete 三态；首帧先
 证据在被忽略的 `test-results/daily-report/`：`desktop-handoff-before.json` 为修复前失败记录，`{desktop,mobile,reduced,font-delay}-handoff.json` 为修复后逐帧结果，`handoff-{early,middle,complete}.png` 为动画截图，`results.json` 为完整验收结果。既有Node `MODULE_TYPELESS_PACKAGE_JSON`提示仍在；使用确定性fixture及mock，不代表真实日报后端联调。
 
 参考：[GSAP避免FOUC](https://gsap.com/resources/fouc/)、[GSAP React生命周期](https://gsap.com/resources/React/)、[React useLayoutEffect](https://react.dev/reference/react/useLayoutEffect)、[MDN Canvas宽度重置行为](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/width)。
+
+## 2026-11-15：日报切期保留归档栏
+
+AIHOT 的 `ReportLayout`／`ReportNav` 在同一个日报详情路由内切换期号，归档导航沿用挂载实例；蓝色正文随路由更新并从新一期顶部开始。Pulse 原先在期号和当前选择变化时分别给 `ReportLayout`、月份组更换 key，切换会重建红色归档栏并丢失其内部滚动位置。
+
+将 `DailyPage` 提升到 Next.js `/daily` 共享 layout，使最新日报、历史期号和归档页面切换时复用日报壳；仅在目标数据到达后替换正文，加载期间保留当前纸面和索引。月份组改用稳定 key，按 AIHOT 行为同步当前月份展开状态；URL、浏览器历史、重试和直达路由保持现有语义。
+
+修复前的生产浏览器回归在从 `/daily` 切换到历史期号时因归档导航 DOM 被替换而失败。修复后 `npm run lint`、`npm run build` 通过；`node scripts/daily-report-browser-test.mjs` 共40项聚焦检查通过，覆盖桌面／窄桌面／宽屏／手机／减少动态效果／字体延迟，以及从最新页进入历史期、归档栏向下滚动后切期、当前项高亮、目录、返回位置和原有错误／缓存分支。独立桌面复验新增首次进入历史期的稳定挂载断言，共17项通过。测试使用本地确定性fixture，不代表真实日报后端联调；Node 仍输出既有 `MODULE_TYPELESS_PACKAGE_JSON` 提示。
