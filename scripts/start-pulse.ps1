@@ -2,6 +2,7 @@ param([ValidateSet('production', 'dev', 'check', 'clipboard', 'stop', 'health', 
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'pulse-launch-config.ps1')
 $backend = Join-Path $root 'backend'
 $python = Join-Path $backend '.venv\Scripts\python.exe'
 $next = Join-Path $root 'node_modules\next\dist\bin\next'
@@ -177,6 +178,7 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath $python)) { throw 'Install the backend virtualenv as described in backend/README.md.' }
+    Set-Default BLUEPULSE_QUICK_TUNNEL '0'
     Set-Default BLUEPULSE_SITE_ORIGIN $webOrigin
     Set-Default BLUEPULSE_API_URL $apiOrigin
     Set-Default BLUEPULSE_TRUST_PROXY '0'
@@ -186,6 +188,11 @@ try {
     Set-Default BLUEPULSE_MODEL_BUDGET_HOUR '6000'
     Set-Default BLUEPULSE_MODEL_BUDGET_DAY '40000'
     Set-Default BLUEPULSE_FEEDBACK_ENABLED '1'
+    if ($Mode -in @('production', 'dev', 'check')) {
+        Assert-PulseLaunchOriginConfiguration -SiteOrigin $env:BLUEPULSE_SITE_ORIGIN -LocalWebOrigin $webOrigin `
+            -QuickTunnel $env:BLUEPULSE_QUICK_TUNNEL -ApiOrigin $env:BLUEPULSE_API_URL `
+            -LocalApiOrigin $apiOrigin -TrustProxy $env:BLUEPULSE_TRUST_PROXY
+    }
     # Diagnostic modes must not acquire launch locks, prepare storage, or start services.
     if ($Mode -eq 'check') {
         $workerConfig = Invoke-Backend bluepulse_backend.worker --check-config
@@ -217,10 +224,6 @@ try {
             Write-Host 'Pulse services stopped.'
             exit 0
         }
-        if ($env:BLUEPULSE_SITE_ORIGIN -cne $webOrigin -or $env:BLUEPULSE_API_URL -cne $apiOrigin) {
-            throw 'The local launcher requires BLUEPULSE_SITE_ORIGIN and BLUEPULSE_API_URL to match its loopback ports.'
-        }
-        if ($env:BLUEPULSE_TRUST_PROXY -ne '0') { throw 'Proxy trust is unavailable in the local launcher.' }
         if (-not (Test-Path -LiteralPath $next)) { throw 'Run pnpm install in the Pulse workspace.' }
         $node = (Get-Command node.exe).Source
         $pnpm = (Get-Command pnpm.cmd).Source
@@ -241,8 +244,10 @@ try {
             & git -C $root rev-parse HEAD
             if ($LASTEXITCODE -ne 0) { throw 'Unable to determine the Pulse checkout revision.' }
         }
-        $settings = @($revision, $Mode, $env:BLUEPULSE_DATABASE_URL, $env:BLUEPULSE_FEEDBACK_ENABLED, $workerConfig,
-            $env:BLUEPULSE_MODELS, $env:BLUEPULSE_MODEL_PRESETS, $effective.BLUEPULSE_INTERNAL_TOKEN)
+        $settings = @($revision, $Mode, $env:BLUEPULSE_SITE_ORIGIN, $env:BLUEPULSE_QUICK_TUNNEL,
+            $env:BLUEPULSE_API_URL, $env:BLUEPULSE_TRUST_PROXY, $env:BLUEPULSE_DATABASE_URL,
+            $env:BLUEPULSE_FEEDBACK_ENABLED, $workerConfig, $env:BLUEPULSE_MODELS,
+            $env:BLUEPULSE_MODEL_PRESETS, $effective.BLUEPULSE_INTERNAL_TOKEN)
         foreach ($name in $credentials.Keys) { $settings += $effective[$name] }
         $hash = [Security.Cryptography.SHA256]::Create()
         try {
@@ -290,17 +295,18 @@ try {
             Start-ServiceProcess web $node "`"$next`" $nextMode --hostname 127.0.0.1 --port $webPort" $root
         }
         $stats = Wait-Http web $webPort '/api/bluepulse/site/stats' sources 90
-        $entryUrl = $webOrigin
+        $publicOrigin = $env:BLUEPULSE_SITE_ORIGIN.TrimEnd('/')
+        $entryUrl = $publicOrigin
         if ($stats.items -gt 0) {
             $hasFeatured = $stats.selected -gt 0
             try {
                 $timeline = Invoke-RestMethod -Uri "$webOrigin/api/bluepulse/site/timeline?limit=1" -TimeoutSec 5
                 if ($null -ne $timeline.cards) { $hasFeatured = $timeline.cards.Count -gt 0 }
             } catch { }
-            if (-not $hasFeatured) { $entryUrl = "$webOrigin/all" }
+            if (-not $hasFeatured) { $entryUrl = "$publicOrigin/all" }
         }
         Write-Host "Pulse public items: $($stats.items). Opening page: $entryUrl"
-        Write-Host "Pulse API, Worker and Web services are ready at $webOrigin. Logs: $runDir"
+        Write-Host "Pulse API, Worker and Web services are ready. Public origin: $publicOrigin; local Web: $webOrigin; local API: $apiOrigin. Logs: $runDir"
         Push-Location $backend
         try {
             & $python -m bluepulse_backend.runtime_health
