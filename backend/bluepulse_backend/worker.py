@@ -32,7 +32,7 @@ from .models import AnalysisAttempt, AutoPublicationJob, Discovery, FactGroup, F
 from .pipeline import ingest
 from .publication import translation_needed, visible
 from .receipts import Budget, BudgetWait, ReceiptUnknown, recover_receipts
-from .source_collection import SOURCES, build_adapter
+from .source_collection import SOURCE_REGISTRY, build_adapter
 from .source_worker import RETRYABLE
 from .story_digest import DIGEST, digest_context, save_digest, schedule_digest
 from .work_queue import (TRANSLATION_ELIGIBILITY_SKIPS, claim, enqueue, enqueue_translation, finish,
@@ -141,20 +141,23 @@ def _schedule_material(session, material, now, *, run_key=None):
         ).limit(1))
         if not previous_unknown:
             _queue_editorial(session, "analyze", material, now, run_key)
-    elif material.grouping_status == "pending":
-        _queue_editorial(session, "group", material, now, run_key)
-    elif translation_needed(material, at=now):
-        enqueue_translation(session, material, now, run_key)
+    else:
+        if material.grouping_status == "pending":
+            _queue_editorial(session, "group", material, now, run_key)
+        if translation_needed(material, at=now):
+            enqueue_translation(session, material, now, run_key)
 
 
 class Worker:
     def __init__(self, engine, client_factory, *, presets=None, budget=None, collect_enabled=False,
-                 slugs=None, run_key=None, max_items=None, clock=now_utc, editions_enabled=False):
+                 slugs=None, run_key=None, max_items=None, clock=now_utc, editions_enabled=False,
+                 translation_enabled=True):
         self.engine, self.client_factory = engine, client_factory
         self.presets = presets if presets is not None else editorial.preset_paths()
         self.budget, self.collect_enabled = budget, collect_enabled
         self.slugs, self.run_key, self.max_items = slugs, run_key, max_items
         self.clock, self.editions_enabled = clock, editions_enabled
+        self.translation_enabled = translation_enabled
         self.stopping = Event()
         self._hosts_lock = Lock()
         self._hosts = {}
@@ -176,7 +179,7 @@ class Worker:
                 if not self.run_key:
                     self.sync_requested_batches(session, now)
                     if self.max_items is None:
-                        adapt_intervals(session, now, self.slugs or list(SOURCES))
+                        adapt_intervals(session, now, self.slugs or list(SOURCE_REGISTRY))
             if self.budget:
                 materials = self._sweep_query()
                 if self.slugs:
@@ -219,11 +222,9 @@ class Worker:
                 and_(Source.participation_mode == "editorial", or_(
                     and_(or_(Material.editorial_revision.is_(None), ~current), ~legacy_unknown, available("analyze")),
                     and_(current, Material.grouping_status == "pending", available("group")),
-                    and_(current, Material.public.is_(True), Material.featured_candidate.is_(True),
-                         Material.selected_at <= now,
+                    and_(current, Material.public.is_(True), Material.relevant.is_(True),
                          or_(Material.visible_after.is_(None), Material.visible_after <= now),
-                         Material.timeline_kind == "fresh", Material.grouping_status == "complete",
-                         Material.grouping_value.is_not(False), Material.body_status == "full_text",
+                         Material.body_status == "full_text",
                          Source.excerpt_allowed.is_(True), Source.full_text_allowed.is_(True),
                          ~func.lower(Material.language).startswith("zh"),
                          or_(Material.translation_revision.is_(None),
@@ -235,10 +236,10 @@ class Worker:
 
     def _schedule_collection(self, session, now, *, recover=False):
         if self.max_items is None and not self.run_key:
-            schedule_due_sources(session, now, self.slugs or list(SOURCES), recover=recover)
+            schedule_due_sources(session, now, self.slugs or list(SOURCE_REGISTRY), recover=recover)
             return
         for source in session.scalars(select(Source).where(Source.enabled.is_(True))):
-            if source.slug not in SOURCES or self.slugs and source.slug not in self.slugs:
+            if source.slug not in SOURCE_REGISTRY or self.slugs and source.slug not in self.slugs:
                 continue
             if self.run_key:
                 identity = f"{source.slug}:{self.run_key}"
@@ -310,7 +311,9 @@ class Worker:
         if self.collect_enabled:
             kinds.update(("collect", "extract"))
         if self.budget:
-            kinds.update(("analyze", "group", "translate", "digest", REWRITE_SUMMARY))
+            kinds.update(("analyze", "group", "digest", REWRITE_SUMMARY))
+            if self.translation_enabled:
+                kinds.add("translate")
             if self.editions_enabled:
                 kinds.add("digest_sweep")
         if self.editions_enabled:
@@ -435,7 +438,7 @@ class Worker:
         if not owns(session, work, self.clock()):
             raise LeaseLost()
         source = session.scalar(select(Source).where(Source.slug == slug))
-        if source and source.allowed_hosts != [SOURCES[slug].host]:
+        if source and source.allowed_hosts != [SOURCE_REGISTRY[slug].host]:
             raise ValueError("source_host_policy_mismatch")
         return source if source and source.enabled else None
 
@@ -474,7 +477,7 @@ class Worker:
         code, retry_after = None, 0
         results = {}
         with self._source_client() as client:
-            adapter = build_adapter(SOURCES[slug], client, max_items=2)
+            adapter = build_adapter(SOURCE_REGISTRY[slug], client, max_items=2)
             named = getattr(adapter, "iter_entry_pages", None)
             entries = adapter.listing_entries if named else {"default": None}
             supplemental = getattr(adapter, "supplemental_entries", frozenset())
@@ -607,7 +610,7 @@ class Worker:
         detail, error, retry_after, release_at = None, None, 0, None
         try:
             with self._source_client() as client:
-                adapter = build_adapter(SOURCES[slug], client, max_items=2)
+                adapter = build_adapter(SOURCE_REGISTRY[slug], client, max_items=2)
                 detail = adapter.fetch_detail(unpack(work.payload["candidate"]))
                 if detail is None or not detail.title.strip():
                     error = "title_missing"
@@ -678,7 +681,7 @@ class Worker:
                 raise LeaseLost()
 
         slug = work.payload["slug"]
-        spec = SOURCES[slug]
+        spec = SOURCE_REGISTRY[slug]
         with self._source_client() as client, Session(self.engine, expire_on_commit=False) as session:
             source = session.scalar(select(Source).where(Source.slug == slug))
             if source is None or not source.enabled:
@@ -998,7 +1001,7 @@ def _dispatch(worker, executor, active):
 def _run_daemon(handle, config, budget):
     engine = make_engine()
     worker = Worker(engine, _client, budget=budget, editions_enabled=True,
-                    collect_enabled=config["collection"])
+                    collect_enabled=config["collection"], translation_enabled=config["translation_enabled"])
     stopping = worker.stopping
 
     def stop(*_):

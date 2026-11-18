@@ -14,8 +14,8 @@ WORKER_IDENTITY_FIELDS = (*IDENTITY_FIELDS, "database_fingerprint")
 _RULE_MODULES = (
     "ccgp_source", "collection_flow", "collection_recovery", "collection_version",
     "editorial", "editorial_copy", "europol_source", "htx_source",
-    "live_sources", "material_identity", "pipeline", "police_science_source", "source_collection", "source_expansion",
-    "source_listing", "source_page", "spf_source", "statescoop_source", "top5_probe", "worker",
+    "live_sources", "material_identity", "nanjing_source", "pipeline", "police_science_source", "source_collection", "source_expansion",
+    "source_listing", "source_page", "spf_source", "statescoop_source", "suzhou_source", "top5_probe", "worker",
 )
 
 
@@ -25,12 +25,12 @@ def _digest(value):
 
 @cache
 def _loaded_collection_identity():
-    from .source_collection import SOURCES, source_listing_entries
+    from .source_collection import SOURCE_REGISTRY, source_listing_entries
 
     directory = Path(__file__).resolve().parent
     rules = {name: (directory / f"{name}.py").read_text(encoding="utf-8") for name in _RULE_MODULES}
     entrances = {slug: {"kind": spec.kind, "host": spec.host, "entries": source_listing_entries(spec)}
-                 for slug, spec in SOURCES.items()}
+                 for slug, spec in SOURCE_REGISTRY.items()}
     return _digest(rules), _digest(entrances)
 
 
@@ -48,4 +48,5 @@ def sqlite_database_path(address):
 def worker_configuration(*, collection, model_budget, database):
     path = sqlite_database_path(database)
     return {"collection": collection, "model_budget": model_budget, **collection_identity(),
+            "translation_enabled": os.environ.get("BLUEPULSE_TRANSLATION_ENABLED", "1") != "0",
             "database_fingerprint": _digest(os.path.normcase(str(path))) if path else None}

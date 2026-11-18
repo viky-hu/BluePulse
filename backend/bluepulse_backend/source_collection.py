@@ -22,10 +22,12 @@ from .pipeline import SourceAdapter, ingest
 from .source_expansion import BoundedHtmlSourceAdapter, SITES
 from .top5_probe import HtmlEvidenceProbe, JIANGSU_LIST, NPCC_LIST
 from .htx_source import HtxNewsAdapter, LISTING as HTX_LISTING
-from .police_science_source import PoliceScienceAdapter, SITEMAP as POLICE_SCIENCE_SITEMAP
+from .police_science_source import PoliceScienceAdapter
 from .statescoop_source import StateScoopAdapter
 from .europol_source import EuropolNewsAdapter
-from .spf_source import SpfPoliceLifeAdapter, ARCHIVE as SPF_ARCHIVE
+from .spf_source import SpfPoliceLifeAdapter
+from .nanjing_source import NanjingPoliceAdapter
+from .suzhou_source import SuzhouPoliceAdapter
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,17 @@ SOURCES = {
                                   ("policing", "public-safety-tech", "cybersecurity"), "spf_police_life"),
 }
 
+# Additional collectors are available for explicit registration without inheriting
+# the excerpt and full-text permissions of the pre-approved built-in roster.
+SOURCE_REGISTRY = {
+    **SOURCES,
+    "nanjing-police": SourceSpec("nanjing-police", "南京市公安局警务动态", "gaj.nanjing.gov.cn",
+                                 "CN", "domestic", "zh", ("policing", "public-safety-tech"), "nanjing_html"),
+    "suzhou-police": SourceSpec("suzhou-police", "苏州市公安局警务动态", "gonganju.suzhou.gov.cn",
+                               "CN", "domestic", "zh", ("policing", "public-safety-tech"), "suzhou_html"),
+}
+
+
 _NIST_FEEDS = {
     "nist_rss": NistRssAdapter.FEED,
     "nist_forensic_rss": "https://www.nist.gov/news-events/forensic%20science/rss.xml",
@@ -109,10 +122,12 @@ _LISTING_ENTRIES = {
     "europol_rss": EuropolNewsAdapter.listing_entries,
     "statescoop_rss": StateScoopAdapter.listing_entries,
     "htx_news": {"default": HTX_LISTING},
-    "police_science": {"default": POLICE_SCIENCE_SITEMAP},
-    "spf_police_life": {"default": SPF_ARCHIVE},
+    "police_science": PoliceScienceAdapter.listing_entries,
+    "spf_police_life": SpfPoliceLifeAdapter.listing_entries,
     "npcc_html": {"default": NPCC_LIST},
     "jiangsu_html": {"default": JIANGSU_LIST},
+    "nanjing_html": NanjingPoliceAdapter.listing_entries,
+    "suzhou_html": SuzhouPoliceAdapter.listing_entries,
     "pds_html": {"default": SITES["pds"].listing},
     "biometric_html": {"default": SITES["biometric"].listing},
     **{kind: NistRssAdapter.configured_entries(url, _NIST_TOPIC_IDS[kind]) for kind, url in _NIST_FEEDS.items()},
@@ -217,6 +232,10 @@ def build_adapter(spec: SourceSpec, client: httpx.Client, *, max_items: int) -> 
     if spec.kind == "spf_police_life":
         return SpfPoliceLifeAdapter(BoundedHTTP(client, allowed_hosts={spec.host}, max_bytes=500_000,
                                                 delay_seconds=0.3), max_items=max_items)
+    if spec.kind == "nanjing_html":
+        return NanjingPoliceAdapter(http, max_items=max_items)
+    if spec.kind == "suzhou_html":
+        return SuzhouPoliceAdapter(http, max_items=max_items)
     if spec.kind in {"npcc_html", "jiangsu_html"}:
         return HtmlEvidenceProbe(
             BoundedHTTP(client, allowed_hosts={spec.host}, max_bytes=1_000_000, delay_seconds=0.3),
@@ -261,7 +280,7 @@ def collect(session: Session, spec: SourceSpec, adapter: SourceAdapter) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bounded source preview, ingest, or explicit paid analysis")
-    parser.add_argument("--source", choices=sorted(SOURCES), required=True)
+    parser.add_argument("--source", choices=sorted(SOURCE_REGISTRY), required=True)
     parser.add_argument("--mode", choices=("preview", "ingest", "ingest-analyze"), default="preview")
     parser.add_argument("--max-items", type=int, default=2)
     parser.add_argument("--max-model-calls", type=int, default=2)
@@ -279,7 +298,7 @@ def main() -> None:
     if args.mode == "ingest-analyze" and (not args.allow_paid_model or
                                           not 1 <= args.max_model_calls <= 5):
         parser.error("ingest-analyze requires --allow-paid-model and 1-5 max-model-calls")
-    spec = SOURCES[args.source]
+    spec = SOURCE_REGISTRY[args.source]
     with httpx.Client(timeout=httpx.Timeout(35, connect=10), follow_redirects=False,
                       headers={"User-Agent": USER_AGENT}) as client:
         analyzer = None

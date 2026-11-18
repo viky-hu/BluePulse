@@ -33,6 +33,7 @@ class _Links(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.href: str | None = None
         self.words: list[str] = []
+        self.label = ""
         self.latest = False
         self.stack: list[tuple[str, set[str]]] = []
         self.items: list[tuple[str, str, bool]] = []
@@ -42,6 +43,7 @@ class _Links(HTMLParser):
         if tag == "a":
             self.href = values.get("href")
             self.words = []
+            self.label = re.sub(r"^(?:View |Read more about )", "", values.get("aria-label") or "", flags=re.I)
             self.latest = any("latest-articles__listing" in classes for _, classes in self.stack)
         if tag not in VOID:
             self.stack.append((tag, set((values.get("class") or "").split())))
@@ -52,7 +54,9 @@ class _Links(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == "a" and self.href:
-            self.items.append((self.href, " ".join("".join(self.words).split()), self.latest))
+            title = " ".join("".join(self.words).split())
+            self.items.append((self.href, self.label if not title or title.casefold() == "read story" else title,
+                               self.latest))
             self.href = None
         for index in range(len(self.stack) - 1, -1, -1):
             if self.stack[index][0] == tag:
@@ -129,7 +133,7 @@ class _Article(HTMLParser):
 
 
 class SpfPoliceLifeAdapter:
-    listing_entries = {"default": ARCHIVE}
+    listing_entries = {"default": LISTING}
 
     def iter_entry_pages(self, entry, *, start=0):
         if entry != "default" or start:
@@ -145,10 +149,13 @@ class SpfPoliceLifeAdapter:
         self.item_diagnostics: list[dict] = []
 
     def list_candidates(self, *, first_import: bool = False) -> list[Candidate]:
+        self.reader.refresh()
+        return self._public_listing()
+
+    def _public_listing(self) -> list[Candidate]:
         self.diagnostics = {"listing_links": 0, "topic_matches": 0, "detail_attempts": 0,
                             "detail_full_text": 0, "detail_failed": 0}
         self.item_diagnostics = []
-        self.reader.refresh()
         links = _Links()
         links.feed(self.reader.get(LISTING, "text/html").decode("utf-8-sig", "replace"))
         selected: dict[str, tuple[str, bool, int]] = {}
@@ -170,6 +177,12 @@ class SpfPoliceLifeAdapter:
 
     def iter_listing_pages(self, *, start=0):
         self.reader.refresh()
+        if not self.reader.prepare().can_fetch(USER_AGENT, ARCHIVE):
+            candidates = self._public_listing()
+            # The public landing page is a sample, and dates must come from detail pages.
+            self.listing_page_evidence = listing_evidence((None for _ in candidates), terminal="truncated")
+            yield candidates, None
+            return
         try:
             data = json.loads(self.reader.post_json(ARCHIVE, {}))
             entries = data["items"]

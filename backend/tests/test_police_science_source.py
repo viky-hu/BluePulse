@@ -39,6 +39,30 @@ def test_sitemap_uses_only_same_host_news_article_paths():
     assert news_urls_from_sitemap(xml) == ["https://science.police.uk/news-and-events/news/ai-pilot/"]
 
 
+def test_worker_reads_dated_cards_and_follows_official_news_pagination():
+    first = "/news-and-events/news/"
+    requests = []
+
+    def handler(request):
+        path = request.url.path
+        requests.append(path)
+        if path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        assert path in (first, first + "page2")
+        day = 5 if path == first else 4
+        card = f'<a class="card card_link" href="{first}news-{day}/"><div class="card_date">{day} November 2026</div><div class="card_title">Field trial {day}</div></a>'
+        next_link = f"<li class='MarkupPagerNavNext'><a href='{first}page2'>Next</a></li>"
+        return httpx.Response(200, text=card + (next_link if path == first else ""))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = PoliceScienceAdapter(BoundedHTTP(client, allowed_hosts={HOST}, delay_seconds=0),
+                                       max_items=2, sleeper=lambda _: None)
+        [(first_page, following), (second_page, last)] = list(adapter.iter_entry_pages("default"))
+    assert requests == ["/robots.txt", first, first + "page2"]
+    assert [item.published_date for item in [*first_page, *second_page]] == [date(2026, 11, 5), date(2026, 11, 4)]
+    assert following == 1 and last is None and adapter.listing_page_evidence["terminal"] == "exhausted"
+
+
 def test_date_field_does_not_revise_existing_sources_without_date_precision():
     candidate = Candidate(url="https://example.test/story", title="Old source", body="Article body")
     old_payload = ["Old source", "Article body", "", None]

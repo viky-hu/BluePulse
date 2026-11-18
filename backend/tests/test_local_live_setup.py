@@ -51,7 +51,9 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
         assert session.get(Material, blocked_id).public and not session.get(Material, blocked_id).featured_candidate
         assert session.get(Material, history_id).public and not session.get(Material, withdrawn_id).public
         jobs = list(session.scalars(select(WorkItem)))
-        assert [(job.kind, job.payload["material_id"]) for job in jobs] == [("group", ready_id)]
+        assert {(job.kind, job.payload["material_id"]) for job in jobs} == {
+            ("group", ready_id), ("translate", ready_id), ("translate", blocked_id), ("translate", history_id),
+        }
         assert session.scalar(select(func.count()).select_from(PaidAttempt)) == 0
         source.excerpt_allowed = False
         source.selection_threshold = 85
@@ -61,11 +63,11 @@ def test_local_live_bootstrap_reprojects_saved_results_once(tmp_path, monkeypatc
     with Session(engine) as session:
         source = session.get(Source, source_id)
         assert not source.excerpt_allowed and source.selection_threshold == 85
-        assert session.scalar(select(func.count()).select_from(WorkItem)) == 1
+        assert session.scalar(select(func.count()).select_from(WorkItem)) == 4
         assert session.scalar(select(func.count()).select_from(AdminAudit).where(AdminAudit.action == "source.bootstrap")) == 2
 
 
-def test_existing_local_database_restores_full_text_and_resumes_selected_translation(tmp_path, monkeypatch):
+def test_existing_local_database_restores_full_text_and_resumes_public_translation(tmp_path, monkeypatch):
     monkeypatch.setenv("BLUEPULSE_DATABASE_URL", f"sqlite:///{(tmp_path / 'existing.db').as_posix()}")
     cli.initialize()
     engine = make_engine()
@@ -114,7 +116,7 @@ def test_existing_local_database_restores_full_text_and_resumes_selected_transla
                 for job in session.scalars(select(WorkItem).where(WorkItem.kind == "translate"))}
         assert jobs == {"skipped": ("pending", None), "missing": ("pending", None),
                         "role_restored": ("pending", None), "visibility_restored": ("pending", None),
-                        "failed": ("failed", "receipt_unknown")}
+                        "unselected": ("pending", None), "failed": ("failed", "receipt_unknown")}
         audit = session.scalar(select(AdminAudit).where(AdminAudit.subject == "local-live-full-text-v2"))
         assert audit.changes["govuk"] == {"before": False, "after": True}
         assert not {"npcc", "europol-news"} & audit.changes.keys()

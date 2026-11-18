@@ -85,7 +85,7 @@ def _initialize_full_text(session: Session, sources, changed_by_admin) -> None:
     now = now_utc()
     for item in session.scalars(select(Material).where(
         Material.source_id.in_(source_ids),
-        Material.selected_at.is_not(None),
+        Material.public.is_(True),
         Material.withdrawn.is_(False),
     )):
         if translation_needed(item, at=now):

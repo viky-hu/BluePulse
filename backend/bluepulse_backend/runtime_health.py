@@ -98,6 +98,8 @@ def _safe_worker_configuration(marker):
         return None
     return {'collection': marker['collection'],
             'model_budget': {key: budget[key] for key in ('minute', 'hour', 'day')} if budget else None,
+            **({'translation_enabled': marker['translation_enabled']}
+               if type(marker.get('translation_enabled')) is bool else {}),
             **_safe_identities(marker, WORKER_IDENTITY_FIELDS)}
 
 
@@ -297,6 +299,8 @@ def database_snapshot(path, now):
                     value = row[key]
                     if key.endswith('_at') or key == 'visible_after':
                         value = _time(value)
+                    elif key in ('editorial_data', 'topics') and isinstance(value, str):
+                        value = json.loads(value)
                     setattr(item, key, value)
                 source_row = db.execute('SELECT * FROM sources WHERE id=?', (item.source_id,)).fetchone()
                 if source_row is None:
@@ -406,6 +410,8 @@ def print_human(report):
     print(f"本次请求配置：采集={'启用' if requested['collection'] else '暂停'}；模型={'启用' if requested['model_budget'] else '暂停'}")
     print(f"运行中 Worker：采集={report['collection']}；模型={report['model_calls']}（未知时不推断）")
     actual = report.get('actual_worker_configuration') or {}
+    if 'translation_enabled' in actual:
+        print(f"全文翻译：{'启用' if actual['translation_enabled'] and actual['model_budget'] else '暂停'}")
     for key, title in (('collection_rule_version', '采集规则版本'),
                        ('collection_entry_fingerprint', '入口配置指纹'), ('database_fingerprint', '目标库指纹')):
         print(f"{title}：期望={requested.get(key) or '未知'}；运行中={actual.get(key) or '未知'}")

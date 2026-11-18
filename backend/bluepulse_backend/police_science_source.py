@@ -16,13 +16,17 @@ from .ccgp_source import USER_AGENT
 from .live_sources import BoundedHTTP, SourceFetchError, listing_evidence
 from .pipeline import Candidate
 from .source_images import ArticleImages
+from .source_listing import linked_pages
 
 
 HOST = "science.police.uk"
 ROOT = f"https://{HOST}"
 ROBOTS = ROOT + "/robots.txt"
 SITEMAP = ROOT + "/sitemap.xml"
+LISTING = ROOT + "/news-and-events/news/"
 NEWS_PATH = re.compile(r"/news-and-events/news/[a-z0-9-]+/")
+PAGINATION_PATH = re.compile(r"/news-and-events/news/page(?:[2-9]|[1-9][0-9]+)/?")
+NEXT_LINK = re.compile(r"""<li\b[^>]*class=['"][^'"]*\bMarkupPagerNavNext\b[^'"]*['"][^>]*>\s*<a\b[^>]*href=['"]([^'"]+)""", re.I)
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "wbr"}
 
 
@@ -44,6 +48,58 @@ def news_urls_from_sitemap(raw: bytes) -> list[str]:
         if url and _news_url(url):
             urls.append(url)
     return list(dict.fromkeys(urls))
+
+
+class _NewsCards(HTMLParser):
+    def __init__(self, page_url):
+        super().__init__(convert_charrefs=True)
+        self.page_url = page_url
+        self.url = None
+        self.field = None
+        self.text = {}
+        self.cards = {}
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        classes = (values.get("class") or "").split()
+        if tag == "a" and "card_link" in classes:
+            url = urljoin(self.page_url, values.get("href") or "")
+            if _news_url(url):
+                self.url, self.text = url, {}
+        if self.url and tag == "div":
+            field = next((name for name in ("card_date", "card_title") if name in classes), None)
+            if field:
+                self.field = field
+                self.text[field] = []
+
+    def handle_data(self, data):
+        if self.field:
+            self.text[self.field].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "div":
+            self.field = None
+        if tag != "a" or not self.url:
+            return
+        title = " ".join("".join(self.text.get("card_title", ())).split())
+        raw_date = " ".join("".join(self.text.get("card_date", ())).split())
+        try:
+            published = datetime.strptime(raw_date, "%d %B %Y").date()
+        except ValueError:
+            published = None
+        if title:
+            self.cards[self.url] = Candidate(self.url, title[:500], language="en", published_date=published)
+        self.url = self.field = None
+
+
+def news_cards(html, page_url):
+    if "wsidchk" in html and "webdriver" in html:
+        raise SourceFetchError("source_access_challenge")
+    parser = _NewsCards(page_url)
+    parser.feed(html)
+    if not parser.cards:
+        raise SourceFetchError("listing_records_missing")
+    return list(parser.cards.values())
 
 
 @dataclass(frozen=True)
@@ -114,14 +170,30 @@ def parse_news_html(html: str, url: str = ROOT) -> PoliceScienceArticle:
 
 
 class PoliceScienceAdapter:
-    listing_entries = {"default": SITEMAP}
+    listing_entries = {"default": LISTING}
 
     def iter_entry_pages(self, entry, *, start=0):
-        if entry != "default" or start:
+        if entry != "default" or start < 0:
             raise SourceFetchError("invalid_listing_offset")
-        items = self.list_candidates()
-        self.listing_page_evidence = listing_evidence((None for _ in items), terminal="truncated")
-        yield items, None
+        self._reset_diagnostics()
+        self._policy = None
+        yielded = False
+        try:
+            for items, following in linked_pages(
+                    LISTING, lambda url: self._fetch(url).decode("utf-8-sig", "replace"),
+                    news_cards, lambda parts: not parts.query and bool(PAGINATION_PATH.fullmatch(parts.path)),
+                    start=start, extra_links=NEXT_LINK.findall):
+                self.listing_page_evidence = listing_evidence(
+                    (item.published_date for item in items), ordered=True,
+                    terminal="exhausted" if following is None else None)
+                yielded = True
+                yield items, following
+        except SourceFetchError as exc:
+            if start or yielded or exc.code not in {"source_access_challenge", "listing_records_missing"}:
+                raise
+            items = self.list_candidates()
+            self.listing_page_evidence = listing_evidence((None for _ in items), terminal="truncated")
+            yield items, None
 
     def __init__(self, http: BoundedHTTP, *, max_items: int = 2, sleeper=time.sleep):
         if not 1 <= max_items <= 5:

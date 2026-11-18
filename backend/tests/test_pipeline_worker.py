@@ -42,7 +42,7 @@ def test_exhausted_bounded_batch_leaves_article_available_to_normal_worker(tmp_p
         assert [job.payload["run_key"] for job in jobs] == ["bounded", None]
 
 
-@pytest.mark.parametrize("decision", ["unknown", "unsupported", "potential-low", "direct-high"])
+@pytest.mark.parametrize("decision", ["unknown", "unsupported", "potential-low", "potential-excerpt", "direct-high"])
 def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_path, decision):
     from bluepulse_backend.admin_operations import admin_rerun
     from bluepulse_backend.api import create_app
@@ -72,10 +72,10 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
                     answer = {"label": "UNKNOWN", "reason": "材料不足"}
                 elif decision == "unsupported":
                     answer = {"label": "PASS", "reason": "采购方为警队"}
-                elif decision == "potential-low":
+                elif decision in ("potential-low", "potential-excerpt"):
                     answer["relevance"] = "potential"
             elif "五轴" in prompt:
-                grade = 3 if decision == "potential-low" else 8
+                grade = 3 if decision.startswith("potential-") else 8
                 answer = {"content_type": "industry_event", **dict.fromkeys(("sig", "nov", "cred", "reson", "act"), grade)}
             elif "scope" in prompt:
                 answer = {"scope": "single", "category": "practice", "tags": ["radio"],
@@ -97,15 +97,24 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
 
     with Session(engine) as session:
         source = ensure_source(session, SOURCES["nist-public-safety"])
-        source.excerpt_allowed = source.full_text_allowed = True
+        source.excerpt_allowed = True
+        source.full_text_allowed = decision != "potential-excerpt"
         source.selection_threshold = 60
         session.commit()
     worker = Worker(engine, client, presets={"default": credentials}, budget=Budget(10, 30, 30),
-                    collect_enabled=True, slugs=["nist-public-safety"], clock=lambda: when)
+                    collect_enabled=True, slugs=["nist-public-safety"], clock=lambda: when,
+                    translation_enabled=decision != "potential-low")
     worker.tick()
     for _ in range(8):
         if not worker.run_one():
             break
+    if decision == "potential-low":
+        assert len(requests) == 5 and not worker.run_one(kinds={"translate"})
+        with Session(engine) as session:
+            queued = session.scalar(select(WorkItem).where(WorkItem.kind == "translate"))
+            assert queued.status == "pending" and queued.attempts == 0
+        worker.translation_enabled = True
+        assert worker.run_one(kinds={"translate"})
     if decision == "unknown":
         from bluepulse_backend.relevance_recheck import batch
 
@@ -124,12 +133,23 @@ def test_worker_collects_analyzes_groups_and_translates_through_receipts(tmp_pat
     with Session(engine) as session:
         article = session.scalar(select(Material))
         if decision != "direct-high":
-            expected = decision == "potential-low"
+            expected = decision.startswith("potential-")
+            translated = decision == "potential-low"
             assert article.public is expected
             assert not selected(article, at=when)
-            assert len(requests) == (5 if expected else 1)
+            assert len(requests) == (6 if translated else 5 if expected else 1)
             with TestClient(create_app(str(engine.url))) as client:
-                assert client.get(f"/api/v1/articles/{article.id}").status_code == (200 if expected else 404)
+                detail = client.get(f"/api/v1/articles/{article.id}")
+                assert detail.status_code == (200 if expected else 404)
+                if expected:
+                    reader = detail.json()["reader"]
+                    assert reader["hasTranslation"] is translated
+                    if translated:
+                        assert reader["bodyLanguage"] == "zh" and reader["body"]["complete"]
+                        original = client.get(f"/api/v1/articles/{article.id}?body_language=original").json()["reader"]
+                        assert original["bodyLanguage"] == "original"
+                    else:
+                        assert reader["body"] is None
                 items = client.get("/api/v1/articles?period=all").json()["items"]
                 assert [item["id"] for item in items] == ([article.id] if expected else [])
                 assert client.get("/api/v1/home/featured").json()["items"] == []

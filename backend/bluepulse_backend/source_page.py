@@ -9,10 +9,11 @@ from .live_sources import SourceFetchError
 
 
 class SourcePageReader:
-    def __init__(self, http, listing, sleeper, *, allow_missing_robots=False,
+    def __init__(self, http, listing, sleeper, *, allow_missing_robots=False, missing_robots_redirect=None,
                  excessive_delay="robots_disallowed_or_delayed", denied_listing="robots_disallowed_or_delayed"):
         self.http, self.listing, self.sleeper = http, listing, sleeper
         self.allow_missing_robots = allow_missing_robots
+        self.missing_robots_redirect = missing_robots_redirect
         self.excessive_delay = excessive_delay
         self.denied_listing = denied_listing
         self.robots_missing = False
@@ -29,7 +30,11 @@ class SourcePageReader:
             try:
                 robots = self.http.get(f"https://{host}/robots.txt", accept="text/plain")
             except SourceFetchError as exc:
-                if not self.allow_missing_robots or exc.code != "http_404":
+                missing = exc.code == "http_404" or (
+                    exc.code == "http_302" and self.missing_robots_redirect is not None
+                    and exc.redirect_location == self.missing_robots_redirect
+                )
+                if not self.allow_missing_robots or not missing:
                     raise
                 self.robots_missing = True
                 robots = b""

@@ -78,8 +78,9 @@ def selected(material: Material, *, at=None) -> bool:
 
 def translation_needed(material: Material, *, at=None, replace_current: bool = False) -> bool:
     return bool(material.source.full_text_allowed and material.collection_state != "pending" and
+                material.editorial_revision == material.revision and
                 not material.language.lower().startswith("zh") and
-                (replace_current or material.translation_revision != material.revision) and selected(material, at=at))
+                (replace_current or material.translation_revision != material.revision) and visible(material, at=at))
 
 
 def project_visibility(material: Material, now=None) -> bool:

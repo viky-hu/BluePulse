@@ -40,7 +40,7 @@ uv pip install --python .venv/Scripts/python.exe -e ".[test]"
 
 一键脚本对默认库和 `BLUEPULSE_DATABASE_URL` 指定的库均运行 `initialize --local-live`。首次摘要策略为 15 个内置来源开启摘要和原文链接，并按 AIHOT 分级为未设置的门槛填入 T1＝60、T1.5＝65、T2＝76。全文策略单独按版本执行，为已确认的 15 源开启站内全文，已执行摘要策略的旧库也会补齐。数据库审计记录每个策略和变更。管理员明确设置和撤回继续生效，媒体与全文再分发仍由各自开关控制。已有公开稿件且精选为空时，启动后会打开「全部动态」。
 
-英文公开稿提供中文标题、摘要和可公开的原文。仅已确认精选且来源允许全文的外文稿进入后台全文翻译，译文与当前正文修订绑定。译文未完成时原文可读。超出 6 万字符的译文标记为不完整，阅读页可切换到原文。既有数据库升级前，可运行 `python -m bluepulse_backend.cli backup` 备份。
+外文公开稿提供中文标题、摘要和可公开的原文。来源允许站内全文时，已公开的外文稿进入后台中文全文翻译，包括未进入精选的稿件。Worker 会为已有公开稿补排任务，译文与当前正文修订绑定。文章公开后即可阅读，译文就绪前显示原文，就绪后详情默认显示中文，可切回原文。超过 6 万字符的译文标记为不完整。既有数据库升级前，可运行 `python -m bluepulse_backend.cli backup` 备份。
 
 AI 导读采用 AIHOT 的答案前置规则，只写当前材料支持的新闻事实。独立推荐理由只在符合公开条件的精选代表稿展示。历史导读由维护命令显式更新，详见[文案与回填记录](../docs/ai-editorial-copy-2026-11-14.md)。
 
@@ -54,6 +54,7 @@ AI 导读采用 AIHOT 的答案前置规则，只写当前材料支持的新闻�
 | --- | --- |
 | `BLUEPULSE_COLLECT_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实采集 |
 | `BLUEPULSE_MODEL_CALLS_ENABLED` | 一键启动默认 `1`，设为 `0` 可暂停真实模型请求 |
+| `BLUEPULSE_TRANSLATION_ENABLED` | 常驻 Worker 默认 `1`，以 `0` 启动可暂停后台全文翻译。译文及队列保留，采集和其他研判继续。 |
 | `BLUEPULSE_MODEL_BUDGET_MINUTE`、`_HOUR`、`_DAY` | 全名使用 `BLUEPULSE_MODEL_BUDGET_` 前缀。分别覆盖每分钟、小时和滚动 24 小时的正整数请求上限 |
 | `BLUEPULSE_LOCAL_WEB_PORT`、`BLUEPULSE_LOCAL_API_PORT` | 一键脚本默认使用本机 `3000` 和 `8000`。脚本要求站点和 API 地址匹配这两个回环端口 |
 | `BLUEPULSE_ADMIN_PASSWORD`、`BLUEPULSE_ADMIN_SESSION_SECRET` | 密码至少 12 字符，独立会话密钥至少 32 字符。配置后可进入 `/admin` |

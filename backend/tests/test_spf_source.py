@@ -72,3 +72,22 @@ def test_robots_disallow_stops_before_listing():
         else:
             assert False, "robots disallow must stop collection"
     assert requested == ["/robots.txt"]
+
+
+def test_worker_uses_public_listing_when_archive_is_disallowed():
+    requested = []
+
+    def handler(request):
+        requested.append((request.method, request.url.path))
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow: /api/")
+        assert str(request.url) == LISTING and request.method == "GET"
+        return httpx.Response(200, text=f'<a href="{NEW}" aria-label="View Digital police story"><img></a>')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = SpfPoliceLifeAdapter(BoundedHTTP(client, allowed_hosts={HOST}, delay_seconds=0),
+                                       max_items=2, sleeper=lambda _: None)
+        [(rows, next_page)] = list(adapter.iter_entry_pages("default"))
+    assert requested == [("GET", "/robots.txt"), ("GET", "/Media-Hub/Police-Life")]
+    assert [(row.url, row.title, row.published_date) for row in rows] == [(NEW, "Digital police story", None)]
+    assert next_page is None and adapter.listing_page_evidence["terminal"] == "truncated"

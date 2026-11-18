@@ -25,11 +25,13 @@ from .pipeline import Candidate, canonical_url
 
 
 class SourceFetchError(Exception):
-    def __init__(self, code: str, *, retry_after_seconds: int | None = None, release_at: datetime | None = None):
+    def __init__(self, code: str, *, retry_after_seconds: int | None = None,
+                 release_at: datetime | None = None, redirect_location: str | None = None):
         super().__init__(code)
         self.code = code
         self.retry_after_seconds = retry_after_seconds
         self.release_at = release_at
+        self.redirect_location = redirect_location
 
 
 class _Text(HTMLParser):
@@ -216,7 +218,8 @@ class BoundedHTTP:
                 if response.status_code != 200:
                     delay = (_retry_after(response.headers.get("retry-after"))
                              if response.status_code in {429, 503} else None)
-                    raise SourceFetchError(f"http_{response.status_code}", retry_after_seconds=delay)
+                    raise SourceFetchError(f"http_{response.status_code}", retry_after_seconds=delay,
+                                           redirect_location=response.headers.get("location") if response.is_redirect else None)
                 data = bytearray()
                 for chunk in response.iter_bytes():
                     data.extend(chunk)
